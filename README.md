@@ -1,133 +1,58 @@
-<h1 align="center"/>Marzneshin</h1>
+# ENB — Easy Network Builder
 
-<p align="center">
-    A Scalable and Comprehensive Proxy Engine management panel.
-</p>
+> 本 README 暂作开发记忆文档，记录项目方向与基座变更；不是安装或使用说明。
 
-<br/>
-<p align="center">
-    <a href="https://github.com/marzneshin/marzneshin/actions/workflows/dashboard-ci.yml">
-        <img src="https://github.com/marzneshin/marzneshin/actions/workflows/dashboard-ci.yml/badge.svg" />
-    </a>
-    <a href="https://github.com/marzneshin/marzneshin/actions/workflows/package.yml" target="_blank">
-        <img src="https://github.com/marzneshin/marzneshin/actions/workflows/package.yml/badge.svg" />
-    </a>
-    <a href="https://hub.docker.com/r/dawsh/marzneshin" target="_blank">
-        <img src="https://img.shields.io/docker/pulls/dawsh/marzneshin?style=flat-square&logo=docker" />
-    </a>
-    <br>
-    <a href="#">
-        <img src="https://img.shields.io/github/license/marzneshin/marzneshin?style=flat-square" />
-    </a>
-    <a href="https://t.me/marzneshins" target="_blank">
-        <img src="https://img.shields.io/badge/telegram-group-blue?style=flat-square&logo=telegram" />
-    </a>
-    <a href="#">
-        <img src="https://img.shields.io/badge/twitter-commiunity-blue?style=flat-square&logo=twitter" />
-    </a>
-    <a href="#">
-        <img src="https://img.shields.io/github/stars/marzneshin/marzneshin?style=social" />
-    </a>
-</p>
+## 当前状态
 
-<p align="center">
-  <a href="https://github.com/marzneshin/marzneshin" target="_blank" rel="noopener noreferrer" >
-    <img src="https://github.com/marzneshin/marzneshin/raw/master/docs/assets/Desktop-full.png" alt="screenshots" width="600" height="auto">
-  </a>
-</p>
+2026-11-26：停止沿用原 ENB 代码，清空当前工作目录中的旧源码、配置、构建与部署文件，仅保留本 README 和 Git 元数据。历史提交保留，不改写历史。
 
-## Table of Contents
+随后按用户要求，将 Lite-Plus 服务端源码克隆到 `lite-plus/`，保留其独立 Git 历史与上游远端。尚未安装依赖、构建、部署或验证运行。
 
-- [Overview](#overview)
-  - [Docs](#docs)
-  - [Features](#features)
-  - [Supported Languages](#supported-languages)
-- [Marznode](#marznode)
-- [Donation](#donation)
-- [License](#license)
-- [Contributors](#contributors)
+- 克隆来源：`https://github.com/nuomiiiii/Lite-Plus.git`
+- 初始检出提交：`fb4fa1d2`（`main` 分支）。
+- 根目录 README 继续作为 ENB 开发记忆；`lite-plus/README.md` 保留上游说明。
+- 配套前端与 Agent 尚未克隆。
 
-# Overview
+## 开发路线变更
 
-Marzneshin is a censorship circumvention tool utilizing other censorship circumvention tools.
+### 原计划：基于 Marzneshin 二次开发
 
-Marzneshin controls the [Marznodes](https://github.com/marzneshin/marznode)
-connected to it; monitoring/disabling/enabling users on marznode instances while
-marznode manages and interacts with vpn backends (such as xray).
+ENB 曾计划以 [Marzneshin](https://github.com/marzneshin/marzneshin) 为基础，开发适合个人使用的多节点代理与有限运维管理面板。
 
-### Docs
+目标包括：
 
-Marzneshin documentation may be found [here](https://docs.marzneshin.org).
+- 单个面板管理多台服务器上的 Xray / sing-box 内核。
+- 根据面板设置生成代理配置、用户订阅，并部署到目标节点。
+- 统计和管理节点代理流量、用户流量及连接来源 IP。
+- 管理指定目录下的 Docker Compose 项目，以及指定进程或服务的状态。
 
-### Features
+期间也曾规划并推进独立 Go 后端重构。以上属于旧路线，不再作为后续开发的默认前提；过去的实现与测试记录不代表新基座已经具备或通过验证。
 
-- **Web UI** Dashboard
-- **Multi Nodes** support for traffic distribution, scalability, and fault tolerance
-- Supports protocols **Vmess**, **VLESS**, **Trojan** and **Shadowsocks** as provided by xray
-- **Multi-protocol** for a single user
-- Manage users' access to inbounds separately using **services**
-- **Multi-user** on a single inbound
-- Limit users' data and set exire dates
-- Reset traffic periodically (daily, weekly,...)
-- **Subscription link** compatible with **V2ray** (e.g. V2RayNG, OneClick, Nekoray, etc.), **Clash** and **ClashMeta**
-- Automated **Share link** and **QRcode** generator
-- System, nodes, traffic statistics, users monitoring
-- Integrated **Command Line Interface (CLI)**
-- [**Multi-admin** support](https://github.com/marzneshin/marzneshin/issues/73) (WIP)
-- Marzneshin is decoupled from VPN backends
-- Resilient and fault tolerant node management
+### 当前决定：改用 Lite-Plus 作为基座
 
-**Deployment and Developer Kit:**
+用户于 2026-11-26 明确决定：放弃当前 ENB 代码底座，转为基于 [Lite-Plus](https://github.com/nuomiiiii/Lite-Plus) 二次开发。
 
-- REST-full API
-- Kubernetes and multiple deployment strategy and options (WIP)
+原因：
 
-### Supported Languages
+- Lite-Plus 已覆盖较多 ENB 所需功能，包括多节点管理、入站与出站、路由、用户与套餐、订阅、监控及远程管理。
+- 服务端与 Agent 以 Go 为主，符合后续开发方向。
+- 复用现有功能，减少重复建设，把精力放在实际缺口与个性化需求上。
 
-- Russian (WIP)
-- English
-- Kurdish (Soranî, Kurmancî)
-- Persian
-- Arabic
-- Simplified Chinese
+ENB 的需求继续作为参考，但旧方案中的通信协议、内核托管方式和目录结构等架构选择不再自动沿用，应结合新基座重新评估。
 
-# marznode
+## 后续工作
 
-[marznode](https://github.com/marzneshin/marznode) is the backend needed to run proxy servers.
+1. 检查 Lite-Plus 服务端、配套前端、Agent 及依赖的源码、许可证和构建流程。
+2. 选择并固定配套版本，验证原版可构建、可部署。
+3. 验证添加节点、创建入站与用户、获取订阅、实际代理连接、流量统计、禁用及到期控制等核心闭环。
+4. 盘点 ENB 需求与上游能力的差异，再确定二次开发范围。
 
-# Donation
+旧代码清理与后续源码克隆均未部署服务、修改原仓库远端、提交或推送。
 
-If you found Marzneshin useful and would like to support its development, you can make a donation in one of the
-following crypto networks:
+## 上游与许可证注意事项
 
-- Bitcoin network: 13ZDhE5KHGsfjM4A22eLTUgW98WpXhQTuF
-- TRON network (TRC20): TYxFCiRqJ3SiV6rAQAmJUd3DgVmJvEAfz4
-- TON network: EQB_VYiU73U1_wk-01I_MLg9-hx953VOf9Y36t2Z04WyUapD
+- [Lite-Plus 服务端](https://github.com/nuomiiiii/Lite-Plus)：已核对根许可证为 MIT。
+- [Lite-Plus-agent](https://github.com/nuomiiiii/Lite-Plus-agent)：GitHub 标识为 GPL-3.0，仍需核对许可证正文与依赖。
+- [官方共用文档](https://nuomiiiii.github.io/Lite-document/plus/)：Plus 专属功能单独标记。
 
-Part of the donations would be tipped to contributors, the rest to collaborators.
-
-May developers be rich.
-
-# License
-
-Published under [AGPL-3.0](./LICENSE).
-
-# Contributors
-
-We ❤️‍🔥 contributors! If you'd like to contribute, please check out our [Contributing Guidelines](https://docs.marzneshin.org/docs/contribution-guideline) and
-feel free to submit a pull request or open an issue. We also welcome you to join
-our [Telegram](https://t.me/marzneshins) group for either support or contributing guidance.
-
-Check [open issues](https://github.com/marzneshin/marzneshin/issues) to help the progress of this project.
-
-<p align="center">
-Thanks to all contributors who have helped Marzneshin:
-</p>
-<p align="center">
-<a href="https://github.com/marzneshin/marzneshin/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=marzneshin/marzneshin" />
-</a>
-</p>
-<p align="center">
-  Made with <a rel="noopener noreferrer" target="_blank" href="https://contrib.rocks">contrib.rocks</a>
-</p>
+不能将整套新项目笼统标记为 MIT；前端、Agent、内核及其他依赖需分别核查并保留所需声明。旧 Marzneshin 代码受 AGPL-3.0 约束，清空工作目录不会改变历史代码的许可证，也不代表可以不经评估就将旧代码移植到新基座。
