@@ -90,7 +90,7 @@ func Proxies(nodes []sub.Node, extra []string) ([]substore.Proxy, []string) {
 			p["alpn"] = strings.Split(n.ALPN, ",")
 		}
 		if n.Security == "reality" {
-			p["reality-opts"] = map[string]any{"public-key": n.PublicKey, "short-id": n.ShortID}
+			p["reality-opts"] = map[string]any{"public-key": n.PublicKey, "short-id": n.ShortID, "support-x25519mlkem768": true}
 		}
 		switch n.Type {
 		case "ws":

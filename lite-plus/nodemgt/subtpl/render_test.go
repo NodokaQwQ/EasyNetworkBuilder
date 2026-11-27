@@ -81,6 +81,23 @@ func TestEveryBuiltinRendersCompleteConfig(t *testing.T) {
 	}
 }
 
+func TestMihomoRealityEnablesMLKEM(t *testing.T) {
+	doc, err := Render("mihomo", DefaultTemplate("clash"), exampleNodes(), nil)
+	require.NoError(t, err)
+	var root struct {
+		Proxies []map[string]any `yaml:"proxies"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(doc.Body), &root))
+	for _, proxy := range root.Proxies {
+		if proxy["name"] == "JP VLESS" {
+			opts := proxy["reality-opts"].(map[string]any)
+			require.Equal(t, true, opts["support-x25519mlkem768"])
+			return
+		}
+	}
+	t.Fatal("Reality node missing from Mihomo subscription")
+}
+
 func TestV3FilteringAndSanitizedEmbeddedNodes(t *testing.T) {
 	tpl := models.SubscriptionTemplate{Kind: "clash", Content: `dns:
   enable: true
