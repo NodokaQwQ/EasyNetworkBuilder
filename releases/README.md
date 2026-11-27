@@ -4,6 +4,8 @@ Head、Node 的 ENB 正式版本分别从 **0.0.1** 起步。旧 Lite/ENB 测试
 
 ## 文件与发现
 
+- 最新 Head 为 `0.0.2`，允许来源 `0.0.1`；更新与失败回滚已在隔离 Compose 验证，限制见 [0.0.2.md](0.0.2.md)。仅发布，不自动安装宿主机 updater 或更新线上。Node 仍为 `0.0.1`。
+
 - `versions.json`：下一次构建的 Head/Node 版本，各自递增。
 - `head-stable.json` / `node-stable.json`：已发布、已验证镜像目录，最新版本优先。
 - 默认 HTTPS：`https://raw.githubusercontent.com/NodokaQwQ/EasyNetworkBuilder/master/releases/<head|node>-stable.json`。

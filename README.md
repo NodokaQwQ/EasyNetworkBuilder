@@ -4,6 +4,12 @@
 
 ## 当前状态
 
+### Head 0.0.2（镜像已发布，未更新线上）
+
+- `nodokaqwq/enb:head-v0.0.2`，linux/amd64，源码 `13341e28aad45579b5401341830030b8080d5e2c`；digest `sha256:3d4b21e55ee89b033a20fc0e4ead43a68d1404745106be18256b003f31ee86d7`。Node 不变，未移动 latest。
+- 修复物理出口与 IPv6 隧道并存时部署失败，补充脱敏错误分类；HK/MY 旧 Node 防覆盖检查保留。三台机器只读网卡检查、Head 回归/相关竞态/vet、镜像冒烟及隔离更新器 0.0.1→0.0.2 成功/失败回滚通过。
+- Head 发布目录允许来源 `0.0.1`，仍需人工接入宿主机 updater；Tencent-LA 尚未安装该服务，本次未部署。验收范围和限制见 `releases/0.0.2.md`。
+
 ### ENB 0.0.1 镜像发布（未更新线上）
 
 - Head `nodokaqwq/enb:head-v0.0.1` 和 Node `nodokaqwq/enb:node-v0.0.1` 已推送 Docker Hub，仅 `linux/amd64`，源码 `ba91ca658d10ada186b516c90110d1cf3bbd4b8a`；未移动 latest。真实 digest 和发布说明见 `releases/`。
