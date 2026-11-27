@@ -34,6 +34,7 @@ test -f "$enb_target/compose.yaml"
 test ! -L "$enb_target/compose.yaml"
 test ! -L "$enb_target/.env"
 test ! -L "$enb_target/permissions.yaml"
+test ! -L "$enb_target/node-version.yaml"
 ` + managedProjectGuard + `
 command -v flock >/dev/null
 exec 9< "$enb_parent"
@@ -63,7 +64,12 @@ printf '%s' ` + quote(override) + ` > "$enb_override"
 docker compose -p enb-managed-node -f compose.yaml -f "$enb_override" config --quiet
 test "$(docker compose -p enb-managed-node -f compose.yaml -f "$enb_override" config --services)" = node
 mv -- "$enb_override" permissions.yaml
-docker compose -p enb-managed-node -f compose.yaml -f permissions.yaml up -d --no-deps --force-recreate node
-test -n "$(docker compose -p enb-managed-node -f compose.yaml -f permissions.yaml ps --status running -q node)"
+if [ -f node-version.yaml ]; then
+  printf 'services:\n  node:\n    image: %s\n' ` + quote(image) + ` > node-version.yaml.tmp
+  mv node-version.yaml.tmp node-version.yaml
+fi
+` + nodeUpdateCompose + `
+enb_compose up -d --no-deps --force-recreate node
+test -n "$(enb_compose ps --status running -q node)"
 `
 }

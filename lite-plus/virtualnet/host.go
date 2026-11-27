@@ -72,10 +72,12 @@ func HostOperation(ctx context.Context, profile Profile, policy PolicyInput, req
 			command = "set -eu\n" + loginDeploymentPaths + managedProjectGuard + `test -f "$enb_target/compose.yaml"
 test ! -L "$enb_target/compose.yaml"
 test ! -L "$enb_target/permissions.yaml"
+test ! -L "$enb_target/node-version.yaml"
 test ! -L "$enb_target/.env"
 cd "$enb_target"
 set -- -p enb-managed-node -f compose.yaml
 if [ -f permissions.yaml ]; then set -- "$@" -f permissions.yaml; fi
+if [ -f node-version.yaml ]; then set -- "$@" -f node-version.yaml; fi
 test "$(docker compose "$@" config --services)" = node
 docker compose "$@" `
 			sudo = profile.Sudo // Only the explicit, fixed managed Compose operation.

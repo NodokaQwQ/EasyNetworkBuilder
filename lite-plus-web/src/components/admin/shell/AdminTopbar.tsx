@@ -73,13 +73,13 @@ export default function AdminTopbar({
         ) : null}
         <Box sx={{ flex: 1 }} />
         <Stack direction="row" spacing={0.25} sx={{ alignItems: "center" }}>
-          {updateAvailable ? (
+          {(
             <Chip
               data-testid="admin-update-button"
               clickable
-              color="error"
+              color={updateAvailable ? "error" : "default"}
               size="small"
-              label={t("common.update_available")}
+              label={updateAvailable ? t("common.update_available") : "ENB 更新"}
               onClick={onOpenUpdate}
               sx={{
                 height: 32,
@@ -87,7 +87,7 @@ export default function AdminTopbar({
                 fontWeight: 700,
               }}
             />
-          ) : null}
+          )}
           <LanguageMenu />
           <ThemeMenu />
           <IconButton

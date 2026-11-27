@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useRPC2Call } from "@/contexts/RPC2Context";
 import { confirmAdminPasskey } from "@/utils/webauthn";
 import HostTerminal from "./HostTerminal";
+import NodeUpgrade from "./NodeUpgrade";
 import { createRandomId } from "@/utils/randomId";
 
 type Project = { name: string; directory: string };
@@ -16,11 +17,11 @@ type FileEntry = { name: string; size: number; directory: boolean; symlink: bool
 const nodeKeys = ["node_terminal", "node_files", "node_exec", "node_mcp", "node_firewall", "node_protection"] as const;
 const hostKeys = ["host_terminal", "host_files", "host_exec", "node_docker"] as const;
 
-export default function NodePermissions({ peer, onClose }: { peer: { id: string; hostname: string }; onClose: () => void }) {
+export default function NodePermissions({ peer, onClose, initialTab = 0 }: { peer: { id: string; hostname: string }; onClose: () => void; initialTab?: number }) {
   const { t } = useTranslation(); const { call } = useRPC2Call();
   const [policy, setPolicy] = useState<Policy>(); const [saved, setSaved] = useState<Policy>();
   const [reported, setReported] = useState(""); const [associated, setAssociated] = useState(false);
-  const [tab, setTab] = useState(0); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [message, setMessage] = useState("");
+  const [tab, setTab] = useState(initialTab); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [message, setMessage] = useState("");
   const [confirmed, setConfirmed] = useState(false); const [applyNode, setApplyNode] = useState(false);
   const [projects, setProjects] = useState(""); const [password, setPassword] = useState(""); const [otp, setOTP] = useState("");
   const grant = useRef(""); const pageID = useRef(createRandomId());
@@ -71,7 +72,7 @@ export default function NodePermissions({ peer, onClose }: { peer: { id: string;
         <TextField size="small" label={t("hostctl.otp")} autoComplete="one-time-code" value={otp} onChange={e => setOTP(e.target.value)} />
         <Stack direction="row" spacing={1}><Button disabled={busy} onClick={() => void action(() => authorize())}>{t("hostctl.authorize")}</Button><Button disabled={busy} onClick={() => void action(() => authorize(true))}>{t("hostctl.passkey")}</Button></Stack>
       </Stack> : <>
-        <Tabs value={tab} onChange={(_, v) => { setTab(v); setTicket(""); }} variant="scrollable" scrollButtons="auto">{["permissions", "terminal", "files", "commands", "docker"].map(k => <Tab key={k} label={t(`hostctl.${k}`)} />)}</Tabs>
+        <Tabs value={tab} onChange={(_, v) => { setTab(v); setTicket(""); }} variant="scrollable" scrollButtons="auto">{["permissions", "terminal", "files", "commands", "docker"].map(k => <Tab key={k} label={t(`hostctl.${k}`)} />)}<Tab label="Node 版本升级" /></Tabs>
         {policy && tab === 0 && <>
           <Typography variant="h6">{t("hostctl.node_features")}</Typography><Typography variant="body2">{t("hostctl.reported")}: {reported}</Typography>
           <Box>{nodeKeys.map(k => <FormControlLabel key={k} control={<Checkbox checked={!!policy[k]} disabled={busy || !associated} onChange={(_, v) => toggle(k, v)} />} label={t(`hostctl.${k}`)} />)}</Box>
@@ -111,6 +112,9 @@ export default function NodePermissions({ peer, onClose }: { peer: { id: string;
           <TextField size="small" select label={t("hostctl.project")} value={project} onChange={e => setProject(e.target.value)}><MenuItem value="enb-managed-node">enb-managed-node</MenuItem>{saved?.projects?.map(p => <MenuItem key={p.name} value={p.name}>{p.name} · {p.directory}</MenuItem>)}</TextField>
           <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>{["status", "logs", "start", "restart", "stop"].map(kind => <Button key={kind} color={kind === "stop" ? "warning" : "primary"} disabled={busy || (project === "enb-managed-node" ? !saved?.node_docker : !saved?.projects.some(p => p.name === project))} onClick={() => void action(async () => { const result = await host({ operation: "docker", project, action: kind }); setOutput(`${result.output}\nexit=${result.exit_code}`); })}>{t(`hostctl.${kind}`)}</Button>)}</Stack>
         </>}
+        {tab === 5 && <NodeUpgrade peerID={peer.id} enabled={!!saved?.node_docker} busy={busy} submit={async (version, image) => {
+          await action(async () => { const result = await authorizedCall("admin:virtualnet.node.update", { version, image, confirmed: true }); setMessage(`Node 更新任务已提交：${result.job.id}。任务在后台运行，请查看进度，不要重复提交。`); });
+        }} />}
         {output && (tab === 3 || tab === 4) && <Box component="pre" sx={{ maxHeight: 320, overflow: "auto", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{output}</Box>}
       </>}
     </Stack></DialogContent>

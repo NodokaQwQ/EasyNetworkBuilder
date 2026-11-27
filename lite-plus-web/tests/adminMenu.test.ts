@@ -55,8 +55,8 @@ test("keeps the admin navigation in the intended groups", () => {
   assert.deepEqual(
     menuConfig.menu.map((item) => item.path),
     [
-      "/admin/virtualnet",
       "/admin",
+      "/admin/virtualnet",
       "/admin/servers",
       "/admin/billing",
       "/admin/notification/center",

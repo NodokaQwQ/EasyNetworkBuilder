@@ -22,15 +22,10 @@ import {
   THEME_CONFIGURATION_REDIRECT,
 } from "@/utils/themeConfiguration";
 import {
-  browserSessionStorage,
-  fetchGithubReleases,
-  readGithubReleasesCache,
   scheduleIdleGithubReleasesLoad,
-  writeGithubReleasesCache,
 } from "@/utils/githubReleases";
 import {
   formatReleaseVersion,
-  isReleaseNewer,
   parseReleaseVersionHash,
   type GithubReleaseInfo,
   type SelfUpdateCapability,
@@ -67,6 +62,8 @@ export function useAdminShell() {
     null,
   );
   const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [releaseCheck, setReleaseCheck] = useState<{ checkedAt?: string; error?: string }>({});
+  const [checkGeneration, setCheckGeneration] = useState(0);
   const [releasesSince, setReleasesSince] = useState<GithubReleaseInfo[]>([]);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [extraMenuItems, setExtraMenuItems] = useState<MenuItem[]>([]);
@@ -81,9 +78,7 @@ export function useAdminShell() {
     ? "2.2.2"
     : (publicInfo as { version?: string } | undefined)?.version ||
       versionInfo?.version;
-  const currentReleaseURL = currentVersion
-    ? `https://github.com/nuomiiiii/Lite-Plus/releases/tag/${encodeURIComponent(currentVersion)}`
-    : undefined;
+  const currentReleaseURL = "https://github.com/NodokaQwQ/EasyNetworkBuilder";
 
   useEffect(() => {
     document.documentElement.dataset.reduceMotion = reduceMotion
@@ -252,7 +247,7 @@ export function useAdminShell() {
     if (previewUpdate) {
       return;
     }
-    if (versionInfo?.deployment !== "linux") {
+    if (versionInfo?.deployment !== "docker") {
       setSelfUpdate(null);
       return;
     }
@@ -268,45 +263,39 @@ export function useAdminShell() {
     return () => {
       ignore = true;
     };
-  }, [call, previewUpdate, versionInfo?.deployment]);
+  }, [call, previewUpdate, versionInfo?.deployment, updateDialogOpen]);
 
   useEffect(() => {
     if (previewUpdate) return;
     let ignore = false;
     const current = (publicInfo as { version?: string } | undefined)?.version ||
       versionInfo?.version;
-    const currentHash = versionInfo?.hash;
     if (!current) return;
-    const storage = browserSessionStorage();
+    let checking = false;
 
-    const applyReleases = (data: GithubReleaseInfo[]) => {
-      const valid = data
-        .filter((release) => !release.draft && !release.prerelease)
-        .filter((release) => isReleaseNewer(release, current, currentHash));
-      setReleasesSince(valid);
-      setLatestRelease(valid.length ? valid[0] : null);
-      setUpdateAvailable(valid.length > 0);
+    const load = async (force = false) => {
+      if (checking) return;
+      checking = true;
+      try {
+        const result = await call("admin:getENBReleases", { force }) as {
+          releases: { version: string; hash: string; image: string; notes: string; published_at: string }[];
+          checked_at: string; check_error?: string;
+        };
+        if (ignore) return;
+        setReleaseCheck({ checkedAt: result.checked_at, error: result.check_error });
+        if (result.check_error) return;
+        const releases: GithubReleaseInfo[] = result.releases.map(release => ({
+          tag_name: release.version, enb_hash: release.hash, image: release.image,
+          body: release.notes, published_at: release.published_at,
+          html_url: "https://hub.docker.com/r/nodokaqwq/enb/tags",
+        }));
+        setReleasesSince(releases); setLatestRelease(releases[0] ?? null); setUpdateAvailable(releases.length > 0);
+      } catch (error) {
+        if (!ignore) setReleaseCheck({ error: String(error) });
+      } finally { checking = false; }
     };
-
-    const cached = readGithubReleasesCache(storage);
-    if (cached) applyReleases(cached);
-
     const stop = scheduleIdleGithubReleasesLoad({
-      load: async () => {
-        try {
-          const data = await fetchGithubReleases();
-          if (ignore) return;
-          writeGithubReleasesCache(storage, data);
-          applyReleases(data);
-        } catch (error) {
-          console.warn("加载 GitHub 最新发布失败:", error);
-          if (!ignore && !cached) {
-            setLatestRelease(null);
-            setReleasesSince([]);
-            setUpdateAvailable(false);
-          }
-        }
-      },
+      load: () => load(checkGeneration > 0 || updateDialogOpen),
       timers: {
         requestIdleCallback: window.requestIdleCallback?.bind(window),
         cancelIdleCallback: window.cancelIdleCallback?.bind(window),
@@ -315,12 +304,14 @@ export function useAdminShell() {
         clearTimeout: (handle) => globalThis.clearTimeout(handle),
       },
     });
+    const timer = window.setInterval(() => void load(), 30 * 60_000 + Math.floor(Math.random() * 5 * 60_000));
 
     return () => {
       ignore = true;
       stop();
+      window.clearInterval(timer);
     };
-  }, [publicInfo, versionInfo]);
+  }, [call, previewUpdate, publicInfo, versionInfo, updateDialogOpen, checkGeneration]);
 
   const getAdminLinkTarget = (target: EventTarget | null) => {
     if (!(target instanceof Element)) return null;
@@ -398,7 +389,7 @@ export function useAdminShell() {
   };
 
   const waitForUpdatedService = useCallback(
-    async (targetVersion: string, targetHash: string) => {
+    async (targetVersion: string, targetHash: string, taskId?: string) => {
       const sleep = (ms: number) =>
         new Promise<void>((resolve) => {
           updateTimerRef.current = window.setTimeout(() => {
@@ -406,22 +397,22 @@ export function useAdminShell() {
             resolve();
           }, ms);
         });
-      const deadline = Date.now() + 150_000;
+      const deadline = Date.now() + 20 * 60_000;
       while (Date.now() < deadline) {
         if (unmountedRef.current) return;
         await sleep(2_000);
         if (unmountedRef.current) return;
         try {
-          const response = await fetch("/api/version", { cache: "no-store" });
+          const status = await callViaHTTP<unknown, SelfUpdateCapability>(
+            "admin:getSelfUpdateStatus", {}, { timeout: 5_000 },
+          );
           if (unmountedRef.current) return;
-          if (!response.ok) continue;
-          const body = await response.json();
-          if (unmountedRef.current) return;
-          const observed = body?.data ?? body;
+          setSelfUpdate(status);
           if (
-            observed?.version === targetVersion &&
-            String(observed?.hash || "").toLowerCase() ===
-              targetHash.toLowerCase()
+            status.last_result?.target_version === targetVersion &&
+            status.last_result?.target_hash === targetHash &&
+            (!taskId || status.last_result.id === taskId) &&
+            status.last_result.status === "succeeded"
           ) {
             toast.success(
               t("common.self_update_succeeded", "更新成功，正在刷新页面"),
@@ -432,14 +423,9 @@ export function useAdminShell() {
             }, 800);
             return;
           }
-          const status = await callViaHTTP<unknown, SelfUpdateCapability>(
-            "admin:getSelfUpdateStatus",
-            {},
-            { timeout: 5_000 },
-          );
-          if (unmountedRef.current) return;
           if (
             status.last_result?.target_version === targetVersion &&
+            (!taskId || status.last_result.id === taskId) &&
             ["rolled_back", "rollback_failed", "failed"].includes(
               status.last_result.status,
             )
@@ -477,10 +463,24 @@ export function useAdminShell() {
     [callViaHTTP, t],
   );
 
+  useEffect(() => {
+    const task = selfUpdate?.last_result;
+    if (previewUpdate || !task || task.status !== "running" || updateInFlight.current) return;
+    updateInFlight.current = true;
+    setUpdatePhase("restarting");
+    void waitForUpdatedService(task.target_version, task.target_hash, task.id).catch((error: unknown) => {
+      updateInFlight.current = false;
+      if (!unmountedRef.current) {
+        toast.error(error instanceof Error ? error.message : "ENB 更新状态确认失败");
+        setUpdatePhase("idle");
+      }
+    });
+  }, [previewUpdate, selfUpdate, waitForUpdatedService]);
+
   const startSelfUpdate = useCallback(async () => {
     if (!latestRelease || updateInFlight.current) return;
     const targetVersion = latestRelease.tag_name || latestRelease.name || "";
-    const targetHash = parseReleaseVersionHash(latestRelease.body);
+    const targetHash = latestRelease.enb_hash || parseReleaseVersionHash(latestRelease.body);
     if (!targetVersion || !targetHash) {
       toast.error(
         t(
@@ -493,15 +493,15 @@ export function useAdminShell() {
     updateInFlight.current = true;
     setUpdatePhase("preparing");
     try {
-      await callViaHTTP(
+      const result = await callViaHTTP<unknown, { id: string }>(
         "admin:startSelfUpdate",
         { version: targetVersion, version_hash: targetHash },
         { timeout: 360_000 },
       );
       if (unmountedRef.current) return;
       setUpdatePhase("restarting");
-      toast.info(t("common.self_update_restarting", "更新已校验，服务正在重启"));
-      await waitForUpdatedService(targetVersion, targetHash);
+      toast.info("ENB 更新任务已提交：先拉取镜像，再备份、重建和检查；请勿重复提交。");
+      await waitForUpdatedService(targetVersion, targetHash, result.id);
     } catch (error) {
       updateInFlight.current = false;
       if (unmountedRef.current) return;
@@ -527,6 +527,8 @@ export function useAdminShell() {
     selfUpdate,
     updatePhase,
     latestRelease,
+    releaseCheck,
+    checkReleases: () => setCheckGeneration(value => value + 1),
     updateAvailable,
     releasesSince,
     updateDialogOpen,

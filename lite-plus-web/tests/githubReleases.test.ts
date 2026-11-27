@@ -105,10 +105,11 @@ test("github release fetch waits for idle time after the first paint", async () 
   assert.equal(GITHUB_RELEASES_IDLE_DELAY_MS, 2500);
 });
 
-test("admin shell loads github releases through the idle helper", () => {
+test("ENB shell loads its approved backend channel through the idle helper", () => {
   const source = readFileSync("src/components/admin/shell/useAdminShell.ts", "utf8");
   assert.match(source, /scheduleIdleGithubReleasesLoad/);
-  assert.match(source, /readGithubReleasesCache/);
+  assert.match(source, /admin:getENBReleases/);
+  assert.doesNotMatch(source, /fetchGithubReleases|readGithubReleasesCache/);
   assert.doesNotMatch(source, /per_page=100/);
   const helper = readFileSync("src/utils/githubReleases.ts", "utf8");
   assert.doesNotMatch(helper, /cache:\s*"no-cache"/);

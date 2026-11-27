@@ -1,7 +1,7 @@
 FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.23 AS build
 ARG TARGETOS
 ARG TARGETARCH
-ARG ENB_VERSION=0.2.1-enb-permissions.1
+ARG ENB_VERSION=0.0.1
 WORKDIR /src
 ENV GODEBUG=http2client=0 CGO_ENABLED=0
 # Let the target build fetch only its dependencies. `go mod download` without
@@ -9,6 +9,9 @@ ENV GODEBUG=http2client=0 CGO_ENABLED=0
 COPY lite-plus-agent/ ./
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build GOOS=$TARGETOS GOARCH=$TARGETARCH go build -tags with_quic,with_utls -trimpath -ldflags="-s -w -X github.com/nuomiiiii/lite-agent/update.CurrentVersion=${ENB_VERSION}" -o /out/Lite-Plus-agent .
 FROM alpine:3.23
+ARG ENB_VERSION=0.0.1
+ARG ENB_REVISION=unknown
+LABEL org.opencontainers.image.version=$ENB_VERSION org.opencontainers.image.revision=$ENB_REVISION org.opencontainers.image.source="https://github.com/NodokaQwQ/EasyNetworkBuilder" io.enb.component="node"
 RUN apk add --no-cache ca-certificates tzdata && touch /.lite-plus-agent-container /.lite-agent-container /.komari-agent-container
 WORKDIR /app
 ENV GODEBUG=disablethp=1

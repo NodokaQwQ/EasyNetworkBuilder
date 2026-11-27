@@ -6,6 +6,8 @@ export interface GithubReleaseInfo {
   published_at?: string;
   draft?: boolean;
   prerelease?: boolean;
+  image?: string;
+  enb_hash?: string;
 }
 
 export interface VersionInfo {
@@ -21,6 +23,8 @@ export interface SelfUpdateCapability {
   supported: boolean;
   reason?: string;
   last_result?: {
+    id?: string;
+    stage?: string;
     status: string;
     target_version: string;
     target_hash: string;

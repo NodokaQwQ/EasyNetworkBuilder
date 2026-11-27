@@ -85,11 +85,17 @@ func publicGetPublicSettings(ctx context.Context, _ *rpc.JsonRpcRequest) (any, *
 	return p, nil
 }
 
-func publicGetVersion(_ context.Context, _ *rpc.JsonRpcRequest) (any, *rpc.JsonRpcError) {
+func publicGetVersion(ctx context.Context, _ *rpc.JsonRpcRequest) (any, *rpc.JsonRpcError) {
+	ready := false
+	if db := dbcore.GetDBInstance(); db != nil {
+		var one int
+		ready = db.WithContext(ctx).Raw("SELECT 1").Scan(&one).Error == nil && one == 1
+	}
 	return map[string]any{
-		"version":    utils.CurrentVersion,
-		"hash":       utils.VersionHash,
-		"deployment": selfupdate.DeploymentType(),
+		"enb_update_ready": ready && enbLocalDataSupported(),
+		"version":          utils.CurrentVersion,
+		"hash":             utils.VersionHash,
+		"deployment":       selfupdate.DeploymentType(),
 	}, nil
 }
 

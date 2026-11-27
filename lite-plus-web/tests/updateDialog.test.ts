@@ -71,7 +71,7 @@ test("the version link is shared by the desktop and mobile sidebar", () => {
   assert.match(source, /strokeWidth=\{1\.5\}/);
   assert.match(
     source,
-    /github\.com\/nuomiiiii\/Lite-Plus\/releases\/tag\/\$\{encodeURIComponent\(currentVersion\)\}/,
+    /const currentReleaseURL = "https:\/\/github\.com\/NodokaQwQ\/EasyNetworkBuilder"/,
   );
   assert.match(source, /target="_blank"/);
   assert.match(source, /rel="noopener noreferrer"/);
@@ -158,8 +158,8 @@ test("update chrome uses a red new-release chip instead of a download tray", () 
     "utf8",
   );
   assert.match(topbar, /<Chip/);
-  assert.match(topbar, /color="error"/);
-  assert.match(topbar, /label=\{t\("common\.update_available"\)\}/);
+  assert.match(topbar, /color=\{updateAvailable \? "error" : "default"\}/);
+  assert.match(topbar, /t\("common\.update_available"\)/);
   assert.doesNotMatch(topbar, /SystemUpdateAlt/);
   assert.doesNotMatch(topbar, /from "@mui\/icons-material\/Upgrade"/);
   assert.doesNotMatch(topbar, /from "@mui\/icons-material\/NewReleases"/);

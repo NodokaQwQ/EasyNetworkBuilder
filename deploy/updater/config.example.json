@@ -1,0 +1,15 @@
+{
+  "project_dir": "/opt/enb/head",
+  "project_name": "enb-head",
+  "compose_file": "/opt/enb/head/compose.yaml",
+  "service": "head",
+  "data_dir": "/opt/enb/head/data",
+  "state_dir": "/var/lib/enb-updater",
+  "socket": "/run/enb-updater/control.sock",
+  "socket_gid": 0,
+  "platform": "linux/amd64",
+  "health_url": "http://127.0.0.1:28777/api/version",
+  "health_timeout": 120,
+  "release_url": "https://raw.githubusercontent.com/NodokaQwQ/EasyNetworkBuilder/master/releases/head-stable.json",
+  "local_sqlite_layout_confirmed": false
+}

@@ -1,14 +1,14 @@
 {
   "menu": [
     {
-      "labelKey": "virtualnet.title",
-      "path": "/admin/virtualnet",
-      "icon": "Hub"
-    },
-    {
       "labelKey": "admin_dashboard.title",
       "path": "/admin",
       "icon": "LayoutDashboard"
+    },
+    {
+      "labelKey": "virtualnet.title",
+      "path": "/admin/virtualnet",
+      "icon": "Hub"
     },
     {
       "labelKey": "common.server",

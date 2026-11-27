@@ -198,6 +198,7 @@ const deploymentPaths = loginDeploymentPaths + `test ! -e "$enb_target"
 // working directory, is eligible for automatic replacement. Never use old YAML
 // to down a project: it can reference unrelated project names or external files.
 const managedProjectGuard = `
+test ! -e "$enb_target/.enb-update-active" || test "${enb_update_transaction:-}" = yes
 for enb_id in $(docker ps -aq --filter label=com.docker.compose.project); do
   enb_dir=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$enb_id")
   enb_project=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$enb_id")
@@ -456,6 +457,7 @@ test -f "$enb_target/compose.yaml"
 test ! -L "$enb_target/compose.yaml"
 test ! -L "$enb_target/.env"
 test ! -L "$enb_target/permissions.yaml"
+test ! -L "$enb_target/node-version.yaml"
 ` + managedProjectGuard + `
 command -v flock >/dev/null
 exec 9< "$enb_parent"
@@ -474,6 +476,7 @@ test "$(docker compose -p enb-managed-node -f compose.yaml config --services)" =
 docker compose -p enb-managed-node -f compose.yaml config --quiet
 set -- -p enb-managed-node -f compose.yaml
 if [ -f permissions.yaml ]; then set -- "$@" -f permissions.yaml; fi
+if [ -f node-version.yaml ]; then set -- "$@" -f node-version.yaml; fi
 docker compose "$@" config --quiet
 test "$(docker compose "$@" config --services)" = node
 docker compose "$@" pull node

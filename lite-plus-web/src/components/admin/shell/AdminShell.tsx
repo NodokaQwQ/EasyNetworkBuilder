@@ -399,6 +399,8 @@ export default function AdminShell({ content }: AdminShellProps) {
         selfUpdate={shell.selfUpdate}
         updatePhase={shell.updatePhase}
         onUpdate={() => void shell.startSelfUpdate()}
+        releaseCheck={shell.releaseCheck}
+        onCheck={shell.checkReleases}
       />
     </Box>
   );

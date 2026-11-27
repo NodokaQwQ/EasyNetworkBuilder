@@ -4,6 +4,28 @@
 
 ## 当前状态
 
+### Git 发布目录与 ENB 版本起点（源码，未发布）
+
+- Head/Node 新正式版本均从 `0.0.1` 开始，构建默认值及源码版本已同步；旧测试镜像版本/digest不改写。`releases/versions.json` 管理组件独立版本，`head-stable.json` / `node-stable.json` 维护已验证发布记录，目前为空，不冒充已发布0.0.1。
+- 默认读取本仓库master分支的HTTPS原始清单；Head/Node动态检查，Node不再需要随Head源码更新内置目标列表。显式来源版本白名单、最低Head版本、严格数字版本只增不降、固定平台/digest；检查失败展示错误，不宣称已是最新。
+- Head页面30～35分钟检查及手动刷新，Node页面使用后端30分钟缓存并可强制刷新。发布脚本将build/push/record分开，版本镜像带OCI元数据，登记前核对远端tag digest及人工验收声明；GitHub Actions仅验证清单，不自动发版或部署。具体流程见 `releases/README.md`。
+- 尚未Git提交/推送、构建推送0.0.1镜像或接入线上；远端raw清单在推送前不可用，已有旧Head不会自动获得新更新协议。供应链仍依赖受控Git/HTTPS，未实现清单签名。
+
+### ENB Node 独立升级入口（源码首版，未上线）
+
+- 虚拟内网受管设备新增“升级 Node”，进入二次认证后的独立版本页签；要求受管 Docker 权限、节点在线、显式断线/数据回滚确认。目标来自 Head 内置已审核 Node 发布目录，当前只列已发布 permissions.1 digest，不拉上游二进制或直接运行 mutable latest。
+- SSH 仅管理 `~/enb/node` 的单服务：先拉镜像，保留原 Compose/Token/环境/权限，停机备份 `nodemgt`，新增 image-only `node-version.yaml`；新 Agent 连接、目标版本/原权限、实际镜像通过后成功，否则尝试旧镜像和停机快照恢复，保留失败数据。后续恢复与受管 Docker 操作包含版本 override。
+- 不迁移旧 `~/enb-test` 或自定义部署，不承诺代理零停机或实际代理连通已验收；Head 中断的升级事务保留现场且阻止重试，需要人工检查，不自动恢复。详情见 `deploy/updater/NODE.md`。
+- 前端759测试/build/相关ESLint、virtualnet/jsonrpc/hostctl相关竞态及全仓vet通过，含模拟Docker脚本成功/失败/回滚用例；真实Docker/远程SSH到Agent完整升级闭环尚未验收。未构建/推送镜像、未更新线上Node或Head。
+
+### ENB Head Docker 更新器（源码首版，未发布/部署）
+
+- 新版管理页只读取 ENB 后端发布源，不再使用 Lite-Plus GitHub Releases 或上游二进制更新入口；常驻“ENB 更新”入口，展示升级能力、digest、任务阶段及中断/数据回滚风险确认。
+- 新增独立宿主机更新器与受限 Unix Socket：只允许固定 `docker.io/nodokaqwq/enb` digest、stable/架构/来源版本白名单，先 pull 后停止 Head，停机数据快照、Compose 仅重建 Head、就绪/版本/实际镜像检查，失败恢复旧镜像和快照。任务持久化、进程互斥，中断优先回滚，失败数据保留；不挂 Docker Socket 给 Head，不联动升级 Node。
+- 首版仅单实例、本地 SQLite 与 `/app/data` 单 bind 数据目录；root 受控 Compose 布局需人工接入，旧用户家目录部署不自动迁移。发布 feed 示例为空，尚未建立真实 ENB 稳定发布源、发布镜像或更新线上服务；不能认为当前页面已可线上升级。
+- 配置、systemd 服务、发布契约与恢复步骤见 `deploy/updater/README.md`。这是有短时中断的在线升级，不是零停机热更新。
+- 验证：更新器 17 项模拟测试、前端 Node22 下 756 测试/build/相关 ESLint、Head 相关竞态及全仓 vet 通过；全仓测试跳过 4 项外网 GeoIP 后通过。本机 Docker Socket 无直接权限，真实 Compose 升级及浏览器到宿主机闭环未验收。
+
 ### Node 独立权限与宿主机管理（2026-11-27，源码首版未上线）
 
 - 虚拟内网设备新增“权限与宿主机管理”弹窗，独立选择 Node 终端／文件／命令／MCP／防火墙／保护，以及宿主机 SSH 终端／SFTP／命令、受管 Node Docker 与显式目录白名单 Compose 操作。

@@ -1,6 +1,9 @@
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import { useState } from "react";
 import CircularProgress from "@mui/material/CircularProgress";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
@@ -22,7 +25,6 @@ import { GITHUB_ALERT_LABELS, remarkGithubAlerts } from "@/utils/githubMarkdown"
 import {
   formatReleaseVersion,
   formatVersion,
-  parseReleaseVersionHash,
   visibleReleaseBody,
   type GithubReleaseInfo,
   type SelfUpdateCapability,
@@ -216,6 +218,8 @@ type UpdateReleaseDialogProps = {
   selfUpdate: SelfUpdateCapability | null;
   updatePhase: UpdatePhase;
   onUpdate: () => void;
+  releaseCheck?: { checkedAt?: string; error?: string };
+  onCheck?: () => void;
 };
 
 export default function UpdateReleaseDialog({
@@ -229,18 +233,22 @@ export default function UpdateReleaseDialog({
   selfUpdate,
   updatePhase,
   onUpdate,
+  releaseCheck,
+  onCheck,
 }: UpdateReleaseDialogProps) {
   const { t } = useTranslation();
+  const [confirmedImage, setConfirmedImage] = useState<string | null>(null);
+  const confirmed = Boolean(latestRelease?.image && confirmedImage === latestRelease.image);
   const canSelfUpdate =
-    versionInfo?.deployment === "linux" &&
+    versionInfo?.deployment === "docker" &&
     Boolean(selfUpdate?.supported) &&
-    Boolean(parseReleaseVersionHash(latestRelease?.body));
+    Boolean(latestRelease?.image && latestRelease?.enb_hash);
 
   return (
     <Dialog
       data-testid="admin-update-dialog"
       open={open}
-      onClose={onClose}
+      onClose={() => { if (updatePhase === "idle") { setConfirmedImage(null); onClose(); } }}
       maxWidth={false}
       slotProps={{
         paper: {
@@ -261,7 +269,7 @@ export default function UpdateReleaseDialog({
       }}
     >
       <DialogTitle sx={{ fontWeight: 700, flexShrink: 0 }}>
-        {t("common.update_available")}
+        ENB 更新
       </DialogTitle>
       <DialogContent
         dividers
@@ -290,6 +298,18 @@ export default function UpdateReleaseDialog({
             }}
           />
         </Stack>
+        <Typography variant="body2" color="warning.main" sx={{ mb: 2 }}>
+          仅升级 Head，不升级 Node。Head 将短暂中断；失败时恢复旧镜像和停机数据快照，升级期间产生的数据可能丢失。这不是零停机热更新。
+        </Typography>
+        <Button onClick={onCheck} disabled={updatePhase !== "idle"}>立即检查更新</Button>
+        {releaseCheck?.checkedAt && <Typography variant="caption">上次检查：{new Date(releaseCheck.checkedAt).toLocaleString()}</Typography>}
+        {releaseCheck?.error && <Typography color="error">检查更新失败：{releaseCheck.error}（不能据此判断已是最新）</Typography>}
+        {latestRelease?.image ? <Typography variant="caption" sx={{ overflowWrap: "anywhere" }}>{latestRelease.image}</Typography> : null}
+        {selfUpdate?.last_result ? <Typography variant="body2" sx={{ mt: 1 }}>
+          更新任务：{selfUpdate.last_result.status} / {selfUpdate.last_result.stage} — {selfUpdate.last_result.message || selfUpdate.last_result.target_version}
+        </Typography> : null}
+        {!selfUpdate?.supported ? <Typography variant="body2" sx={{ mt: 1 }}>宿主机更新器未配置或当前数据布局不支持升级：{selfUpdate?.reason || "unavailable"}</Typography> : null}
+        {!releaseCheck?.error && releaseCheck?.checkedAt && !latestRelease ? <Typography variant="body2" sx={{ mt: 1 }}>当前没有已发布的兼容 ENB 更新。</Typography> : null}
         {releasesSince.map((release, index) => (
           <Box key={release.html_url} data-testid="admin-update-release">
             {index > 0 ? <Divider sx={{ my: 2.5 }} /> : null}
@@ -321,14 +341,15 @@ export default function UpdateReleaseDialog({
           bgcolor: "background.paper",
         }}
       >
-        <Button onClick={onClose} color="inherit">
+        {canSelfUpdate ? <FormControlLabel control={<Checkbox checked={confirmed} disabled={updatePhase !== "idle"} onChange={(event) => setConfirmedImage(event.target.checked ? latestRelease?.image ?? null : null)} />} label="我已确认中断和数据回滚风险" /> : null}
+        <Button onClick={() => { setConfirmedImage(null); onClose(); }} disabled={updatePhase !== "idle"} color="inherit">
           {t("cancel", "取消")}
         </Button>
         {canSelfUpdate ? (
           <Button
             variant="contained"
             onClick={onUpdate}
-            disabled={updatePhase !== "idle"}
+            disabled={!confirmed || updatePhase !== "idle"}
             startIcon={
               updatePhase === "idle" ? undefined : (
                 <CircularProgress size={16} color="inherit" />
@@ -354,7 +375,7 @@ export default function UpdateReleaseDialog({
             rel="noopener noreferrer"
             startIcon={<OpenInNew sx={{ fontSize: 16 }} />}
           >
-            GitHub
+            Docker Hub
           </Button>
         )}
       </DialogActions>

@@ -39,6 +39,7 @@ export default function VirtualNetwork() {
   const [settings, setSettings] = useState<DeploymentSettings>();
   const [settingsForm, setSettingsForm] = useState<DeploymentSettings | null>(null);
   const [permissionsPeer, setPermissionsPeer] = useState<Peer | null>(null);
+  const [permissionsTab, setPermissionsTab] = useState(0);
   const refresh = useCallback(async () => {
     const [d, p, j, s] = await Promise.allSettled([
       call("admin:virtualnet.discover", {}), call("admin:virtualnet.profiles", {}), call("admin:virtualnet.jobs", {}),
@@ -127,7 +128,8 @@ export default function VirtualNetwork() {
            <TableCell>{profile?.has_credentials ? `${profile.username}@${profile.address}:${profile.port}` : t("virtualnet.not_configured")}{profile?.node_uuid && <Typography variant="caption" sx={{ display: "block" }}>Node: {profile.node_uuid}</Typography>}{profile?.paused && <Typography variant="caption" color="warning.main">{t("virtualnet.paused")}</Typography>}</TableCell>
           <TableCell>{!peer.local && <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
             <Button disabled={busy} onClick={() => edit(peer)}>{t("virtualnet.configure")}</Button>
-            <Button disabled={busy || !profile?.has_credentials} onClick={() => setPermissionsPeer(peer)}>{t("hostctl.title")}</Button>
+            <Button disabled={busy || !profile?.has_credentials} onClick={() => { setPermissionsTab(0); setPermissionsPeer(peer); }}>{t("hostctl.title")}</Button>
+            <Button disabled={busy || !profile?.has_credentials || !profile.node_uuid || profile.paused} onClick={() => { setPermissionsTab(5); setPermissionsPeer(peer); }}>升级 Node</Button>
             <Button disabled={busy || !profile?.has_credentials} onClick={() => void action(async () => { await call("admin:virtualnet.test", { peer_id: peer.id }); setMessage(t("virtualnet.test_ok")); })}>{t("virtualnet.test")}</Button>
             <Button disabled={busy || !profile?.has_credentials || !settings?.control_url} onClick={() => void action(() => inspectDeployment(peer))}>{t("virtualnet.deploy")}</Button>
             <Button color="warning" disabled={busy || !profile?.has_credentials} onClick={() => void action(() => inspectLifecycle(peer,"pause"))}>{t("virtualnet.pause")}</Button>
@@ -202,6 +204,6 @@ export default function VirtualNetwork() {
       <DialogActions><Button disabled={busy} onClick={() => setConfirm(null)}>{t("virtualnet.cancel")}</Button><Button color={installationCheck?.requires_overwrite ? "error" : "primary"} disabled={busy || !installationCheck || (!!installationCheck.requires_overwrite && !overwriteConfirmed)} onClick={() => confirm && installationCheck && void action(async () => { await call("admin:virtualnet.deploy", { peer_id: confirm.id, confirmation_token: installationCheck.confirmation_token, overwrite_confirmed: overwriteConfirmed }); setConfirm(null); await refresh(); })}>{installationCheck?.requires_overwrite ? t("virtualnet.force_deploy") : t("virtualnet.confirm_deploy")}</Button></DialogActions>
     </Dialog>
     <Box />
-    {permissionsPeer && <NodePermissions peer={permissionsPeer} onClose={() => setPermissionsPeer(null)} />}
+    {permissionsPeer && <NodePermissions peer={permissionsPeer} initialTab={permissionsTab} onClose={() => setPermissionsPeer(null)} />}
   </Stack>;
 }

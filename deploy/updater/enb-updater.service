@@ -1,0 +1,25 @@
+[Unit]
+Description=ENB Head Docker updater
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+UMask=0077
+RuntimeDirectory=enb-updater
+RuntimeDirectoryMode=0750
+StateDirectory=enb-updater
+StateDirectoryMode=0700
+ExecStart=/usr/bin/python3 /usr/local/lib/enb-updater/enb-updater.py --config /etc/enb-updater/config.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target
