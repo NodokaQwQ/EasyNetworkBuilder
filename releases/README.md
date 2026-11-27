@@ -7,7 +7,7 @@ Head、Node 的 ENB 正式版本分别从 **0.0.1** 起步。旧 Lite/ENB 测试
 - `versions.json`：下一次构建的 Head/Node 版本，各自递增。
 - `head-stable.json` / `node-stable.json`：已发布、已验证镜像目录，最新版本优先。
 - 默认 HTTPS：`https://raw.githubusercontent.com/NodokaQwQ/EasyNetworkBuilder/master/releases/<head|node>-stable.json`。
-- 当前清单为空：**0.0.1 只是版本起点，尚未构建、发布或伪造镜像记录**。空清单返回“没有已发布的兼容更新”，不是声称旧测试版本已经升级。
+- Head/Node `0.0.1` 镜像已发布，真实远端 digest 见 stable 清单，验收范围见 [0.0.1.md](0.0.1.md)。这是人工首次安装基线：`from_versions: ["0.0.1"]` 仅为基线占位，同版本更新被拒绝，不开放任何旧版本迁移路径；不代表已升级线上。
 - 部署必须先人工接入包含本协议的 Head/宿主机更新器。旧二进制不会因为 Git 新增文件而自动获得升级能力。
 - Head 页面初始化、打开更新弹窗、每30～35分钟检查，支持“立即检查”；Node升级页轮询任务并使用后端30分钟目录缓存，可手动强制检查。未打开面板时没有前端定时检查，不进行无人值守自动升级。
 - Head 与 Node 都动态读取 Git 清单，后续发布 Node 不必重发 Head。失败显示检查错误，不能当作“已是最新”；提交升级时重新取清单，冻结核验后的 digest，网络失效不阻止回滚。

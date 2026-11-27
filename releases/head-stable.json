@@ -1,5 +1,19 @@
 {
   "schema": 1,
   "component": "head",
-  "releases": []
+  "releases": [
+    {
+      "version": "0.0.1",
+      "hash": "ba91ca658d10ada186b516c90110d1cf3bbd4b8a",
+      "image": "docker.io/nodokaqwq/enb@sha256:ac5eba917a090fb4a80d7c2142cf5b1729df9b24a9bf9cacd8dbb715abd133f4",
+      "platform": "linux/amd64",
+      "channel": "stable",
+      "rollback": "restore-data-v1",
+      "from_versions": [
+        "0.0.1"
+      ],
+      "published_at": "2026-11-27T08:21:59.105497Z",
+      "notes": "首个 ENB 数字版本，人工首次安装基线。支持动态 Git 发布目录、独立宿主机更新器接口和 Node 升级页；侧栏顺序及 GitHub 链接已调整。镜像启动、初始化版本/hash/SQLite 就绪及隔离 Compose 停机快照恢复通过。from_versions 仅为基线占位，同版本更新被拒绝；没有开放旧版本迁移。完整升级/代理业务闭环未验收，详见 releases/0.0.1.md。"
+    }
+  ]
 }

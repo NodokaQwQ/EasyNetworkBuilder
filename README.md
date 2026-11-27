@@ -4,7 +4,13 @@
 
 ## 当前状态
 
-### Git 发布目录与 ENB 版本起点（源码，未发布）
+### ENB 0.0.1 镜像发布（未更新线上）
+
+- Head `nodokaqwq/enb:head-v0.0.1` 和 Node `nodokaqwq/enb:node-v0.0.1` 已推送 Docker Hub，仅 `linux/amd64`，源码 `ba91ca658d10ada186b516c90110d1cf3bbd4b8a`；未移动 latest。真实 digest 和发布说明见 `releases/`。
+- 前端 763 测试/build、Head 全仓测试（跳过四项外网 GeoIP）/相关竞态/vet、Agent 相关测试、更新器 17 测试及两个镜像冒烟检查通过；隔离真实 Compose 验证 Head 初始化、版本/hash/SQLite 就绪与停机快照恢复。
+- 本次为人工首次安装基线；没有开放旧版本迁移路径，不宣称 Node 真实 SSH 更新或完整代理业务闭环通过。未更新线上 Head/Node。以下源码首版小节为历史开发记录，最新发布状态以本节和 `releases/0.0.1.md` 为准。
+
+### Git 发布目录与 ENB 版本起点（历史源码记录）
 
 - Head/Node 新正式版本均从 `0.0.1` 开始，构建默认值及源码版本已同步；旧测试镜像版本/digest不改写。`releases/versions.json` 管理组件独立版本，`head-stable.json` / `node-stable.json` 维护已验证发布记录，目前为空，不冒充已发布0.0.1。
 - 默认读取本仓库master分支的HTTPS原始清单；Head/Node动态检查，Node不再需要随Head源码更新内置目标列表。显式来源版本白名单、最低Head版本、严格数字版本只增不降、固定平台/digest；检查失败展示错误，不宣称已是最新。

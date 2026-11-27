@@ -1,5 +1,20 @@
 {
   "schema": 1,
   "component": "node",
-  "releases": []
+  "releases": [
+    {
+      "version": "0.0.1",
+      "hash": "ba91ca658d10ada186b516c90110d1cf3bbd4b8a",
+      "image": "docker.io/nodokaqwq/enb@sha256:04f716e274957d78ce4bfef155b82ccbb9ca1ab70eaae4d80ae3f3a47cc24d6b",
+      "platform": "linux/amd64",
+      "channel": "stable",
+      "rollback": "restore-nodemgt-v1",
+      "from_versions": [
+        "0.0.1"
+      ],
+      "published_at": "2026-11-27T08:22:00.181730Z",
+      "min_head": "0.0.1",
+      "notes": "首个 ENB Node 数字版本，人工首次安装基线。独立远程权限参数、Docker 固定版本发布。镜像启动/权限策略拒绝及相关 Go 测试通过；真实 SSH→Agent 更新回滚与代理业务闭环未验收。from_versions 仅为基线占位，同版本更新被拒绝，不开放旧版本迁移。详见 releases/0.0.1.md。"
+    }
+  ]
 }
