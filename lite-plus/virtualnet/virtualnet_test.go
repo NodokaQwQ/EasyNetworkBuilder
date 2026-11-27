@@ -89,7 +89,7 @@ func TestReconcileDeletedNodeAssociations(t *testing.T) {
 }
 
 func TestNodeNameUsesDeviceHostname(t *testing.T) {
-	if got := (Peer{ID: "42", Hostname: " Ncat-LA2 "}).NodeName(); got != "Ncat-LA2" {
+	if got := (Peer{ID: "42", Hostname: " example-node "}).NodeName(); got != "example-node" {
 		t.Fatal(got)
 	}
 	if got := (Peer{ID: "42"}).NodeName(); got != "EasyTier-42" {

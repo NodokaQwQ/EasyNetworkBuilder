@@ -12,7 +12,7 @@
 
 官方镜像仓库为 `docker.io/nodokaqwq/enb`，官方发布源为本仓库 `master/releases/`。部署固定版本 digest，不直接运行可变 latest。
 
-当前已发布 Head 0.0.3（Reality MLKEM 订阅修复，允许从 0.0.2 手动更新），Node 保持 0.0.1；镜像 digest、验证范围与限制见 [Head 0.0.3 发布说明](releases/0.0.3.md)。不自动更新线上服务或移动 latest。
+当前已发布 Head 0.0.4（通用化部署设置与受控 Node 镜像获取，允许从 0.0.3 手动更新），Node 保持 0.0.1；镜像 digest、验证范围与限制见 [Head 0.0.4 发布说明](releases/0.0.4.md)。不自动更新线上服务或移动 latest。
 
 ## 配置入口
 

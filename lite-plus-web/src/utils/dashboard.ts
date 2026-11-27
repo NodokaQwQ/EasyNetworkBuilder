@@ -319,6 +319,7 @@ export function shortDashboardDay(day: string, locale: string): string {
   return new Intl.DateTimeFormat(locale, {
     month: "numeric",
     day: "numeric",
+    timeZone: "Asia/Shanghai",
   }).format(parsed);
 }
 
