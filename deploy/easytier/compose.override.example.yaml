@@ -1,0 +1,24 @@
+# Merge with your EXISTING EasyTier Compose project, using its actual service name.
+# Does not start/reconfigure EasyTier. Do not mount the Docker socket into Head.
+services:
+  head:
+    build:
+      context: ../..
+      dockerfile: deploy/easytier/Dockerfile
+      args:
+        # Required: pin an image digest matching the existing EasyTier core version.
+        EASYTIER_IMAGE: ${EASYTIER_IMAGE:?set matching EasyTier image digest}
+    # Share the existing EasyTier network namespace so its loopback RPC remains private.
+    network_mode: service:easytier
+    environment:
+      ENB_EASYTIER_RPC: 127.0.0.1:15888
+      ENB_EASYTIER_CLI: /usr/local/bin/easytier-cli
+      ENB_EASYTIER_INSTANCE: ${EASYTIER_INSTANCE:-}
+      ENB_NODE_CONTROL_URL: ${ENB_NODE_CONTROL_URL:?set HTTPS internal control URL}
+    volumes:
+      - ./enb-data:/app/data
+    restart: unless-stopped
+# Publish the Head port on the existing easytier service, NOT on head when sharing
+# namespaces. Prefer loopback for public nginx and a specific virtual address for
+# the internal agent ingress. Existing host-network EasyTier needs a different
+# layout (see README); do not apply this overlay to it blindly.
