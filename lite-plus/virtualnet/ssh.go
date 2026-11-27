@@ -112,6 +112,18 @@ func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'")
 type remoteExitError struct{ code int }
 
 func (e remoteExitError) Error() string {
+	switch e.code {
+	case 72:
+		return "could not detect host uplink NICs; no device-backed default-route interface found; check iproute2 and host routing"
+	case 73:
+		return "existing unmanaged Node or Agent deployment detected; preserve its configuration and data and migrate it manually before deploying a managed Node"
+	case 74:
+		return "Node Docker Compose configuration validation failed; existing deployment unchanged"
+	case 75:
+		return "Node image pull failed; check Docker Hub access and available disk space; existing deployment unchanged"
+	case 76:
+		return "Node container startup failed; installation files retained for inspection"
+	}
 	return "remote command failed; check Docker Compose availability, installation ownership and sudo permissions"
 }
 
@@ -165,9 +177,6 @@ func runOutput(ctx context.Context, client *ssh.Client, p Profile, script, input
 		if err != nil {
 			var exit *ssh.ExitError
 			if errors.As(err, &exit) {
-				if exit.ExitStatus() == 72 {
-					return errors.New("could not detect host uplink NICs; check iproute2, physical default-route interfaces and README before deployment")
-				}
 				return remoteExitError{exit.ExitStatus()}
 			}
 			return errors.New("remote command failed; check Docker Compose availability and sudo permissions")
@@ -202,12 +211,12 @@ test ! -e "$enb_target/.enb-update-active" || test "${enb_update_transaction:-}"
 for enb_id in $(docker ps -aq --filter label=com.docker.compose.project); do
   enb_dir=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$enb_id")
   enb_project=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$enb_id")
-  if [ "$enb_dir" = "$enb_target" ] && [ "$enb_project" != enb-managed-node ]; then exit 1; fi
+  if [ "$enb_dir" = "$enb_target" ] && [ "$enb_project" != enb-managed-node ]; then exit 73; fi
 done
 for enb_id in $(docker ps -aq --filter label=com.docker.compose.project=enb-managed-node); do
-  test "$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$enb_id")" = "$enb_target"
+  test "$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$enb_id")" = "$enb_target" || exit 73
 done
-if docker ps -a --format '{{.Names}} {{.Label "com.docker.compose.project"}}' | grep -Ev ' enb-managed-node$' | grep -Eq '(^|[-_])(enb|lite|komari).*agent|enb.*node'; then exit 1; fi
+if docker ps -a --format '{{.Names}} {{.Label "com.docker.compose.project"}}' | grep -Ev ' enb-managed-node$' | grep -Eq '(^|[-_])(enb|lite|komari).*agent|enb.*node'; then exit 73; fi
 `
 
 type Installation struct {
@@ -298,9 +307,10 @@ case "$enb_ipv6" in *[!0-9a-fA-F:]*) enb_ipv6="";; esac
 printf 'ENB_HOST_IPV6=%s\n' "$enb_ipv6" > .env
 `
 
-// Use only device-backed default-route NICs. Overlay/bridge/tunnel defaults,
-// bonds and VLANs need an explicit operator choice rather than double counting
-// or silently measuring the overlay. Run in staging before touching old data.
+// Count only device-backed default-route NICs. Ignore overlay/tunnel routes
+// when a physical default-route NIC is also present (e.g. tunneled IPv6).
+// Never count both tunnel payload and underlying traffic; tunnel-only layouts
+// still require an explicit operator choice. Run before touching old data.
 const hostNICReport = `
 command -v ip >/dev/null 2>&1 || exit 72
 enb_routes_v4=$(ip -o -4 route show default 2>/dev/null) || exit 72
@@ -309,11 +319,12 @@ enb_nics=$(printf '%s\n%s\n' "$enb_routes_v4" "$enb_routes_v6" | awk '{for(i=1;i
 test -n "$enb_nics" || exit 72
 enb_include=""
 for enb_nic in $enb_nics; do
-  case "$enb_nic" in lo|docker*|br-*|veth*|tun*|tap*|tailscale*|wg*|zt*|easytier*) exit 72;; esac
   case "$enb_nic" in *[!a-zA-Z0-9_.:-]*) exit 72;; esac
-  test -e "/sys/class/net/$enb_nic/device" || exit 72
+  case "$enb_nic" in lo|docker*|br-*|veth*|tun*|tap*|tailscale*|wg*|zt*|easytier*) continue;; esac
+  test -e "/sys/class/net/$enb_nic/device" || continue
   enb_include="${enb_include:+$enb_include,}$enb_nic"
 done
+test -n "$enb_include" || exit 72
 printf 'ENB_HOST_NICS=%s\n' "$enb_include" >> .env
 `
 
@@ -395,8 +406,8 @@ cat > "$enb_stage/compose.yaml"
 (cd "$enb_stage"
 ` + hostIPv6Report + hostNICReport + `
 )
-docker compose --env-file "$enb_stage/.env" -p enb-managed-node -f "$enb_stage/compose.yaml" config --quiet
-docker compose --env-file "$enb_stage/.env" -p enb-managed-node -f "$enb_stage/compose.yaml" pull
+docker compose --env-file "$enb_stage/.env" -p enb-managed-node -f "$enb_stage/compose.yaml" config --quiet || exit 74
+docker compose --env-file "$enb_stage/.env" -p enb-managed-node -f "$enb_stage/compose.yaml" pull || exit 75
 `
 	if overwrite {
 		script += `
@@ -428,9 +439,9 @@ cd "$enb_target"
 mkdir nodemgt
 if ! docker compose -p enb-managed-node up -d; then
   docker compose -p enb-managed-node stop || true
-  exit 1
+  exit 76
 fi
-test -n "$(docker compose -p enb-managed-node ps --status running -q node)"
+test -n "$(docker compose -p enb-managed-node ps --status running -q node)" || exit 76
 `
 	return script
 }

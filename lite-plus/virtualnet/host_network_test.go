@@ -91,6 +91,19 @@ func TestHostNetworkRealCompose(t *testing.T) {
 	}
 }
 
+func TestDeploymentFailureMessages(t *testing.T) {
+	for code, want := range map[int]string{72: "no device-backed", 73: "existing unmanaged Node", 74: "configuration validation failed", 75: "image pull failed", 76: "container startup failed"} {
+		if message := (remoteExitError{code}).Error(); !strings.Contains(message, want) {
+			t.Fatalf("exit %d: %q", code, message)
+		}
+	}
+	for _, marker := range []string{"config --quiet || exit 74", "pull || exit 75", "exit 76"} {
+		if !strings.Contains(deploymentScript(false), marker) {
+			t.Fatalf("missing failure classification: %s", marker)
+		}
+	}
+}
+
 func TestHostNICReport(t *testing.T) {
 	for _, tc := range []struct{ name, v4, v6, want string }{
 		{"single", "default via 192.0.2.1 dev ens3", "default via fe80::1 dev ens3", "ens3"},
@@ -100,7 +113,11 @@ func TestHostNICReport(t *testing.T) {
 		{"no-default", "", "", ""},
 		{"overlay", "default dev tun0", "", ""},
 		{"bridge", "default dev docker0", "", ""},
-		{"mixed-overlay", "default dev ens3", "default dev tun0", ""},
+		{"mixed-overlay", "default dev ens3", "default dev tun0", "ens3"},
+		{"la1-ipv6-tunnel", "default via 192.0.2.1 dev ens3", "default dev ipv6net metric 1024 pref medium", "ens3"},
+		{"physical-ipv6-overlay-ipv4", "default dev tun0", "default dev enp1s0", "enp1s0"},
+		{"tunnel-only", "", "default dev ipv6net", ""},
+		{"physical-and-unknown", "default dev ens3", "default dev eth9", "ens3"},
 		{"unknown-device", "default dev eth9", "", ""},
 		{"route-error", "", "", ""},
 		{"injection", "default dev ens3;bad", "", ""},
@@ -111,6 +128,9 @@ func TestHostNICReport(t *testing.T) {
 				if err := os.MkdirAll(filepath.Join(dir, "net", nic, "device"), 0700); err != nil {
 					t.Fatal(err)
 				}
+			}
+			if err := os.MkdirAll(filepath.Join(dir, "net", "ipv6net"), 0700); err != nil {
+				t.Fatal(err)
 			}
 			fake := "#!/bin/sh\ncase \"$*\" in *-4*) printf '%s\\n' " + quote(tc.v4) + ";; *) printf '%s\\n' " + quote(tc.v6) + ";; esac\n"
 			if tc.name == "route-error" {

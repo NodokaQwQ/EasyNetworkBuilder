@@ -49,7 +49,9 @@ RPC 通常不提供应用级只读权限。ENB 固定查询命令只是应用约
 
 ### 宿主机流量口径
 
-新自动安装生成 host 网络 Compose，无 `ports`；宿主需安装 `iproute2`。安装脚本在暂存目录读取 IPv4/IPv6 默认路由的全部 `dev`，排序去重，拒绝 loopback、Docker bridge/veth、TUN/TAP、常见 overlay，以及缺少 `/sys/class/net/<接口>/device` 的接口。通过后写入 `.env` 的 `ENB_HOST_NICS`，Compose 使用必填插值传给 `AGENT_INCLUDE_NICS`。缺值或探测失败不会回退到所有网卡，且发生在 pull/down/删除旧目录之前。
+新自动安装生成 host 网络 Compose，无 `ports`；宿主需安装 `iproute2`。安装脚本读取 IPv4/IPv6 默认路由的全部 `dev`，只选带 `/sys/class/net/<接口>/device` 的出口并排序去重。物理默认出口与 IPv6 隧道（如 `ipv6net`）并存时跳过隧道，不再整体拒绝部署；loopback、Docker bridge/veth、TUN/TAP、常见 overlay 不计入，避免重复统计。只有隧道/桥接或没有可识别出口时仍拒绝，不能保证覆盖经其他物理接口承载的隧道流量，复杂路由需人工核定。通过后写入 `.env` 的 `ENB_HOST_NICS`，Compose 使用必填插值传给 `AGENT_INCLUDE_NICS`。失败不回退到所有网卡，且发生在 pull/down/删除旧目录之前。
+
+部署失败现在按网卡探测、已有非受管 Node、Compose 校验、镜像拉取、容器启动分别返回脱敏提示。已有 `~/enb-test` 的旧 Node 仍禁止直接部署覆盖，须单独保留配置和数据迁移；这不属于连接测试的检查范围。
 
 本轮为源码变更，尚未发布新镜像或更新线上 Head/Node；线上 `.14` 的旧模板仍使用 bridge。以下说明不代表现有实例已经切换。
 
