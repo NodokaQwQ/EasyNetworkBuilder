@@ -211,6 +211,8 @@ export default function RemoteSession({ tabId, node, live, online, active, compa
   const [sideWidth, setSideWidth] = useState(400);
   const [reconnectKey, setReconnectKey] = useState(0);
   const [remoteReady, setRemoteReady] = useState(false);
+  const [filesEnabled, setFilesEnabled] = useState(true);
+  const featurePermissionsRef = useRef({ terminal: false, files: false });
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [manualPasteOpen, setManualPasteOpen] = useState(false);
   const [manualPasteText, setManualPasteText] = useState("");
@@ -258,7 +260,7 @@ export default function RemoteSession({ tabId, node, live, online, active, compa
 
   const sendTerminalText = useCallback((text: string) => {
     const ws = socket.current;
-    if (!text || ws?.readyState !== WebSocket.OPEN) return false;
+    if (!text || ws?.readyState !== WebSocket.OPEN || !featurePermissionsRef.current.terminal) return false;
     ws.send(new TextEncoder().encode(text.replace(/\r?\n/g, "\r")));
     return true;
   }, []);
@@ -636,8 +638,11 @@ export default function RemoteSession({ tabId, node, live, online, active, compa
               setConnectionState("connected");
               remoteReadyRef.current = true;
               setRemoteReady(true);
-              setRemoteTerminalInputEnabled(terminal.current, true);
-              fileManager.current?.initialize(message.roots || [], message.home || message.roots?.[0], message.separator || "/", message.file_transfer || 1);
+              featurePermissionsRef.current = { terminal: message.terminal_enabled !== false, files: message.files_enabled !== false };
+              setFilesEnabled(message.files_enabled !== false);
+              if (message.terminal_enabled === false && message.files_enabled !== false) setSidePanel("files");
+              setRemoteTerminalInputEnabled(terminal.current, message.terminal_enabled !== false);
+              if (message.files_enabled !== false) fileManager.current?.initialize(message.roots || [], message.home || message.roots?.[0], message.separator || "/", message.file_transfer || 1);
               resizeTerminal();
               if (activeRef.current && !isEditableElement(document.activeElement)) {
                 window.requestAnimationFrame(() => terminal.current?.focus());
@@ -727,21 +732,21 @@ export default function RemoteSession({ tabId, node, live, online, active, compa
 
   const send = useCallback((message: Record<string, unknown>) => {
     const ws = socket.current;
-    if (ws?.readyState !== WebSocket.OPEN || !remoteReadyRef.current) return false;
+    if (ws?.readyState !== WebSocket.OPEN || !remoteReadyRef.current || (String(message.type).startsWith("file.") && !featurePermissionsRef.current.files)) return false;
     ws.send(JSON.stringify(message));
     return true;
   }, []);
 
   const sendBinary = useCallback((payload: Uint8Array) => {
     const ws = socket.current;
-    if (ws?.readyState !== WebSocket.OPEN || !remoteReadyRef.current) return false;
+    if (ws?.readyState !== WebSocket.OPEN || !remoteReadyRef.current || !featurePermissionsRef.current.files) return false;
     ws.send(payload);
     return true;
   }, []);
 
   const sendCommand = useCallback((command: string) => {
     const ws = socket.current;
-    if (ws?.readyState === WebSocket.OPEN) {
+    if (ws?.readyState === WebSocket.OPEN && featurePermissionsRef.current.terminal) {
       ws.send(new TextEncoder().encode(`${command}\r`));
     }
   }, []);
@@ -1002,7 +1007,7 @@ export default function RemoteSession({ tabId, node, live, online, active, compa
                 variant="standard"
                 sx={{ minHeight: 43, minWidth: 0, "& .MuiTab-root": { minHeight: 43, minWidth: 0, px: 1.5, textTransform: "none", fontSize: 12, gap: "7px" } }}
               >
-                <Tab value="files" icon={<Files size={16} />} iconPosition="start" label={t("terminal.session.files")} />
+                <Tab value="files" disabled={!filesEnabled} icon={<Files size={16} />} iconPosition="start" label={t("terminal.session.files")} />
                 <Tab value="commands" icon={<ClipboardList size={16} />} iconPosition="start" label={t("terminal.session.commands")} />
               </Tabs>
               {!compact ? (
@@ -1012,7 +1017,7 @@ export default function RemoteSession({ tabId, node, live, online, active, compa
               ) : null}
             </Box>
             <Box sx={{ display: sidePanel === "files" ? "block" : "none", minHeight: 0, flex: 1, height: "100%" }}>
-              <FileManager ref={fileManager} send={send} sendBinary={sendBinary} connected={remoteReady} />
+              <FileManager ref={fileManager} send={send} sendBinary={sendBinary} connected={remoteReady && filesEnabled} />
             </Box>
             <Box sx={{ display: sidePanel === "commands" ? "block" : "none", minHeight: 0, flex: 1, height: "100%" }}>
               <div className="remote-command-panel"><CommandClipboardPanel className="h-full w-full" /></div>

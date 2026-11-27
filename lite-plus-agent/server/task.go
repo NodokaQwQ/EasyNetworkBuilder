@@ -256,7 +256,7 @@ func executeAcceptedTask(task_id, command string) {
 		finishTask(task_id, "No command provided", 0)
 		return
 	}
-	if !pkg_flags.RemoteControlEnabled() {
+	if !pkg_flags.PermissionAllowed("exec") {
 		finishTask(task_id, "Remote control is disabled.", -1)
 		return
 	}

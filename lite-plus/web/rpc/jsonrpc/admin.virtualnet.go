@@ -14,6 +14,7 @@ import (
 	logger "github.com/nuomiiiii/lite/utils/log"
 	"github.com/nuomiiiii/lite/virtualnet"
 	agent_runtime "github.com/nuomiiiii/lite/web/agent"
+	"github.com/nuomiiiii/lite/web/hostctl"
 )
 
 var virtualnetDeployment sync.Mutex
@@ -134,6 +135,7 @@ func virtualnetSave(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.Jso
 		return nil, virtualnetError(e)
 	}
 	virtualnetAudit(ctx, "save SSH credentials", p.PeerID)
+	hostctl.ClosePeer(p.PeerID)
 	return map[string]bool{"saved": true}, nil
 }
 func loadVirtualnetProfile(ctx context.Context, req *rpc.JsonRpcRequest) (virtualnet.Profile, error) {
@@ -171,6 +173,7 @@ func virtualnetDelete(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.J
 		return nil, virtualnetError(errors.New("delete failed"))
 	}
 	virtualnetAudit(ctx, "delete SSH credentials", q.PeerID)
+	hostctl.ClosePeer(q.PeerID)
 	return map[string]bool{"deleted": true}, nil
 }
 func virtualnetTest(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.JsonRpcError) {

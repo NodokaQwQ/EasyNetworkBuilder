@@ -1,9 +1,15 @@
 package flags_pkg
 
+import (
+	"fmt"
+	"strings"
+)
+
 type Config struct {
 	AutoDiscoveryKey     string  `json:"auto_discovery_key" env:"AGENT_AUTO_DISCOVERY_KEY"`           // Deprecated: legacy marker to read auto-discovery.json; not a registration key
 	DisableAutoUpdate    bool    `json:"disable_auto_update" env:"AGENT_DISABLE_AUTO_UPDATE"`         // 禁用自动更新
 	RemoteControlEnabled bool    `json:"remote_control_enabled" env:"AGENT_REMOTE_CONTROL_ENABLED"`   // 启用远程控制（终端、文件、exec、MCP）
+	RemotePermissions    string  `json:"remote_permissions" env:"AGENT_REMOTE_PERMISSIONS"`           // Empty retains legacy behavior; otherwise a strict comma-separated allowlist.
 	DisableWebSsh        bool    `json:"disable_web_ssh" env:"AGENT_DISABLE_WEB_SSH"`                 // 隐藏迁移输入：旧版禁用远程控制
 	MemoryModeAvailable  bool    `json:"memory_mode_available" env:"AGENT_MEMORY_MODE_AVAILABLE"`     // [deprecated] 已弃用，请使用 MemoryIncludeCache
 	Token                string  `json:"token" env:"AGENT_TOKEN"`                                     // Token
@@ -43,4 +49,43 @@ var GlobalConfig = &Config{}
 // This is the runtime source of truth; do not check DisableWebSsh after config load.
 func RemoteControlEnabled() bool {
 	return GlobalConfig != nil && GlobalConfig.RemoteControlEnabled
+}
+
+// PermissionAllowed controls feature entry points, not an OS sandbox. Shell and
+// exec can access anything available to the Agent's operating-system account.
+func PermissionAllowed(name string) bool {
+	if !RemoteControlEnabled() {
+		return false
+	}
+	if GlobalConfig.RemotePermissions == "" {
+		return true // Backward compatibility for existing installations.
+	}
+	for _, permission := range strings.Split(GlobalConfig.RemotePermissions, ",") {
+		if permission == name {
+			return true
+		}
+	}
+	return false
+}
+
+func ValidateRemotePermissions(value string) error {
+	if value == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, name := range strings.Split(value, ",") {
+		switch name {
+		case "none", "terminal", "files", "exec", "mcp", "firewall", "protection":
+		default:
+			return fmt.Errorf("unknown remote permission %q", name)
+		}
+		if seen[name] {
+			return fmt.Errorf("duplicate remote permission %q", name)
+		}
+		seen[name] = true
+	}
+	if seen["none"] && len(seen) != 1 {
+		return fmt.Errorf("none cannot be combined with remote permissions")
+	}
+	return nil
 }

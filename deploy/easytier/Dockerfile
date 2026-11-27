@@ -14,7 +14,7 @@ COPY --from=frontend /web/dist ./web/public/systemUI/dist
 ENV CGO_ENABLED=1 GODEBUG=http2client=0
 ARG ENB_VERSION=0.2.1-enb-easytier.1
 ARG ENB_REVISION=unknown
-RUN go build -trimpath -ldflags "-s -w -linkmode external -extldflags '-static' -X github.com/nuomiiiii/lite/utils.CurrentVersion=${ENB_VERSION} -X github.com/nuomiiiii/lite/utils.VersionHash=${ENB_REVISION}" -o /out/Lite .
+RUN --mount=type=cache,id=enb-head-modules,target=/go/pkg/mod --mount=type=cache,id=enb-head-build,target=/root/.cache/go-build go build -trimpath -ldflags "-s -w -linkmode external -extldflags '-static' -X github.com/nuomiiiii/lite/utils.CurrentVersion=${ENB_VERSION} -X github.com/nuomiiiii/lite/utils.VersionHash=${ENB_REVISION}" -o /out/Lite .
 FROM alpine:3.23
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app

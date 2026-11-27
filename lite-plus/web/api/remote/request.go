@@ -78,6 +78,10 @@ func CreateSession(c *gin.Context) {
 		api.RespondError(c, remotePolicyStatus(err), err.Error())
 		return
 	}
+	if !AgentPermissionAllowed(client, "terminal") && !AgentPermissionAllowed(client, "files") {
+		api.RespondError(c, http.StatusConflict, "Node terminal and file permissions are disabled")
+		return
+	}
 	if err := peekRemoteSessionAdmission(loginSession, request.UUID); err != nil {
 		respondCreateSessionAdmissionError(c, err, "", time.Time{})
 		return

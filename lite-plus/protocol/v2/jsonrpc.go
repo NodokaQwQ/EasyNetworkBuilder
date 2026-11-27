@@ -244,6 +244,7 @@ type EventParams struct {
 }
 
 type RemoteRequestParams struct {
+	Source    string `json:"source,omitempty"`
 	RequestID string `json:"request_id"`
 	Ticket    string `json:"ticket"`
 }

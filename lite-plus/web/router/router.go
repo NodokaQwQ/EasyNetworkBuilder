@@ -2,16 +2,17 @@ package router
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/nuomiiiii/lite/nodemgt/subhttp"
 	"github.com/nuomiiiii/lite/web/api"
 	"github.com/nuomiiiii/lite/web/api/admin"
 	"github.com/nuomiiiii/lite/web/api/client"
 	public_api "github.com/nuomiiiii/lite/web/api/public"
 	"github.com/nuomiiiii/lite/web/api/remote"
+	"github.com/nuomiiiii/lite/web/hostctl"
 	installweb "github.com/nuomiiiii/lite/web/install"
 	"github.com/nuomiiiii/lite/web/mcp"
 	"github.com/nuomiiiii/lite/web/public"
 	jsonRpc "github.com/nuomiiiii/lite/web/rpc/jsonrpc"
-	"github.com/nuomiiiii/lite/nodemgt/subhttp"
 )
 
 // Register binds all HTTP, WebSocket, JSON-RPC and static frontend routes.
@@ -238,6 +239,7 @@ func registerAdminRoutes(r *gin.Engine) {
 		clientGroup.POST("/remote/session/cancel", remote.CancelSession)
 		clientGroup.POST("/remote/revoke", remote.RevokeGrant)
 		clientGroup.GET("/remote", remote.ConnectBrowser)
+		clientGroup.GET("/host-terminal", hostctl.Connect)
 		clientGroup.POST("/add", jsonRpc.Bind("admin:addClient", jsonRpc.WithFlat()))
 		clientGroup.GET("/list", jsonRpc.Bind("admin:listClients", jsonRpc.WithRaw()))
 		clientGroup.GET("/:uuid", jsonRpc.Bind("admin:getClient", jsonRpc.WithPath("uuid"), jsonRpc.WithRaw()))

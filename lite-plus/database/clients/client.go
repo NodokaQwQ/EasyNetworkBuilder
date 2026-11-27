@@ -612,6 +612,7 @@ func getClientsByUUIDs(db *gorm.DB, uuids []string) (map[string]models.Client, e
 			"uuid",
 			"remote_protocol",
 			"remote_control_enabled",
+			"remote_permissions",
 			"mcp_full",
 			"mcp_full_version",
 		).

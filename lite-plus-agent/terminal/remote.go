@@ -3,6 +3,7 @@ package terminal
 import (
 	"encoding/json"
 	"fmt"
+	pkg_flags "github.com/nuomiiiii/lite-agent/cmd/flags"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -30,16 +31,30 @@ func (writer *remoteWriter) writeBinary(data []byte) error {
 }
 
 func StartRemoteSession(conn *websocket.Conn) {
+	StartRemoteSessionForSource(conn, false)
+}
+
+func StartRemoteSessionForSource(conn *websocket.Conn, mcp bool) {
 	writer := &remoteWriter{conn: conn}
 	attachRemotePingHandler(conn)
-	if !remoteControlEnabled() {
+	terminalAllowed := pkg_flags.PermissionAllowed("terminal")
+	filesAllowed := pkg_flags.PermissionAllowed("files")
+	// MCP terminals are shell-only. File APIs require their own MCP file lease.
+	if mcp {
+		filesAllowed = false
+	}
+	if !remoteControlEnabled() || (!terminalAllowed && !filesAllowed) || (mcp && (!pkg_flags.PermissionAllowed("mcp") || !terminalAllowed)) {
 		_ = writer.writeJSON(map[string]any{"type": "remote.error", "message": "Remote control is disabled on this agent"})
 		return
 	}
-	impl, err := newTerminalImpl()
-	if err != nil {
-		_ = writer.writeJSON(map[string]any{"type": "remote.error", "message": fmt.Sprintf("Failed to start terminal: %v", err)})
-		return
+	var impl *terminalImpl
+	if terminalAllowed {
+		var err error
+		impl, err = newTerminalImpl()
+		if err != nil {
+			_ = writer.writeJSON(map[string]any{"type": "remote.error", "message": fmt.Sprintf("Failed to start terminal: %v", err)})
+			return
+		}
 	}
 	manager := newFileManager(writer)
 	done := make(chan struct{})
@@ -48,19 +63,31 @@ func StartRemoteSession(conn *websocket.Conn) {
 	defer func() {
 		close(done)
 		manager.close()
-		gracefulShutdown(impl.term)
-		_ = impl.term.Close()
+		if impl != nil {
+			gracefulShutdown(impl.term)
+			_ = impl.term.Close()
+		}
 	}()
 
+	var roots []string
+	home := ""
+	if filesAllowed {
+		roots = filesystemRoots()
+		home = userHomeDirectory()
+	}
 	_ = writer.writeJSON(map[string]any{
-		"type":          "remote.ready",
-		"roots":         filesystemRoots(),
-		"home":          userHomeDirectory(),
-		"separator":     pathSeparator(),
-		"file_transfer": fileTransferVersion,
+		"type":             "remote.ready",
+		"terminal_enabled": terminalAllowed,
+		"files_enabled":    filesAllowed,
+		"roots":            roots,
+		"home":             home,
+		"separator":        pathSeparator(),
+		"file_transfer":    fileTransferVersion,
 	})
 
-	go handleRemoteTerminalOutput(impl.term, output, errCh, done)
+	if impl != nil {
+		go handleRemoteTerminalOutput(impl.term, output, errCh, done)
+	}
 	go writeRemoteTerminalOutput(writer, output, errCh, done)
 	go func() {
 		for {
@@ -71,7 +98,13 @@ func StartRemoteSession(conn *websocket.Conn) {
 			}
 			switch messageType {
 			case websocket.BinaryMessage:
+				if isFileFrame(payload) && !filesAllowed {
+					continue
+				}
 				if manager.enqueueFileFrame(payload) {
+					continue
+				}
+				if impl == nil {
 					continue
 				}
 				if _, err := impl.term.Write(payload); err != nil {
@@ -89,13 +122,19 @@ func StartRemoteSession(conn *websocket.Conn) {
 				}
 				switch command.Type {
 				case "resize":
-					if command.Cols > 0 && command.Rows > 0 {
+					if impl != nil && command.Cols > 0 && command.Rows > 0 {
 						_ = impl.term.Resize(command.Cols, command.Rows)
 					}
 				case "heartbeat":
 					_ = writer.writeJSON(map[string]any{"type": "heartbeat"})
 				default:
 					if isFileMessage(command.Type) {
+						if !filesAllowed {
+							var request fileRequest
+							_ = json.Unmarshal(payload, &request)
+							manager.respond(request, nil, fmt.Errorf("file permission is disabled"))
+							continue
+						}
 						manager.enqueue(payload)
 					}
 				}

@@ -85,7 +85,7 @@ func processFirewallEvent(conn *ws.SafeConn, method string, params interface{}) 
 	if !ok {
 		return false
 	}
-	if !pkg_flags.RemoteControlEnabled() {
+	if !pkg_flags.PermissionAllowed("firewall") {
 		var req struct {
 			RequestID string `json:"request_id"`
 		}

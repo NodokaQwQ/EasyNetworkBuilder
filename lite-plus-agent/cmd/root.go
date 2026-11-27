@@ -306,6 +306,9 @@ func applyRemoteControlConfig(cmd *cobra.Command, config *pkg_flags.Config, file
 }
 
 func validateRuntimeConfig(config *pkg_flags.Config) error {
+	if err := pkg_flags.ValidateRemotePermissions(config.RemotePermissions); err != nil {
+		return err
+	}
 	if config.Interval <= 0 {
 		return fmt.Errorf("invalid reporting interval %v: expected a value greater than 0", config.Interval)
 	}
@@ -374,6 +377,7 @@ func init() {
 	_ = RootCmd.PersistentFlags().MarkDeprecated("auto-discovery", "registration is no longer available; existing installs read auto-discovery.json")
 	RootCmd.PersistentFlags().BoolVar(&flags.DisableAutoUpdate, "disable-auto-update", false, "Disable automatic updates")
 	RootCmd.PersistentFlags().BoolVar(&flags.RemoteControlEnabled, "enable-remote-control", false, "Enable remote control (terminal, files, exec, and MCP)")
+	RootCmd.PersistentFlags().StringVar(&flags.RemotePermissions, "remote-permissions", "", "Remote feature allowlist: terminal,files,exec,mcp,firewall,protection; none denies all")
 	RootCmd.PersistentFlags().BoolVar(&flags.DisableWebSsh, "disable-web-ssh", false, "Deprecated; use --enable-remote-control")
 	_ = RootCmd.PersistentFlags().MarkHidden("disable-web-ssh")
 	_ = RootCmd.PersistentFlags().MarkDeprecated("disable-web-ssh", "use --enable-remote-control instead")

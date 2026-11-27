@@ -15,6 +15,8 @@ func TestVirtualNetworkRequiresHumanSession(t *testing.T) {
 		"settings": virtualnetSettings, "settings.save": virtualnetSettingsSave,
 		"inspect": virtualnetInspection,
 		"pause":   virtualnetPause, "resume": virtualnetResume,
+		"permissions": virtualnetPermissions, "permissions.save": virtualnetPermissionsSave,
+		"host": virtualnetHost, "host.terminal": virtualnetHostTerminal,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := handler(context.Background(), &rpc.JsonRpcRequest{}); err == nil {

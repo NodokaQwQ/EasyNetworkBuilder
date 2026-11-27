@@ -44,7 +44,7 @@ func StartMCPTerminal(uuid, userUUID, loginSession, leaseID string, deadline tim
 	if err := putSessionUnderDeliveryGate(session); err != nil {
 		return "", err
 	}
-	params := v2.RemoteRequestParams{RequestID: session.ID, Ticket: session.pendingAgentTicket()}
+	params := v2.RemoteRequestParams{RequestID: session.ID, Ticket: session.pendingAgentTicket(), Source: "mcp"}
 	if err := dispatchRemoteRequest(uuid, params); err != nil {
 		deleteSession(session.ID)
 		return "", err

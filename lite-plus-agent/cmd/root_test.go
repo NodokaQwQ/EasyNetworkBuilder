@@ -165,6 +165,7 @@ func remoteControlTestCommand(config *pkg_flags.Config) *cobra.Command {
 	command := &cobra.Command{Use: "test"}
 	command.Flags().BoolVar(&config.RemoteControlEnabled, "enable-remote-control", false, "")
 	command.Flags().BoolVar(&config.DisableWebSsh, "disable-web-ssh", false, "")
+	command.Flags().StringVar(&config.RemotePermissions, "remote-permissions", "", "")
 	command.Flags().StringVar(&config.ConfigFile, "config", config.ConfigFile, "")
 	return command
 }

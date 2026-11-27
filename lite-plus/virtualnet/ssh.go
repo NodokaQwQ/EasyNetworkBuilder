@@ -117,13 +117,17 @@ func (e remoteExitError) Error() string {
 
 // Remote stdout/stderr are intentionally discarded: failures must not echo credentials or commands.
 func run(ctx context.Context, client *ssh.Client, p Profile, script, input string) error {
+	return runOutput(ctx, client, p, script, input, io.Discard)
+}
+
+func runOutput(ctx context.Context, client *ssh.Client, p Profile, script, input string, output io.Writer) error {
 	s, e := client.NewSession()
 	if e != nil {
 		return errors.New("SSH session failed")
 	}
 	defer s.Close()
-	s.Stdout = io.Discard
-	s.Stderr = io.Discard
+	s.Stdout = output
+	s.Stderr = output
 	// Expand HOME in the original login shell, before sudo resets it to /root.
 	command := "sh -c " + quote(script) + " enb \"$HOME\""
 	if p.Sudo {
@@ -270,7 +274,17 @@ if docker ps -a --format '{{.Names}}' | grep -Eq '(^|[-_])(enb|lite|komari).*age
 `, "")
 }
 
-const NodeImage = "nodokaqwq/enb@sha256:f54d72ae95071ffde78118248e5dce868c8e02ae50682689e318d1ddddc7ae96"
+const NodeImage = "nodokaqwq/enb@sha256:218003521e37d3b7bab117532447cbcd040f9a86fa4a0d6a7387d25c51ecd1bb"
+
+// Older managed installations remain eligible for non-destructive permission
+// upgrades after the release default changes. Never accept arbitrary images.
+const LegacyNodeImage = "nodokaqwq/enb@sha256:f54d72ae95071ffde78118248e5dce868c8e02ae50682689e318d1ddddc7ae96"
+
+func managedBaseImageGuard() string {
+	return `enb_base_image=$(docker compose -p enb-managed-node -f compose.yaml config --images)
+case "$enb_base_image" in ` + quote(NodeImage) + `|` + quote(LegacyNodeImage) + `) ;; *) exit 1;; esac
+`
+}
 
 // Only the host's default-route public IPv6 is advertised, not overlay/bridge IPs.
 const hostIPv6Report = `
@@ -288,7 +302,9 @@ printf 'ENB_HOST_IPV6=%s\n' "$enb_ipv6" > .env
 // or silently measuring the overlay. Run in staging before touching old data.
 const hostNICReport = `
 command -v ip >/dev/null 2>&1 || exit 72
-enb_nics=$({ ip -o -4 route show default; ip -o -6 route show default; } 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="dev") print $(i+1)}' | LC_ALL=C sort -u)
+enb_routes_v4=$(ip -o -4 route show default 2>/dev/null) || exit 72
+enb_routes_v6=$(ip -o -6 route show default 2>/dev/null) || exit 72
+enb_nics=$(printf '%s\n%s\n' "$enb_routes_v4" "$enb_routes_v6" | awk '{for(i=1;i<NF;i++) if($i=="dev") print $(i+1)}' | LC_ALL=C sort -u)
 test -n "$enb_nics" || exit 72
 enb_include=""
 for enb_nic in $enb_nics; do
@@ -378,8 +394,8 @@ cat > "$enb_stage/compose.yaml"
 (cd "$enb_stage"
 ` + hostIPv6Report + hostNICReport + `
 )
-docker compose -p enb-managed-node -f "$enb_stage/compose.yaml" config --quiet
-docker compose -p enb-managed-node -f "$enb_stage/compose.yaml" pull
+docker compose --env-file "$enb_stage/.env" -p enb-managed-node -f "$enb_stage/compose.yaml" config --quiet
+docker compose --env-file "$enb_stage/.env" -p enb-managed-node -f "$enb_stage/compose.yaml" pull
 `
 	if overwrite {
 		script += `
@@ -394,7 +410,7 @@ if [ -e "$enb_target" ]; then
   find "$enb_target" -type d -exec mountpoint -q '{}' \; -print > "$enb_stage/mountpoints"
   test ! -s "$enb_stage/mountpoints"
 fi
-docker compose -p enb-managed-node -f "$enb_stage/compose.yaml" down --remove-orphans
+docker compose --env-file "$enb_stage/.env" -p enb-managed-node -f "$enb_stage/compose.yaml" down --remove-orphans
 test ! -L "$enb_parent"
 test ! -L "$enb_target"
 if [ -e "$enb_target" ]; then
@@ -439,6 +455,7 @@ test -d "$enb_target"
 test -f "$enb_target/compose.yaml"
 test ! -L "$enb_target/compose.yaml"
 test ! -L "$enb_target/.env"
+test ! -L "$enb_target/permissions.yaml"
 ` + managedProjectGuard + `
 command -v flock >/dev/null
 exec 9< "$enb_parent"
@@ -453,11 +470,15 @@ test ! -L nodemgt
 		script += `
 # Keep lifecycle scoped to the known single-service ENB Node installation.
 test "$(docker compose -p enb-managed-node -f compose.yaml config --services)" = node
-test "$(docker compose -p enb-managed-node -f compose.yaml config --images)" = ` + quote(NodeImage) + `
+` + managedBaseImageGuard() + `
 docker compose -p enb-managed-node -f compose.yaml config --quiet
-docker compose -p enb-managed-node -f compose.yaml pull node
-docker compose -p enb-managed-node -f compose.yaml up -d --no-deps node
-test -n "$(docker compose -p enb-managed-node -f compose.yaml ps --status running -q node)"
+set -- -p enb-managed-node -f compose.yaml
+if [ -f permissions.yaml ]; then set -- "$@" -f permissions.yaml; fi
+docker compose "$@" config --quiet
+test "$(docker compose "$@" config --services)" = node
+docker compose "$@" pull node
+docker compose "$@" up -d --no-deps node
+test -n "$(docker compose "$@" ps --status running -q node)"
 `
 	} else {
 		script += `

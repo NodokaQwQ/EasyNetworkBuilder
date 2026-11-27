@@ -228,7 +228,7 @@ test("remote terminal stdin is disabled until the session is ready and after it 
   assert.equal(terminal.options.disableStdin, false);
   setRemoteTerminalInputEnabled(null, true);
   assert.match(terminalSource, /disableStdin: true/);
-  assert.match(terminalSource, /setRemoteTerminalInputEnabled\(terminal\.current, true\)/);
+  assert.match(terminalSource, /setRemoteTerminalInputEnabled\(terminal\.current, message\.terminal_enabled !== false\)/);
   assert.match(terminalSource, /setRemoteTerminalInputEnabled\(terminal\.current, false\)/);
 });
 

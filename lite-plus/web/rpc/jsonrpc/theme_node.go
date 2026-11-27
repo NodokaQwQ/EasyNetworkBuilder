@@ -19,6 +19,7 @@ var themeNodeForbiddenJSONKeys = []string{
 	"deployment_status",
 	"remote_protocol",
 	"remote_control_enabled",
+	"remote_permissions",
 	"remote_control_protected",
 	"mcp_full",
 	"mcp_full_version",

@@ -52,9 +52,14 @@ func ReconcileNodeAssociations(db *gorm.DB) error {
 // ForgetCredentials retains the deployment association, even for failed installs.
 // Removing SSH access must never make an already managed peer eligible for reinstall.
 func ForgetCredentials(db *gorm.DB, peerID string) error {
-	return db.Model(&Profile{}).Where("peer_id = ?", peerID).Updates(map[string]any{
-		"password": "", "private_key": "", "passphrase": "", "sudo_password": "", "auth_type": "", "sudo": false,
-	}).Error
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := RevokeHostPolicy(tx, peerID); err != nil {
+			return err
+		}
+		return tx.Model(&Profile{}).Where("peer_id = ?", peerID).Updates(map[string]any{
+			"password": "", "private_key": "", "passphrase": "", "sudo_password": "", "auth_type": "", "sudo": false,
+		}).Error
+	})
 }
 
 func UpdateJob(db *gorm.DB, id, nodeID, status, stage, message string) error {
@@ -153,7 +158,12 @@ func SaveProfile(db *gorm.DB, in ProfileInput) error {
 	if !p.Sudo {
 		p.SudoPassword = ""
 	}
-	return db.Save(&p).Error
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := RevokeHostPolicy(tx, p.PeerID); err != nil {
+			return err
+		}
+		return tx.Save(&p).Error
+	})
 }
 
 func validFingerprint(value string) bool {

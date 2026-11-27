@@ -60,7 +60,7 @@ func processProtectionEvent(conn *ws.SafeConn, method string, params interface{}
 	if !ok {
 		return false
 	}
-	if !pkg_flags.RemoteControlEnabled() {
+	if !pkg_flags.PermissionAllowed("protection") {
 		reportProtectionResult(conn, v2.ProtectionResultParams{
 			RequestID: protectionParamsRequestID(params),
 			Kind:      kind,

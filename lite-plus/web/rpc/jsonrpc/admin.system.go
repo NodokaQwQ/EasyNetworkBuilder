@@ -460,7 +460,7 @@ func classifyRemoteExecTargets(uuids []string, known map[string]models.Client, c
 			classified.unavailable = append(classified.unavailable, uuid)
 			continue
 		}
-		if err := remote.AgentRemoteAllowed(client); err != nil {
+		if !remote.AgentPermissionAllowed(client, "exec") {
 			classified.unavailable = append(classified.unavailable, uuid)
 			continue
 		}

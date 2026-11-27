@@ -6,6 +6,11 @@ lite-plus/web/public/systemUI/dist
 **/.env.*
 **/*.key
 **/*.log
+**/*.db
+**/*.db-*
+**/*.sqlite*
+**/*.pem
+**/*.p12
+**/data
 go-backend
-lite-plus-agent
 lib

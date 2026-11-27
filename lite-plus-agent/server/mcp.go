@@ -72,7 +72,7 @@ func acceptMCPExec(params v2.MCPExecParams) (run bool, ack bool) {
 	if taskID == "" || strings.TrimSpace(params.Command) == "" {
 		return false, false
 	}
-	if !pkg_flags.RemoteControlEnabled() {
+	if !pkg_flags.PermissionAllowed("mcp") || !pkg_flags.PermissionAllowed("exec") {
 		finishTask(taskID, "remote control is disabled.", -1)
 		return false, true
 	}
@@ -97,7 +97,7 @@ func executeMCPExec(params v2.MCPExecParams) {
 	if taskID == "" {
 		taskID = strings.TrimSpace(params.OperationID)
 	}
-	if !pkg_flags.RemoteControlEnabled() {
+	if !pkg_flags.PermissionAllowed("mcp") || !pkg_flags.PermissionAllowed("exec") {
 		finishTask(taskID, "remote control is disabled.", -1)
 		return
 	}
@@ -146,7 +146,7 @@ func acceptMCPFile(params v2.MCPFileParams) (run bool, ack bool) {
 	if taskID == "" || len(bytes.TrimSpace(params.Request)) == 0 {
 		return false, false
 	}
-	if !pkg_flags.RemoteControlEnabled() {
+	if !pkg_flags.PermissionAllowed("mcp") || !pkg_flags.PermissionAllowed("files") {
 		finishTask(taskID, "remote control is disabled.", -1)
 		return false, true
 	}
@@ -171,7 +171,7 @@ func executeMCPFile(params v2.MCPFileParams) {
 	if taskID == "" {
 		return
 	}
-	if !pkg_flags.RemoteControlEnabled() {
+	if !pkg_flags.PermissionAllowed("mcp") || !pkg_flags.PermissionAllowed("files") {
 		finishTask(taskID, "remote control is disabled.", -1)
 		return
 	}

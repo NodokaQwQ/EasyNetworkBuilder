@@ -10,6 +10,30 @@ import (
 	"testing"
 )
 
+func TestHostNetworkDeploymentBoundaries(t *testing.T) {
+	compose, err := Compose("test-token", Settings{ControlURL: "https://head.example.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"    ports:", "    networks:", "privileged:", "cap_add:", "/var/run/docker.sock", "/proc:"} {
+		if strings.Contains(compose, forbidden) {
+			t.Fatalf("host networking added unexpected access: %s", forbidden)
+		}
+	}
+	script := deploymentScript(true)
+	if strings.Index(script, hostNICReport) > strings.Index(script, " down --remove-orphans") {
+		t.Fatal("NIC preflight occurs after stopping old service")
+	}
+	if !strings.Contains(script, `--env-file "$enb_stage/.env"`) {
+		t.Fatal("staged environment must be selected explicitly")
+	}
+	for _, resume := range []bool{false, true} {
+		if strings.Contains(lifecycleScript(resume), hostNICReport) || strings.Contains(lifecycleScript(resume), "ENB_HOST_NICS=") {
+			t.Fatal("lifecycle rewrites retained network configuration")
+		}
+	}
+}
+
 // Opt-in isolated Docker check: harmless sleep service, no host port listeners.
 func TestHostNetworkRealCompose(t *testing.T) {
 	if os.Getenv("ENB_OVERWRITE_COMPOSE_TEST") != "1" {
@@ -78,6 +102,7 @@ func TestHostNICReport(t *testing.T) {
 		{"bridge", "default dev docker0", "", ""},
 		{"mixed-overlay", "default dev ens3", "default dev tun0", ""},
 		{"unknown-device", "default dev eth9", "", ""},
+		{"route-error", "", "", ""},
 		{"injection", "default dev ens3;bad", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -88,6 +113,9 @@ func TestHostNICReport(t *testing.T) {
 				}
 			}
 			fake := "#!/bin/sh\ncase \"$*\" in *-4*) printf '%s\\n' " + quote(tc.v4) + ";; *) printf '%s\\n' " + quote(tc.v6) + ";; esac\n"
+			if tc.name == "route-error" {
+				fake = "#!/bin/sh\nexit 1\n"
+			}
 			if err := os.WriteFile(filepath.Join(dir, "ip"), []byte(fake), 0700); err != nil {
 				t.Fatal(err)
 			}

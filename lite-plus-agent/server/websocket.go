@@ -45,11 +45,15 @@ var v2BasePullCapabilities = []string{"exec", "ping", "route", "message", "event
 func currentV2PullCapabilities() ([]string, map[string]int) {
 	caps := append([]string(nil), v2BasePullCapabilities...)
 	versions := map[string]int{}
-	if pkg_flags.RemoteControlEnabled() {
+	if pkg_flags.PermissionAllowed("mcp") {
 		caps = append(caps, v2.CapabilityMCPFull)
 		versions[v2.CapabilityMCPFull] = v2.MCPFullVersion
+	}
+	if pkg_flags.PermissionAllowed("firewall") {
 		caps = append(caps, v2.CapabilityFirewall)
 		versions[v2.CapabilityFirewall] = v2.FirewallVersion
+	}
+	if pkg_flags.PermissionAllowed("protection") {
 		caps = append(caps, v2.CapabilityServiceProtection)
 		versions[v2.CapabilityServiceProtection] = v2.ServiceProtectionVersion
 	}
@@ -534,7 +538,7 @@ func processV2Event(conn *ws.SafeConn, method string, params interface{}, eventI
 	case v2.MethodAgentRemote:
 		var p v2.RemoteRequestParams
 		if err := v2.BindParams(params, &p); err == nil && p.RequestID != "" && p.Ticket != "" {
-			go establishRemoteConnection(flags.Token, p.RequestID, p.Ticket, flags.Endpoint)
+			go establishRemoteConnectionForSource(flags.Token, p.RequestID, p.Ticket, flags.Endpoint, p.Source)
 			return true
 		} else {
 			log.Printf("bad v2 remote params: %v", err)
@@ -568,6 +572,10 @@ func processV2Event(conn *ws.SafeConn, method string, params interface{}, eventI
 }
 
 func establishRemoteConnection(token, id, ticket, endpoint string) {
+	establishRemoteConnectionForSource(token, id, ticket, endpoint, "")
+}
+
+func establishRemoteConnectionForSource(token, id, ticket, endpoint, source string) {
 	endpoint = strings.TrimSuffix(endpoint, "/") + "/api/clients/remote"
 	endpoint = "ws" + strings.TrimPrefix(endpoint, "http")
 	if convertedEndpoint, err := utils.ConvertIDNToASCII(endpoint); err == nil {
@@ -582,7 +590,7 @@ func establishRemoteConnection(token, id, ticket, endpoint string) {
 		return
 	}
 	conn.SetReadLimit(remoteWebSocketReadLimit)
-	terminal.StartRemoteSession(conn)
+	terminal.StartRemoteSessionForSource(conn, source == "mcp")
 	_ = conn.Close()
 }
 

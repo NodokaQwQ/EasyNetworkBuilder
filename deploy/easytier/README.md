@@ -51,6 +51,10 @@ RPC 通常不提供应用级只读权限。ENB 固定查询命令只是应用约
 
 新自动安装生成 host 网络 Compose，无 `ports`；宿主需安装 `iproute2`。安装脚本在暂存目录读取 IPv4/IPv6 默认路由的全部 `dev`，排序去重，拒绝 loopback、Docker bridge/veth、TUN/TAP、常见 overlay，以及缺少 `/sys/class/net/<接口>/device` 的接口。通过后写入 `.env` 的 `ENB_HOST_NICS`，Compose 使用必填插值传给 `AGENT_INCLUDE_NICS`。缺值或探测失败不会回退到所有网卡，且发生在 pull/down/删除旧目录之前。
 
+本轮为源码变更，尚未发布新镜像或更新线上 Head/Node；线上 `.14` 的旧模板仍使用 bridge。以下说明不代表现有实例已经切换。
+
+验证：模拟 IPv4/IPv6 同口去重、不同出口、IPv6-only、multipath、无默认路由、命令失败、隧道/桥接/未知设备及非法名称；失败不得停止旧项目。相关后端竞态、全仓 vet、749 前端测试/build/ESLint通过，全仓后端跳过4项外网GeoIP后通过。隔离真实 Compose（仅 sleep，无代理监听）确认生成模板实际为 host、网卡缺值拒绝、环境插值正确；真实覆盖和保留数据生命周期回归通过。未进行线上迁移或真实宿主流量对比验收。
+
 - 服务器速度、累计与服务器账本改为整机经过这些网卡的流量；其他容器及独立代理也包含。用户/套餐流量仍由 ENB 内核用户计数提供，完全独立。
 - 不同时累计出口与桥接/TUN，避免重复。默认路由自动选择不是任意拓扑识别：bond/VLAN、策略路由、VPN 默认出口、多网卡内网需人工核定；仅走未选网卡或 loopback 的流量不包含，也不保证与厂商账单一致。
 - host 网络减少网络隔离，内核直接占宿主端口。未新增 privileged、capabilities、宿主 `/proc` 或 Docker Socket 挂载；不意味着可忽略主机权限边界。检查现有代理与双栈端口，尤其 HK/MY 旧映射，不能盲目迁移。

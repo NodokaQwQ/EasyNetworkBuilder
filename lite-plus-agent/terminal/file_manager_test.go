@@ -171,6 +171,10 @@ func TestFilesystemRootCannotBeRenamed(t *testing.T) {
 
 func TestCopyRegularFile(t *testing.T) {
 	directory := t.TempDir()
+	directory, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
 	source := filepath.Join(directory, "source.txt")
 	destination := filepath.Join(directory, "destination.txt")
 	if err := os.WriteFile(source, []byte("copied content"), 0o640); err != nil {
@@ -195,6 +199,10 @@ func TestCopyRegularFile(t *testing.T) {
 
 func TestCopyDirectoryRecursively(t *testing.T) {
 	parent := t.TempDir()
+	parent, err := filepath.EvalSymlinks(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
 	source := filepath.Join(parent, "source")
 	destination := filepath.Join(parent, "destination")
 	if err := os.MkdirAll(filepath.Join(source, "nested"), 0o750); err != nil {

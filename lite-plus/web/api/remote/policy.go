@@ -3,6 +3,7 @@ package remote
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/nuomiiiii/lite/database/models"
@@ -40,6 +41,23 @@ func AgentRemoteAllowed(client models.Client) error {
 		return errAgentRemoteDisabled
 	}
 	return nil
+}
+
+// Empty allowlist is the legacy total switch. New Agents independently enforce
+// the same feature gates; the panel must not advertise an unavailable action.
+func AgentPermissionAllowed(client models.Client, name string) bool {
+	if AgentRemoteAllowed(client) != nil {
+		return false
+	}
+	if client.RemotePermissions == "" {
+		return true
+	}
+	for _, v := range strings.Split(client.RemotePermissions, ",") {
+		if v == name {
+			return true
+		}
+	}
+	return false
 }
 
 func remotePolicyStatus(err error) int {

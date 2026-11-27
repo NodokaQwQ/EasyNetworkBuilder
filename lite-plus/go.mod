@@ -31,6 +31,11 @@ require (
 require github.com/MMWOrg/mmwX-plugins/proxyparser v0.4.0
 
 require (
+	github.com/kr/fs v0.1.0 // indirect
+	github.com/pkg/sftp v1.13.9
+)
+
+require (
 	github.com/fxamacker/cbor/v2 v2.9.4 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/go-webauthn/webauthn v0.18.2
