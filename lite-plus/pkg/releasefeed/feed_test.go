@@ -13,6 +13,40 @@ func validRelease() Release {
 	return Release{Version: "0.0.1", Hash: "abcdef123", Image: "docker.io/nodokaqwq/enb@sha256:" + strings.Repeat("a", 64), Platform: "linux/amd64", Channel: "stable", Rollback: "restore-nodemgt-v1", MinHead: "0.0.1", FromVersions: []string{"0.2.1-enb-test"}, PublishedAt: "2026-11-27T00:00:00Z"}
 }
 
+func TestLatestNodeForInstall(t *testing.T) {
+	old := validRelease()
+	newer := old
+	newer.Version = "0.0.9"
+	newer.Image = "docker.io/nodokaqwq/enb@sha256:" + strings.Repeat("b", 64)
+	future := old
+	future.Version = "0.0.10"
+	future.MinHead = "0.0.3"
+	for _, releases := range [][]Release{{newer, old, future}, {future, old, newer}} {
+		got, err := LatestNodeForInstall(releases, "0.0.2", "linux/amd64")
+		if err != nil || got.Image != newer.Image {
+			t.Fatalf("latest compatible selection: %+v %v", got, err)
+		}
+	}
+	for _, tc := range []struct {
+		head, platform string
+		releases       []Release
+	}{
+		{"0.0.2", "linux/amd64", nil},
+		{"0.0.2", "linux/arm64", []Release{old}},
+		{"unknown", "linux/amd64", []Release{old}},
+		{"0.0.2", "linux/amd64", []Release{future}},
+	} {
+		if _, err := LatestNodeForInstall(tc.releases, tc.head, tc.platform); err == nil {
+			t.Fatal("accepted unavailable or incompatible release")
+		}
+	}
+	invalid := old
+	invalid.Image = "docker.io/nodokaqwq/enb:node-latest"
+	if _, err := LatestNodeForInstall([]Release{invalid}, "0.0.2", "linux/amd64"); err == nil {
+		t.Fatal("accepted mutable image")
+	}
+}
+
 func TestCachedChecksForceRefreshAndErrors(t *testing.T) {
 	old := fetchCatalog
 	t.Cleanup(func() { fetchCatalog = old; cache.entries = map[string]cacheEntry{} })

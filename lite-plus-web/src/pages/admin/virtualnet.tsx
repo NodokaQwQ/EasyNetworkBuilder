@@ -16,7 +16,7 @@ type Peer = { id: string; hostname: string; ipv4: string; ipv6: string; version:
 type Profile = { peer_id: string; address: string; port: number; username: string; fingerprint: string; auth_type: string; sudo: boolean; node_uuid: string; has_credentials: boolean; paused: boolean };
 type Job = { id: string; peer_id: string; status: string; stage: string; error: string };
 type Form = Omit<Profile, "node_uuid" | "has_credentials" | "paused"> & { password: string; private_key: string; passphrase: string; sudo_password: string };
-type DeploymentSettings = { control_url: string; control_ip: string };
+type DeploymentSettings = { control_url: string; control_ip: string; easytier_rpc?: string; easytier_instance?: string };
 type InstallationCheck = { confirmation_token: string; requires_overwrite: boolean; directory: string; node_uuid: string; installation: { directory: boolean; compose: boolean; running: boolean } };
 
 export default function VirtualNetwork() {
@@ -103,7 +103,7 @@ export default function VirtualNetwork() {
     <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}>
       <Typography variant="h5" component="h1">{t("virtualnet.title")}</Typography>
       <Stack direction="row" spacing={1}>
-        <Button disabled={busy || !settings} onClick={() => { setError(""); setSettingsForm({ control_url: settings?.control_url || "", control_ip: settings?.control_ip || "" }); }}>{t("virtualnet.deployment_settings")}</Button>
+        <Button disabled={busy || !settings} onClick={() => { setError(""); setSettingsForm({ ...settings, control_url: settings?.control_url || "", control_ip: settings?.control_ip || "" }); }}>{t("virtualnet.deployment_settings")}</Button>
         <Button disabled={busy} onClick={() => void action(refresh)}>{t("virtualnet.refresh")}</Button>
       </Stack>
     </Stack>
@@ -183,6 +183,8 @@ export default function VirtualNetwork() {
         <Alert severity="info">{t("virtualnet.control_hint")}</Alert>
         {error && <Alert severity="error">{error}</Alert>}
         {settingsForm && <>
+		  <TextField label="EasyTier RPC 地址" value={settingsForm.easytier_rpc || ""} onChange={e => setSettingsForm({ ...settingsForm, easytier_rpc: e.target.value })} placeholder="127.0.0.1:15888" helperText="留空使用宿主机环境配置；这里只选择现有 EasyTier RPC，不修改组网配置。" />
+		  <TextField label="EasyTier 实例名（可选）" value={settingsForm.easytier_instance || ""} onChange={e => setSettingsForm({ ...settingsForm, easytier_instance: e.target.value })} />
           <TextField label={t("virtualnet.control_url")} value={settingsForm.control_url} onChange={e => setSettingsForm({ ...settingsForm, control_url: e.target.value })} placeholder="https://head.example.com" helperText={t("virtualnet.control_url_hint")} />
           <TextField label={t("virtualnet.control_ip")} value={settingsForm.control_ip} onChange={e => setSettingsForm({ ...settingsForm, control_ip: e.target.value })} helperText={t("virtualnet.control_ip_hint")} />
         </>}

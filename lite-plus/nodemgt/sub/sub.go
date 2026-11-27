@@ -465,6 +465,7 @@ func clashProxy(n Node) string {
 		b.WriteString("    reality-opts:\n")
 		fmt.Fprintf(&b, "      public-key: %s\n", n.PublicKey)
 		fmt.Fprintf(&b, "      short-id: %s\n", n.ShortID)
+		b.WriteString("      support-x25519mlkem768: true\n")
 	}
 	switch n.Type {
 	case "ws":
@@ -789,6 +790,9 @@ func RenderV2RayBase64(nodes []Node, extra []string) string {
 		}
 		if n.PublicKey != "" {
 			q.Set("pbk", n.PublicKey)
+			if n.Security == "reality" {
+				q.Set("support-x25519mlkem768", "true")
+			}
 		}
 		if n.ShortID != "" {
 			q.Set("sid", n.ShortID)

@@ -22,6 +22,19 @@ func TestNodeReleaseAllowlist(t *testing.T) {
 	}
 }
 
+func TestComposeSelectedRelease(t *testing.T) {
+	release := testNodeRelease()
+	release.Image = "docker.io/nodokaqwq/enb@sha256:" + strings.Repeat("b", 64)
+	compose, err := ComposeRelease("isolated-token", Settings{ControlURL: "https://head.example.test"}, release)
+	if err != nil || !strings.Contains(compose, "image: "+release.Image) || strings.Contains(compose, "image: "+NodeImage) {
+		t.Fatalf("selected digest not used: %s %v", compose, err)
+	}
+	release.Image = "docker.io/nodokaqwq/enb:node-latest"
+	if _, err := ComposeRelease("isolated-token", Settings{ControlURL: "https://head.example.test"}, release); err == nil {
+		t.Fatal("accepted unpinned release")
+	}
+}
+
 func testNodeRelease() NodeRelease {
 	return NodeRelease{Version: "0.0.1", Hash: "abcdef123", Image: "docker.io/" + NodeImage, Platform: "linux/amd64", Channel: "stable", Rollback: "restore-nodemgt-v1", MinHead: "0.0.1", FromVersions: []string{"0.2.1-enb-test"}, PublishedAt: "2026-11-27T00:00:00Z"}
 }

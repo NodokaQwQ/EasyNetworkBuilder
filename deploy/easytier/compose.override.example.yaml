@@ -9,9 +9,9 @@ services:
         # Required: pin an image digest matching the existing EasyTier core version.
         EASYTIER_IMAGE: ${EASYTIER_IMAGE:?set matching EasyTier image digest}
     # Share the existing EasyTier network namespace so its loopback RPC remains private.
-    network_mode: service:easytier
+    network_mode: service:${EASYTIER_SERVICE:?set existing EasyTier service name}
     environment:
-      ENB_EASYTIER_RPC: 127.0.0.1:15888
+      ENB_EASYTIER_RPC: ${EASYTIER_RPC:-127.0.0.1:15888}
       ENB_EASYTIER_CLI: /usr/local/bin/easytier-cli
       ENB_EASYTIER_INSTANCE: ${EASYTIER_INSTANCE:-}
       # Configure the Node HTTPS control URL / optional virtual IP on /admin/virtualnet.

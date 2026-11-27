@@ -3,6 +3,7 @@ package jsonrpc
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -10,7 +11,9 @@ import (
 	"github.com/nuomiiiii/lite/database/auditlog"
 	"github.com/nuomiiiii/lite/database/clients"
 	"github.com/nuomiiiii/lite/database/dbcore"
+	"github.com/nuomiiiii/lite/pkg/releasefeed"
 	"github.com/nuomiiiii/lite/pkg/rpc"
+	"github.com/nuomiiiii/lite/utils"
 	logger "github.com/nuomiiiii/lite/utils/log"
 	"github.com/nuomiiiii/lite/virtualnet"
 	agent_runtime "github.com/nuomiiiii/lite/web/agent"
@@ -253,7 +256,7 @@ func virtualnetDeploy(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.J
 	}
 	go func() {
 		defer virtualnetDeployment.Unlock()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()
 		update := func(status, stage, message string) bool {
 			if e := virtualnet.UpdateJob(db, job.ID, p.NodeUUID, status, stage, message); e != nil {
@@ -272,6 +275,34 @@ func virtualnetDeploy(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.J
 			return
 		}
 		var id, token string
+		// Force a fresh trusted catalog before registering a Node or touching
+		// remote data. Freeze the chosen digest for this entire transaction.
+		releases, _, e := releasefeed.Fetch(ctx, "node", true)
+		if e != nil {
+			update("failed", "release_check", "could not read Node release catalog; deployment stopped")
+			return
+		}
+		release, e := releasefeed.LatestNodeForInstall(releases, utils.CurrentVersion, "linux/amd64")
+		if e != nil {
+			update("failed", "release_check", e.Error())
+			return
+		}
+		if !update("running", "image_acquisition", "") {
+			return
+		}
+		var profiles []virtualnet.Profile
+		var policies []virtualnet.Policy
+		var donors []virtualnet.Profile
+		if db.Find(&profiles).Error == nil && db.Find(&policies).Error == nil {
+			if discovery, err := virtualnet.Discover(ctx); err == nil {
+				donors = virtualnet.RelayCandidates(discovery.Peers, profiles, policies, p.PeerID)
+			}
+		}
+		preparedImage, e := virtualnet.EnsureDeploymentImage(ctx, p, donors, release)
+		if e != nil {
+			update("failed", "image_acquisition", e.Error())
+			return
+		}
 		if p.NodeUUID != "" {
 			id = p.NodeUUID
 			token, e = clients.GetClientTokenByUUID(id)
@@ -289,7 +320,8 @@ func virtualnetDeploy(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.J
 			update("failed", "registration", "could not save Node association")
 			return
 		}
-		compose, e := virtualnet.Compose(token, settings)
+		compose, e := virtualnet.ComposeRelease(token, settings, release)
+		compose = strings.Replace(compose, "image: "+release.Image, "image: "+preparedImage, 1)
 		if e != nil {
 			update("failed", "compose", e.Error())
 			return
@@ -298,7 +330,7 @@ func virtualnetDeploy(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.J
 			return
 		}
 		previousConnection, _ := agent_runtime.ActiveConnectionID(id)
-		if e := virtualnet.Deploy(ctx, p, compose, options.OverwriteConfirmed); e != nil {
+		if e := virtualnet.DeployPrepared(ctx, p, compose, options.OverwriteConfirmed); e != nil {
 			update("failed", "compose", e.Error()+"; partial installation is preserved; inspect enb/node in the SSH login user's home before retrying")
 			return
 		}

@@ -1069,6 +1069,7 @@ func doInitialize() error {
 	if err := instance.AutoMigrate(&virtualnet.Profile{}, &virtualnet.Job{}, &virtualnet.Settings{}, &virtualnet.Policy{}); err != nil {
 		return fmt.Errorf("failed to create virtual network tables: %w", err)
 	}
+	virtualnet.DiscoverySettings = func() (virtualnet.Settings, error) { return virtualnet.LoadSettings(instance) }
 	if err := instance.Model(&virtualnet.Job{}).Where("status = ?", "running").Updates(map[string]any{"status": "interrupted", "error": "Head restarted; inspect remote installation before retrying"}).Error; err != nil {
 		return fmt.Errorf("failed to recover virtual network jobs: %w", err)
 	}

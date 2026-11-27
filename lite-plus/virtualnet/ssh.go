@@ -1,7 +1,6 @@
 package virtualnet
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -133,6 +132,10 @@ func run(ctx context.Context, client *ssh.Client, p Profile, script, input strin
 }
 
 func runOutput(ctx context.Context, client *ssh.Client, p Profile, script, input string, output io.Writer) error {
+	return runStream(ctx, client, p, script, strings.NewReader(input), output)
+}
+
+func runStream(ctx context.Context, client *ssh.Client, p Profile, script string, input io.Reader, output io.Writer) error {
 	s, e := client.NewSession()
 	if e != nil {
 		return errors.New("SSH session failed")
@@ -161,12 +164,12 @@ func runOutput(ctx context.Context, client *ssh.Client, p Profile, script, input
 				"if [ \"$enb_frame\" != " + quote(marker) + " ]; then IFS= read -r enb_frame || exit 1; fi; " +
 				"test \"$enb_frame\" = " + quote(marker) + " || exit 1; unset enb_frame; exec sh -c " + quote(script) + " enb \"$1\""
 			command = "sudo -S -p '' -- sh -c " + quote(wrapper) + " enb \"$HOME\""
-			input = password + "\n" + marker + "\n" + input
+			input = io.MultiReader(strings.NewReader(password+"\n"+marker+"\n"), input)
 		} else {
 			command = "sudo -n -- " + command
 		}
 	}
-	s.Stdin = bytes.NewBufferString(input)
+	s.Stdin = input
 	done := make(chan error, 1)
 	go func() { done <- s.Run(command) }()
 	select {
@@ -292,7 +295,10 @@ const LegacyNodeImage = "nodokaqwq/enb@sha256:f54d72ae95071ffde78118248e5dce868c
 
 func managedBaseImageGuard() string {
 	return `enb_base_image=$(docker compose -p enb-managed-node -f compose.yaml config --images)
-case "$enb_base_image" in ` + quote(NodeImage) + `|` + quote(LegacyNodeImage) + `) ;; *) exit 1;; esac
+case "$enb_base_image" in
+  ` + quote(NodeImage) + `|` + quote(LegacyNodeImage) + `) ;;
+  *) printf '%s\n' "$enb_base_image" | grep -Eq '^(docker\.io/nodokaqwq/enb@)?sha256:[0-9a-f]{64}$' || exit 1;;
+esac
 `
 }
 
@@ -329,6 +335,18 @@ printf 'ENB_HOST_NICS=%s\n' "$enb_include" >> .env
 `
 
 func Compose(token string, settings Settings) (string, error) {
+	return composeWithImage(token, settings, NodeImage)
+}
+
+// ComposeRelease accepts only a validated, pinned release selected by Head.
+func ComposeRelease(token string, settings Settings, release NodeRelease) (string, error) {
+	if err := release.Validate("node"); err != nil {
+		return "", err
+	}
+	return composeWithImage(token, settings, release.Image)
+}
+
+func composeWithImage(token string, settings Settings, image string) (string, error) {
 	if strings.ContainsAny(token, "\r\n") || token == "" {
 		return "", errors.New("invalid node token")
 	}
@@ -364,7 +382,7 @@ func Compose(token string, settings Settings) (string, error) {
       options:
         max-size: "5m"
         max-file: "2"
-`, NodeImage, extraHosts, scalar(endpoint), scalar(token)), nil
+`, image, extraHosts, scalar(endpoint), scalar(token)), nil
 }
 
 func Deploy(ctx context.Context, p Profile, compose string, overwrite bool) error {
@@ -374,6 +392,20 @@ func Deploy(ctx context.Context, p Profile, compose string, overwrite bool) erro
 	}
 	defer c.Close()
 	return run(ctx, c, p, deploymentScript(overwrite), compose)
+}
+
+// DeployPrepared is used only after the selected image has been acquired and
+// verified. Never contact Docker Hub again during this transaction.
+func DeployPrepared(ctx context.Context, p Profile, compose string, overwrite bool) error {
+	c, _, err := connect(ctx, p, false)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	script := deploymentScript(overwrite)
+	script = strings.Replace(script, `docker compose --env-file "$enb_stage/.env" -p enb-managed-node -f "$enb_stage/compose.yaml" pull || exit 75`, "", 1)
+	script = strings.Replace(script, "enb-managed-node up -d", "enb-managed-node up -d --pull never", 1)
+	return run(ctx, c, p, script, compose)
 }
 
 func deploymentScript(overwrite bool) string {

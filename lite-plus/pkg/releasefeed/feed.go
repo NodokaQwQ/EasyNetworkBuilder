@@ -108,6 +108,30 @@ func (r Release) Compatible(source, head, platform string) bool {
 	return false
 }
 
+// LatestNodeForInstall has no source version: first installs must not use the
+// migration allowlist. Never fall back to a compiled-in or mutable image.
+func LatestNodeForInstall(releases []Release, head, platform string) (Release, error) {
+	var latest Release
+	for _, release := range releases {
+		if err := release.Validate("node"); err != nil {
+			return Release{}, err
+		}
+		comparison, valid := Compare(head, release.MinHead)
+		if release.Platform != platform || !valid || comparison < 0 {
+			continue
+		}
+		if latest.Version == "" {
+			latest = release
+		} else if order, _ := Compare(release.Version, latest.Version); order > 0 {
+			latest = release
+		}
+	}
+	if latest.Version == "" {
+		return Release{}, errors.New("no published stable Node release compatible with this Head and platform")
+	}
+	return latest, nil
+}
+
 func Decode(data []byte, component string) ([]Release, error) {
 	var catalog Catalog
 	if err := json.Unmarshal(data, &catalog); err != nil {

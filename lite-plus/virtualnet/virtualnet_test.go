@@ -248,11 +248,15 @@ func TestSettingsPersistence(t *testing.T) {
 	if _, err = empty.Endpoint(); err == nil {
 		t.Fatal("unset settings enabled deployment")
 	}
-	s := Settings{ControlURL: " https://custom.example.test:8443/ ", ControlIP: " 100.64.0.3 "}
+	s := Settings{ControlURL: " https://custom.example.test:8443/ ", ControlIP: " 100.64.0.3 ", EasyTierRPC: " 127.0.0.1:15888 ", EasyTierInstance: " custom-instance "}
 	if err = SaveSettings(db, s); err != nil {
 		t.Fatal(err)
 	}
 	got, err := LoadSettings(db)
+	if got.EasyTierRPC != "127.0.0.1:15888" || got.EasyTierInstance != "custom-instance" { t.Fatal("EasyTier settings not persisted", got) }
+	for _, address := range []string{"bad", "localhost:0", "localhost:99999", ":15888"} {
+		if SaveSettings(db, Settings{EasyTierRPC: address}) == nil { t.Fatal("invalid RPC accepted", address) }
+	}
 	if err != nil || got.ControlURL != "https://custom.example.test:8443" || got.ControlIP != "100.64.0.3" {
 		t.Fatalf("bad settings: %+v %v", got, err)
 	}

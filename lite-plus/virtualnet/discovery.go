@@ -57,8 +57,22 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 	return b.Buffer.Write(p)
 }
 
+// Set once by database initialization; keeps discovery independent of dbcore.
+var DiscoverySettings func() (Settings, error)
+
 func Discover(ctx context.Context) (Discovery, error) {
 	portal := os.Getenv("ENB_EASYTIER_RPC")
+	instance := os.Getenv("ENB_EASYTIER_INSTANCE")
+	if DiscoverySettings != nil {
+		s, err := DiscoverySettings()
+		if err != nil {
+			return Discovery{}, err
+		}
+		if s.EasyTierRPC != "" {
+			portal = s.EasyTierRPC
+			instance = s.EasyTierInstance
+		}
+	}
 	if portal == "" {
 		return Discovery{}, errors.New("configure ENB_EASYTIER_RPC to enable EasyTier discovery")
 	}
@@ -69,7 +83,6 @@ func Discover(ctx context.Context) (Discovery, error) {
 	if bin == "" {
 		bin = "easytier-cli"
 	}
-	instance := os.Getenv("ENB_EASYTIER_INSTANCE")
 	args := []string{"-p", portal, "-o", "json", "-v"}
 	if instance != "" {
 		args = append(args, "--instance-name", instance)

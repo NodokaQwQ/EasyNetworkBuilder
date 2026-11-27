@@ -2,6 +2,7 @@ package virtualnet
 
 import (
 	"errors"
+	"net"
 	"net/netip"
 	"net/url"
 	"strconv"
@@ -12,9 +13,11 @@ import (
 
 // Settings applies only to new Node installations; never to EasyTier itself.
 type Settings struct {
-	ID         uint   `json:"-" gorm:"primaryKey"`
-	ControlURL string `json:"control_url"`
-	ControlIP  string `json:"control_ip"`
+	ID               uint   `json:"-" gorm:"primaryKey"`
+	ControlURL       string `json:"control_url"`
+	ControlIP        string `json:"control_ip"`
+	EasyTierRPC      string `json:"easytier_rpc"`
+	EasyTierInstance string `json:"easytier_instance"`
 }
 
 func (Settings) TableName() string { return "enb_virtualnet_settings" }
@@ -28,6 +31,18 @@ func LoadSettings(db *gorm.DB) (Settings, error) {
 }
 
 func SaveSettings(db *gorm.DB, s Settings) error {
+	s.EasyTierRPC = strings.TrimSpace(s.EasyTierRPC)
+	s.EasyTierInstance = strings.TrimSpace(s.EasyTierInstance)
+	if s.EasyTierRPC != "" {
+		host, port, err := net.SplitHostPort(s.EasyTierRPC)
+		p, pe := strconv.Atoi(port)
+		if err != nil || host == "" || pe != nil || p < 1 || p > 65535 {
+			return errors.New("EasyTier RPC must be host:port")
+		}
+	}
+	if len(s.EasyTierInstance) > 128 || strings.ContainsAny(s.EasyTierInstance, "\x00\r\n") {
+		return errors.New("invalid EasyTier instance name")
+	}
 	s.ControlURL = strings.TrimRight(strings.TrimSpace(s.ControlURL), "/")
 	s.ControlIP = strings.TrimSpace(s.ControlIP)
 	// Clearing the configuration explicitly disables deployment.
