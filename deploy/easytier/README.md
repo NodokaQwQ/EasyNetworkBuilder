@@ -20,7 +20,7 @@
 
 RPC 通常不提供应用级只读权限。ENB 固定查询命令只是应用约束，不能把有权访问 RPC 的 Head 进程视为无权修改 core。更强隔离需以后增加只读查询代理。首版不暴露任意 CLI 执行接口。
 
-构建示例要求 `EASYTIER_IMAGE` 固定为与 core 匹配的 digest，并核对镜像内 CLI 路径及 Alpine 兼容性。先构建前端并复制其 dist 到 `lite-plus/web/public/systemUI/dist`，再在根目录运行 Compose 构建。本仓库保留嵌套源码仓库，不会自动同步前端产物。
+构建示例要求 `EASYTIER_IMAGE` 固定为与 core 匹配的 digest，并核对镜像内 CLI 路径及 Alpine 兼容性。先构建前端并复制其 dist 到 `lite-plus/web/public/systemUI/dist`，再在根目录运行 Compose 构建。三个源码目录现由 ENB 根仓库统一管理，但不会自动同步前端产物。
 
 ## 部署行为与局限
 

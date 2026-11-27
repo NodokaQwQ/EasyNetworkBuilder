@@ -1,0 +1,389 @@
+name: Publish Snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      existing_tag:
+        description: Existing snapshot tag to update in place; leave empty to create a new snapshot
+        required: false
+        type: string
+  push:
+    branches:
+      - Snapshot
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+concurrency:
+  group: snapshot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-ref:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Ensure this is the current snapshot commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          snapshot_branch="Snapshot"
+          if [ "${GITHUB_REF}" != "refs/heads/${snapshot_branch}" ]; then
+            echo "This workflow only publishes refs/heads/${snapshot_branch}. Current ref: ${GITHUB_REF}" >&2
+            exit 1
+          fi
+          git fetch --no-tags --depth=1 origin "${snapshot_branch}"
+          branch_sha="$(git rev-parse FETCH_HEAD)"
+          if [ "${GITHUB_SHA}" != "${branch_sha}" ]; then
+            echo "A newer snapshot commit exists; this run will not publish." >&2
+            exit 1
+          fi
+
+  prepare:
+    needs: validate-ref
+    runs-on: ubuntu-latest
+    outputs:
+      snapshot_tag: ${{ steps.version.outputs.snapshot_tag }}
+      app_version: ${{ steps.version.outputs.app_version }}
+    steps:
+      - name: Generate snapshot version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          existing_tag="${{ inputs.existing_tag }}"
+          if [ -n "${existing_tag}" ]; then
+            [[ "${existing_tag}" =~ ^Snapshot-[0-9]{10}$ ]] || {
+              echo "Invalid existing snapshot tag: ${existing_tag}" >&2
+              exit 1
+            }
+          fi
+          snapshot_tag="Snapshot-$(date -u -d '+8 hours' +%y%m%d%H%M)"
+          echo "snapshot_tag=${snapshot_tag}" >> "${GITHUB_OUTPUT}"
+          echo "app_version=${snapshot_tag}" >> "${GITHUB_OUTPUT}"
+          echo "Snapshot tag: ${snapshot_tag}"
+
+  build-frontend:
+    needs: validate-ref
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build frontend artifact
+        uses: ./.github/actions/build-frontend
+        with:
+          artifact-name: lite-frontend
+          ref: Snapshot
+          theme-ref: main
+
+  test-backend:
+    needs: build-frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Restore frontend artifact
+        uses: ./.github/actions/restore-frontend
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.10"
+          check-latest: false
+
+      - name: Confirm Go 1.26.10
+        run: |
+          set -euo pipefail
+          go version
+          test "$(go env GOVERSION)" = "go1.26.10"
+          echo "GOTOOLCHAIN=local" >> "$GITHUB_ENV"
+
+      - name: Run backend regression suite
+        run: go test ./...
+
+  build-linux:
+    needs: [prepare, build-frontend]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            zig_target: x86_64-linux-musl
+          - goarch: arm64
+            zig_target: aarch64-linux-musl
+          - goarch: 386
+            zig_target: x86-linux-musl
+          - goarch: riscv64
+            zig_target: riscv64-linux-musl
+          - goarch: loong64
+            zig_target: loongarch64-linux-musl
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Restore frontend artifact
+        uses: ./.github/actions/restore-frontend
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.10"
+          check-latest: false
+
+      - name: Confirm Go 1.26.10
+        run: |
+          set -euo pipefail
+          go version
+          test "$(go env GOVERSION)" = "go1.26.10"
+          echo "GOTOOLCHAIN=local" >> "$GITHUB_ENV"
+
+      - name: Install Zig cross-compiler toolchain
+        uses: ./.github/actions/setup-zig
+
+      - name: Build Linux binary
+        env:
+          VERSION: ${{ needs.prepare.outputs.app_version }}
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 1
+          CC: zig cc -target ${{ matrix.zig_target }}
+          GIN_MODE: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_hash="${GITHUB_SHA::7}"
+          go build -trimpath \
+            -ldflags="-s -w -X github.com/nuomiiiii/lite/utils.CurrentVersion=${VERSION} -X github.com/nuomiiiii/lite/utils.VersionHash=${version_hash}" \
+            -o "Lite-linux-${GOARCH}"
+
+      - name: Upload Linux binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lite-linux-${{ matrix.goarch }}
+          path: Lite-linux-${{ matrix.goarch }}
+
+  publish-docker:
+    needs: [prepare, test-backend, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use lowercase GHCR image name
+        run: echo "IMAGE_NAME=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: Ensure commit is still current
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "${GITHUB_REF_NAME}"
+          branch_sha="$(git rev-parse FETCH_HEAD)"
+          if [ "${GITHUB_SHA}" != "${branch_sha}" ]; then
+            echo "A newer snapshot commit exists; Docker publish was skipped." >&2
+            exit 1
+          fi
+
+      - name: Download Docker binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Lite-linux-*
+          path: .
+          merge-multiple: true
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-architecture image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:snapshot
+          no-cache: true
+          provenance: false
+
+      - name: Verify platforms and embedded version
+        env:
+          VERSION: ${{ needs.prepare.outputs.app_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${REGISTRY}/${IMAGE_NAME}:snapshot"
+          expected_hash="${GITHUB_SHA::7}"
+          manifest="$(docker buildx imagetools inspect "${image}")"
+          echo "${manifest}"
+          grep -F 'Platform:  linux/amd64' <<<"${manifest}"
+          grep -F 'Platform:  linux/arm64' <<<"${manifest}"
+          for platform in linux/amd64 linux/arm64; do
+            docker pull --platform "${platform}" "${image}"
+            output="$(docker run --rm --platform "${platform}" "${image}" /app/Lite version --json)"
+            echo "${output}"
+            grep -F "\"version\":\"${VERSION}\"" <<<"${output}"
+            grep -F "\"hash\":\"${expected_hash}\"" <<<"${output}"
+          done
+
+  publish-release:
+    needs: [prepare, publish-docker, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Linux binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Lite-linux-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate checksums and update manifest
+        env:
+          VERSION: ${{ needs.prepare.outputs.app_version }}
+        working-directory: release-assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum Lite-linux-* | sort -k2 > SHA256SUMS
+          node <<'NODE'
+          const crypto = require("crypto");
+          const fs = require("fs");
+          const files = fs.readdirSync(".")
+            .filter((name) => /^Lite-linux-[A-Za-z0-9]+$/.test(name))
+            .sort();
+          const assets = files.map((name) => {
+            const content = fs.readFileSync(name);
+            return {
+              name,
+              os: "linux",
+              arch: name.replace("Lite-linux-", ""),
+              size: content.length,
+              sha256: crypto.createHash("sha256").update(content).digest("hex"),
+            };
+          });
+          fs.writeFileSync("lite-update.json", JSON.stringify({
+            schema: 1,
+            version: process.env.VERSION,
+            version_hash: process.env.GITHUB_SHA.slice(0, 7),
+            assets,
+          }, null, 2) + "\n");
+          NODE
+
+      - name: Create release and upload assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXISTING_TAG: ${{ inputs.existing_tag }}
+          SNAPSHOT_TAG: ${{ needs.prepare.outputs.snapshot_tag }}
+          APP_VERSION: ${{ needs.prepare.outputs.app_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_time="$(date -u -d '+8 hours' '+%Y-%m-%d %H:%M')"
+          version_hash="${GITHUB_SHA::7}"
+          docker_image="ghcr.io/${GITHUB_REPOSITORY,,}:snapshot"
+          release_notes="$(<.github/release-notes/snapshot.md)"
+          release_notes="${release_notes//__RELEASE_TIME__/${release_time}}"
+          release_notes="${release_notes//__UPDATE_TIME__/${release_time}}"
+          release_notes="${release_notes//__VERSION_HASH__/${version_hash}}"
+          release_notes="${release_notes//__APP_VERSION__/${APP_VERSION}}"
+          release_notes="${release_notes//__DOCKER_IMAGE__/${docker_image}}"
+
+          if [ -n "${EXISTING_TAG}" ]; then
+            release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${EXISTING_TAG}" --jq .id)"
+            if gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${SNAPSHOT_TAG}" >/dev/null 2>&1; then
+              gh api --method PATCH \
+                "repos/${GITHUB_REPOSITORY}/git/refs/tags/${SNAPSHOT_TAG}" \
+                -f sha="${GITHUB_SHA}" \
+                -F force=true
+            else
+              gh api --method POST \
+                "repos/${GITHUB_REPOSITORY}/git/refs" \
+                -f ref="refs/tags/${SNAPSHOT_TAG}" \
+                -f sha="${GITHUB_SHA}"
+            fi
+            gh api --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+              -f tag_name="${SNAPSHOT_TAG}" \
+              -f target_commitish="${GITHUB_SHA}" \
+              -f name="${SNAPSHOT_TAG}" \
+              -f body="${release_notes}" \
+              -F draft=false \
+              -F prerelease=true
+            if [ "${EXISTING_TAG}" != "${SNAPSHOT_TAG}" ]; then
+              gh api --method DELETE \
+                "repos/${GITHUB_REPOSITORY}/git/refs/tags/${EXISTING_TAG}"
+            fi
+          elif gh release view "${SNAPSHOT_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh api --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/git/refs/tags/${SNAPSHOT_TAG}" \
+              -f sha="${GITHUB_SHA}" \
+              -F force=true
+            gh release edit "${SNAPSHOT_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${SNAPSHOT_TAG}" \
+              --notes "${release_notes}" \
+              --prerelease
+          else
+            gh release create "${SNAPSHOT_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --target "${GITHUB_SHA}" \
+              --title "${SNAPSHOT_TAG}" \
+              --notes "${release_notes}" \
+              --prerelease
+          fi
+
+          gh release upload "${SNAPSHOT_TAG}" \
+            release-assets/Lite-linux-* \
+            release-assets/SHA256SUMS \
+            release-assets/lite-update.json \
+            --repo "${GITHUB_REPOSITORY}" \
+            --clobber
+
+      - name: Remove older snapshot releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SNAPSHOT_TAG: ${{ needs.prepare.outputs.snapshot_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --limit 1000 \
+            --json tagName,isPrerelease \
+            --jq '.[] | select(.isPrerelease and (.tagName | startswith("Snapshot-"))) | .tagName' |
+          while IFS= read -r tag; do
+            if [ -z "${tag}" ] || [ "${tag}" = "${SNAPSHOT_TAG}" ]; then
+              continue
+            fi
+            gh release delete "${tag}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --cleanup-tag \
+              --yes
+          done

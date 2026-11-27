@@ -1,0 +1,774 @@
+package agent
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/nuomiiiii/lite/database/metricstore"
+	v2 "github.com/nuomiiiii/lite/protocol/v2"
+)
+
+const (
+	v2EventQueueLimit     = 128
+	v2EventTTL            = 5 * time.Minute
+	v2PingEventTTL        = 3 * time.Second
+	pendingRemoteEventTTL = 45 * time.Second
+)
+
+type v2EventQueue struct {
+	events []v2.Event
+	signal chan struct{}
+}
+
+var (
+	v2EventMu     sync.Mutex
+	v2EventQueues = make(map[string]*v2EventQueue)
+)
+
+func getV2EventQueueLocked(uuid string) *v2EventQueue {
+	q := v2EventQueues[uuid]
+	if q == nil {
+		q = &v2EventQueue{signal: make(chan struct{})}
+		v2EventQueues[uuid] = q
+	}
+	return q
+}
+
+func DispatchV2Event(uuid, method string, params any) bool {
+	if conn := GetConnectedClient(uuid); conn != nil {
+		payload := v2.Request{JSONRPC: v2.Version, Method: method, Params: params}
+		if conn.WriteJSON(payload) == nil {
+			return true
+		}
+	}
+	event := EnqueueV2Event(uuid, method, params)
+	return event.ID != ""
+}
+
+func DispatchV2ExecEvent(uuid string, params v2.ExecParams) (queued bool, notified bool) {
+	event := EnqueueV2Event(uuid, v2.MethodAgentExec, params)
+	if event.ID == "" {
+		return false, false
+	}
+	if conn := GetConnectedClient(uuid); conn != nil {
+		payload := v2.Request{JSONRPC: v2.Version, Method: event.Method, Params: event.Params, ID: event.ID}
+		if conn.WriteJSON(payload) == nil {
+			markV2EventHandedOff(uuid, event.ID)
+			return true, true
+		}
+	}
+	return true, false
+}
+
+func markV2EventHandedOff(uuid, eventID string) {
+	if uuid == "" || eventID == "" {
+		return
+	}
+	v2EventMu.Lock()
+	defer v2EventMu.Unlock()
+	q := v2EventQueues[uuid]
+	if q == nil {
+		return
+	}
+	for i := range q.events {
+		if q.events[i].ID == eventID {
+			q.events[i].HandedOff = true
+			return
+		}
+	}
+}
+
+func DispatchV2Config(uuid string, params v2.ConfigParams) (v2.Event, bool, bool) {
+	event := EnqueueV2Event(uuid, v2.MethodAgentConfig, params)
+	if event.ID == "" {
+		return event, false, true
+	}
+	if conn := GetConnectedClient(uuid); conn != nil {
+		payload := v2.Request{JSONRPC: v2.Version, Method: event.Method, Params: event.Params, ID: event.ID}
+		if conn.WriteJSON(payload) == nil {
+			return event, true, true
+		}
+	}
+	return event, false, true
+}
+
+func DispatchPing(uuid string, params v2.PingParams) bool {
+	return DispatchV2Event(uuid, v2.MethodAgentPing, params)
+}
+
+func IsAgentOnline(uuid string) bool {
+	return IsPresent(uuid)
+}
+
+func EnqueueV2Event(uuid, method string, params any) v2.Event {
+	if metricstore.EntityWritesBlocked(uuid) {
+		return v2.Event{}
+	}
+	now := time.Now().UTC()
+	ttl := eventTTL(method, params)
+	event := v2.Event{
+		ID:        newV2EventID(),
+		Method:    method,
+		Params:    params,
+		CreatedAt: now,
+		ExpiresAt: now.Add(ttl),
+	}
+
+	v2EventMu.Lock()
+	q := getV2EventQueueLocked(uuid)
+	expired := pruneExpiredV2EventsLocked(q)
+	coalesceV2EventLocked(q, event)
+	if len(q.events) >= v2EventQueueLimit {
+		v2EventMu.Unlock()
+		handleExpiredV2Events(uuid, expired)
+		return v2.Event{}
+	}
+	q.events = append(q.events, event)
+	close(q.signal)
+	q.signal = make(chan struct{})
+	v2EventMu.Unlock()
+	handleExpiredV2Events(uuid, expired)
+
+	return event
+}
+
+func eventTTL(method string, params any) time.Duration {
+	ttl := v2EventTTL
+	switch method {
+	case v2.MethodAgentPing:
+		ttl = v2PingEventTTL
+	case v2.MethodAgentRoute:
+		ttl = 2 * time.Minute
+	case v2.MethodAgentRemote:
+		ttl = pendingRemoteEventTTL
+	case v2.MethodAgentMCPExec, v2.MethodAgentMCPFile:
+		if until := mcpParamsDeadline(params); !until.IsZero() {
+			remain := time.Until(until)
+			if remain < time.Second {
+				remain = time.Second
+			}
+			if remain < ttl {
+				ttl = remain
+			}
+		}
+	}
+	return ttl
+}
+
+func mcpParamsDeadline(params any) time.Time {
+	switch typed := params.(type) {
+	case v2.MCPExecParams:
+		return earliestMCPTime(typed.OperationDeadline, typed.ExpiresAt, typed.ExecutionLeaseDeadline)
+	case *v2.MCPExecParams:
+		if typed == nil {
+			return time.Time{}
+		}
+		return earliestMCPTime(typed.OperationDeadline, typed.ExpiresAt, typed.ExecutionLeaseDeadline)
+	case v2.MCPFileParams:
+		return earliestMCPTime(typed.OperationDeadline, typed.ExpiresAt, typed.ExecutionLeaseDeadline)
+	case *v2.MCPFileParams:
+		if typed == nil {
+			return time.Time{}
+		}
+		return earliestMCPTime(typed.OperationDeadline, typed.ExpiresAt, typed.ExecutionLeaseDeadline)
+	default:
+		return time.Time{}
+	}
+}
+
+func earliestMCPTime(values ...time.Time) time.Time {
+	var earliest time.Time
+	for _, value := range values {
+		if value.IsZero() {
+			continue
+		}
+		if earliest.IsZero() || value.Before(earliest) {
+			earliest = value
+		}
+	}
+	return earliest
+}
+
+func newV2EventID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err == nil {
+		return hex.EncodeToString(b[:])
+	}
+	return fmt.Sprintf("%d", time.Now().UnixNano())
+}
+
+func coalesceV2EventLocked(q *v2EventQueue, event v2.Event) {
+	key := v2EventCoalesceKey(event)
+	if key == "" {
+		return
+	}
+	filtered := q.events[:0]
+	for _, existing := range q.events {
+		if v2EventCoalesceKey(existing) != key {
+			filtered = append(filtered, existing)
+		}
+	}
+	q.events = filtered
+}
+
+func v2EventCoalesceKey(event v2.Event) string {
+	if event.Method == v2.MethodAgentConfig {
+		return v2.MethodAgentConfig
+	}
+	if event.Method == v2.MethodAgentFirewallApply || event.Method == v2.MethodAgentFirewallSnapshot || event.Method == v2.MethodAgentFirewallAdopt || event.Method == v2.MethodAgentFirewallInstall {
+		return event.Method
+	}
+	if event.Method == v2.MethodAgentProtectionApplyConfig || event.Method == v2.MethodAgentProtectionPrecheck || event.Method == v2.MethodAgentProtectionUpgrade {
+		return event.Method
+	}
+	if event.Method == v2.MethodAgentProtectionGroupSnapshot {
+		switch p := event.Params.(type) {
+		case v2.ProtectionGroupSnapshotParams:
+			if strings.TrimSpace(p.Snapshot.Group) == "" {
+				return ""
+			}
+			return event.Method + ":" + p.Snapshot.Group
+		case *v2.ProtectionGroupSnapshotParams:
+			if p == nil || strings.TrimSpace(p.Snapshot.Group) == "" {
+				return ""
+			}
+			return event.Method + ":" + p.Snapshot.Group
+		}
+		var params v2.ProtectionGroupSnapshotParams
+		if err := bindV2EventParams(event.Params, &params); err != nil || strings.TrimSpace(params.Snapshot.Group) == "" {
+			return ""
+		}
+		return event.Method + ":" + params.Snapshot.Group
+	}
+	if event.Method != v2.MethodAgentPing && event.Method != v2.MethodAgentRoute {
+		return ""
+	}
+	if event.Method == v2.MethodAgentRoute {
+		switch p := event.Params.(type) {
+		case v2.RouteParams:
+			if p.TaskID == 0 {
+				return ""
+			}
+			return fmt.Sprintf("%s:%d", event.Method, p.TaskID)
+		case *v2.RouteParams:
+			if p == nil || p.TaskID == 0 {
+				return ""
+			}
+			return fmt.Sprintf("%s:%d", event.Method, p.TaskID)
+		case map[string]any:
+			if id, ok := anyToUint(p["task_id"]); ok && id != 0 {
+				return fmt.Sprintf("%s:%d", event.Method, id)
+			}
+			return ""
+		}
+		var params v2.RouteParams
+		if err := bindV2EventParams(event.Params, &params); err != nil || params.TaskID == 0 {
+			return ""
+		}
+		return fmt.Sprintf("%s:%d", event.Method, params.TaskID)
+	}
+	switch p := event.Params.(type) {
+	case v2.PingParams:
+		if p.TaskID == 0 {
+			return ""
+		}
+		return fmt.Sprintf("%s:%d", event.Method, p.TaskID)
+	case *v2.PingParams:
+		if p == nil || p.TaskID == 0 {
+			return ""
+		}
+		return fmt.Sprintf("%s:%d", event.Method, p.TaskID)
+	case map[string]any:
+		if id, ok := anyToUint(p["ping_task_id"]); ok && id != 0 {
+			return fmt.Sprintf("%s:%d", event.Method, id)
+		}
+		return ""
+	}
+	var params v2.PingParams
+	if err := bindV2EventParams(event.Params, &params); err != nil || params.TaskID == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d", event.Method, params.TaskID)
+}
+
+func anyToUint(v any) (uint, bool) {
+	switch n := v.(type) {
+	case uint:
+		return n, true
+	case uint64:
+		return uint(n), true
+	case uint32:
+		return uint(n), true
+	case int:
+		if n < 0 {
+			return 0, false
+		}
+		return uint(n), true
+	case int64:
+		if n < 0 {
+			return 0, false
+		}
+		return uint(n), true
+	case float64:
+		if n < 0 {
+			return 0, false
+		}
+		return uint(n), true
+	default:
+		return 0, false
+	}
+}
+
+func bindV2EventParams(raw any, target any) error {
+	if raw == nil {
+		return json.Unmarshal([]byte("null"), target)
+	}
+	switch v := raw.(type) {
+	case json.RawMessage:
+		if len(v) == 0 {
+			return json.Unmarshal([]byte("null"), target)
+		}
+		return json.Unmarshal(v, target)
+	case []byte:
+		if len(v) == 0 {
+			return json.Unmarshal([]byte("null"), target)
+		}
+		return json.Unmarshal(v, target)
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, target)
+}
+
+func ackV2EventsLocked(q *v2EventQueue, ackIDs []string) {
+	if len(ackIDs) == 0 || len(q.events) == 0 {
+		return
+	}
+	acked := make(map[string]struct{}, len(ackIDs))
+	for _, id := range ackIDs {
+		acked[id] = struct{}{}
+	}
+	filtered := q.events[:0]
+	for _, event := range q.events {
+		if _, ok := acked[event.ID]; !ok {
+			filtered = append(filtered, event)
+		}
+	}
+	q.events = filtered
+}
+
+func pruneExpiredV2EventsLocked(q *v2EventQueue) []v2.Event {
+	if len(q.events) == 0 {
+		return nil
+	}
+	now := time.Now().UTC()
+	filtered := q.events[:0]
+	var expired []v2.Event
+	for _, event := range q.events {
+		if event.ExpiresAt.IsZero() || event.ExpiresAt.After(now) {
+			filtered = append(filtered, event)
+			continue
+		}
+		expired = append(expired, event)
+	}
+	q.events = filtered
+	return expired
+}
+
+var expiredV2ExecHandler func(uuid, taskID string)
+
+func SetExpiredV2ExecHandler(fn func(uuid, taskID string)) {
+	expiredV2ExecHandler = fn
+}
+
+func handleExpiredV2Events(uuid string, events []v2.Event) {
+	if expiredV2ExecHandler == nil || uuid == "" || len(events) == 0 {
+		return
+	}
+	for _, event := range events {
+		if event.Method != v2.MethodAgentExec && event.Method != v2.MethodAgentMCPExec && event.Method != v2.MethodAgentMCPFile {
+			continue
+		}
+		if event.Method == v2.MethodAgentExec && event.HandedOff {
+			continue
+		}
+		taskID := ExecTaskID(event)
+		if event.Method != v2.MethodAgentExec {
+			taskID = MCPTaskID(event)
+		}
+		if taskID == "" {
+			continue
+		}
+		expiredV2ExecHandler(uuid, taskID)
+	}
+}
+
+func SweepExpiredV2Events() {
+	v2EventMu.Lock()
+	type expiredQueue struct {
+		uuid   string
+		events []v2.Event
+	}
+	var expired []expiredQueue
+	for uuid, q := range v2EventQueues {
+		if q == nil {
+			continue
+		}
+		events := pruneExpiredV2EventsLocked(q)
+		if len(events) > 0 {
+			expired = append(expired, expiredQueue{uuid: uuid, events: events})
+		}
+	}
+	v2EventMu.Unlock()
+	for _, item := range expired {
+		handleExpiredV2Events(item.uuid, item.events)
+	}
+}
+
+func TakeV2Events(uuid string, ackIDs []string, limit int) []v2.Event {
+	v2EventMu.Lock()
+	q := v2EventQueues[uuid]
+	if q == nil {
+		v2EventMu.Unlock()
+		return nil
+	}
+	ackV2EventsLocked(q, ackIDs)
+	expired := pruneExpiredV2EventsLocked(q)
+	events := takeV2EventsLocked(q, limit)
+	v2EventMu.Unlock()
+	handleExpiredV2Events(uuid, expired)
+	return events
+}
+
+func AckV2Events(uuid string, ackIDs []string) {
+	if len(ackIDs) == 0 {
+		return
+	}
+	v2EventMu.Lock()
+	defer v2EventMu.Unlock()
+
+	q := v2EventQueues[uuid]
+	if q == nil {
+		return
+	}
+	ackV2EventsLocked(q, ackIDs)
+}
+
+type RemovedV2Event struct {
+	UUID  string
+	Event v2.Event
+}
+
+func ExecTaskID(event v2.Event) string {
+	switch p := event.Params.(type) {
+	case v2.ExecParams:
+		return p.TaskID
+	case *v2.ExecParams:
+		if p == nil {
+			return ""
+		}
+		return p.TaskID
+	case map[string]any:
+		if id, ok := p["task_id"].(string); ok {
+			return id
+		}
+		return ""
+	}
+	var params v2.ExecParams
+	if err := bindV2EventParams(event.Params, &params); err != nil {
+		return ""
+	}
+	return params.TaskID
+}
+
+func MCPTaskID(event v2.Event) string {
+	switch p := event.Params.(type) {
+	case v2.MCPExecParams:
+		if p.TaskID != "" {
+			return p.TaskID
+		}
+		return p.OperationID
+	case *v2.MCPExecParams:
+		if p == nil {
+			return ""
+		}
+		if p.TaskID != "" {
+			return p.TaskID
+		}
+		return p.OperationID
+	case v2.MCPFileParams:
+		if p.TaskID != "" {
+			return p.TaskID
+		}
+		return p.OperationID
+	case *v2.MCPFileParams:
+		if p == nil {
+			return ""
+		}
+		if p.TaskID != "" {
+			return p.TaskID
+		}
+		return p.OperationID
+	}
+	var exec v2.MCPExecParams
+	if err := bindV2EventParams(event.Params, &exec); err == nil {
+		if exec.TaskID != "" {
+			return exec.TaskID
+		}
+		return exec.OperationID
+	}
+	var file v2.MCPFileParams
+	if err := bindV2EventParams(event.Params, &file); err != nil {
+		return ""
+	}
+	if file.TaskID != "" {
+		return file.TaskID
+	}
+	return file.OperationID
+}
+
+func MCPEventLeaseID(event v2.Event) string {
+	switch event.Method {
+	case v2.MethodAgentMCPExec:
+		switch p := event.Params.(type) {
+		case v2.MCPExecParams:
+			return p.LeaseID
+		case *v2.MCPExecParams:
+			if p != nil {
+				return p.LeaseID
+			}
+			return ""
+		}
+		var params v2.MCPExecParams
+		if bindV2EventParams(event.Params, &params) == nil {
+			return params.LeaseID
+		}
+	case v2.MethodAgentMCPFile:
+		switch p := event.Params.(type) {
+		case v2.MCPFileParams:
+			return p.LeaseID
+		case *v2.MCPFileParams:
+			if p != nil {
+				return p.LeaseID
+			}
+			return ""
+		}
+		var params v2.MCPFileParams
+		if bindV2EventParams(event.Params, &params) == nil {
+			return params.LeaseID
+		}
+	}
+	return ""
+}
+
+// RemoveMCPWorkEventsByLeaseID drops undelivered exec/file work for one grant.
+// Cancel/renew/revoke stay so an in-progress interrupt can still reach the Agent.
+func RemoveMCPWorkEventsByLeaseID(leaseID string) []RemovedV2Event {
+	if leaseID == "" {
+		return nil
+	}
+	v2EventMu.Lock()
+	defer v2EventMu.Unlock()
+	var removed []RemovedV2Event
+	for uuid, q := range v2EventQueues {
+		if q == nil {
+			continue
+		}
+		filtered := q.events[:0]
+		for _, event := range q.events {
+			if (event.Method == v2.MethodAgentMCPExec || event.Method == v2.MethodAgentMCPFile) && MCPEventLeaseID(event) == leaseID {
+				removed = append(removed, RemovedV2Event{UUID: uuid, Event: event})
+				continue
+			}
+			filtered = append(filtered, event)
+		}
+		q.events = filtered
+	}
+	return removed
+}
+
+// RemoveExecEventsByTaskIDs drops queued agent.exec events for these tasks.
+// Already pulled commands are left alone. The caller must hold the remote
+// delivery mutex when this runs beside DispatchV2ExecEvent.
+func RemoveExecEventsByTaskIDs(taskIDs []string) []RemovedV2Event {
+	if len(taskIDs) == 0 {
+		return nil
+	}
+	wanted := make(map[string]struct{}, len(taskIDs))
+	for _, id := range taskIDs {
+		if id != "" {
+			wanted[id] = struct{}{}
+		}
+	}
+	if len(wanted) == 0 {
+		return nil
+	}
+	v2EventMu.Lock()
+	defer v2EventMu.Unlock()
+	var removed []RemovedV2Event
+	for uuid, q := range v2EventQueues {
+		if q == nil {
+			continue
+		}
+		filtered := q.events[:0]
+		for _, event := range q.events {
+			if event.Method == v2.MethodAgentExec {
+				if _, ok := wanted[ExecTaskID(event)]; ok {
+					removed = append(removed, RemovedV2Event{UUID: uuid, Event: event})
+					continue
+				}
+			}
+			filtered = append(filtered, event)
+		}
+		q.events = filtered
+	}
+	return removed
+}
+
+func RemoveV2EventsByTaskID(uuid, taskID string) {
+	if uuid == "" || taskID == "" {
+		return
+	}
+	v2EventMu.Lock()
+	defer v2EventMu.Unlock()
+	q := v2EventQueues[uuid]
+	if q == nil {
+		return
+	}
+	filtered := q.events[:0]
+	for _, event := range q.events {
+		id := ""
+		switch event.Method {
+		case v2.MethodAgentExec:
+			id = ExecTaskID(event)
+		case v2.MethodAgentMCPExec, v2.MethodAgentMCPFile:
+			id = MCPTaskID(event)
+		}
+		if id == taskID {
+			continue
+		}
+		filtered = append(filtered, event)
+	}
+	q.events = filtered
+}
+
+func RemoveAllV2EventsByMethods(methods ...string) []RemovedV2Event {
+	if len(methods) == 0 {
+		return nil
+	}
+	blocked := make(map[string]struct{}, len(methods))
+	for _, method := range methods {
+		blocked[method] = struct{}{}
+	}
+	v2EventMu.Lock()
+	var removed []RemovedV2Event
+	for uuid, q := range v2EventQueues {
+		if q == nil {
+			continue
+		}
+		filtered := q.events[:0]
+		for _, event := range q.events {
+			if _, remove := blocked[event.Method]; remove {
+				removed = append(removed, RemovedV2Event{UUID: uuid, Event: event})
+				continue
+			}
+			filtered = append(filtered, event)
+		}
+		q.events = filtered
+	}
+	v2EventMu.Unlock()
+	return removed
+}
+
+func RemoveV2RemoteRequest(uuid, requestID string) {
+	if uuid == "" || requestID == "" {
+		return
+	}
+	v2EventMu.Lock()
+	defer v2EventMu.Unlock()
+	q := v2EventQueues[uuid]
+	if q == nil {
+		return
+	}
+	filtered := q.events[:0]
+	for _, event := range q.events {
+		if event.Method == v2.MethodAgentRemote && v2RemoteRequestID(event) == requestID {
+			continue
+		}
+		filtered = append(filtered, event)
+	}
+	q.events = filtered
+}
+
+func v2RemoteRequestID(event v2.Event) string {
+	switch p := event.Params.(type) {
+	case v2.RemoteRequestParams:
+		return p.RequestID
+	case *v2.RemoteRequestParams:
+		if p != nil {
+			return p.RequestID
+		}
+		return ""
+	}
+	var params v2.RemoteRequestParams
+	if err := bindV2EventParams(event.Params, &params); err != nil {
+		return ""
+	}
+	return params.RequestID
+}
+
+func RemoveV2EventQueue(uuid string) {
+	v2EventMu.Lock()
+	q := v2EventQueues[uuid]
+	delete(v2EventQueues, uuid)
+	if q != nil {
+		close(q.signal)
+	}
+	v2EventMu.Unlock()
+}
+
+func takeV2EventsLocked(q *v2EventQueue, limit int) []v2.Event {
+	if limit <= 0 || limit > len(q.events) {
+		limit = len(q.events)
+	}
+	for i := 0; i < limit; i++ {
+		q.events[i].HandedOff = true
+	}
+	events := make([]v2.Event, limit)
+	copy(events, q.events[:limit])
+	return events
+}
+
+func WaitV2Events(uuid string, ackIDs []string, timeout time.Duration) []v2.Event {
+	if metricstore.EntityWritesBlocked(uuid) {
+		return nil
+	}
+	v2EventMu.Lock()
+	q := getV2EventQueueLocked(uuid)
+	ackV2EventsLocked(q, ackIDs)
+	expired := pruneExpiredV2EventsLocked(q)
+	events := takeV2EventsLocked(q, v2EventQueueLimit)
+	if len(events) > 0 || timeout <= 0 {
+		v2EventMu.Unlock()
+		handleExpiredV2Events(uuid, expired)
+		return events
+	}
+	signal := q.signal
+	v2EventMu.Unlock()
+	handleExpiredV2Events(uuid, expired)
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-signal:
+	case <-timer.C:
+	}
+	return TakeV2Events(uuid, nil, v2EventQueueLimit)
+}

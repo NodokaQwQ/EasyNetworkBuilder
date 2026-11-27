@@ -1,0 +1,1173 @@
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  ArrowUp,
+  ClipboardPaste,
+  Copy,
+  Download,
+  File as FileIcon,
+  FilePlus2,
+  Folder,
+  FolderPlus,
+  LockKeyhole,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Upload,
+  MoreHorizontal,
+  X,
+} from "@/components/admin/muiIcons";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
+import DialogTitle from "@mui/material/DialogTitle";
+import IconButton from "@mui/material/IconButton";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import TextField from "@mui/material/TextField";
+import { toast } from "sonner";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { formatBytes } from "@/utils/unitHelper";
+import { encodeUploadFrame, parseDownloadFrame } from "@/utils/fileTransferFrame";
+import { createSha256, sha256File } from "@/utils/sha256";
+import { createRandomId } from "@/utils/randomId";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { getAdminMenuProps } from "@/components/admin/adminMenu";
+import { remoteConfirmDialogProps } from "./remoteChrome";
+import {
+  fileRootChoices,
+  selectedRootValue,
+} from "./fileManagerPath";
+
+export type FileEntry = {
+  name: string;
+  path: string;
+  size: number;
+  mode: string;
+  modified_at: string;
+  directory: boolean;
+  symlink: boolean;
+  hidden: boolean;
+  protected: boolean;
+};
+
+type FileResponse = {
+  type: string;
+  id: string;
+  operation?: string;
+  ok?: boolean;
+  error?: string;
+  data?: any;
+  name?: string;
+  size?: number;
+  sha256?: string;
+};
+
+type PendingRequest = {
+  resolve: (value: any) => void;
+  reject: (reason: Error) => void;
+  timeout: number;
+};
+
+type DownloadState = {
+  name: string;
+  size: number;
+  received: number;
+  chunks: Uint8Array[];
+  hasher: ReturnType<typeof createSha256>;
+};
+
+type FileContextMenuState = {
+  x: number;
+  y: number;
+};
+
+type SelectionBoxState = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+type SelectionDragState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startClientX: number;
+  startClientY: number;
+  base: Set<string>;
+  moved: boolean;
+};
+
+export type FileManagerHandle = {
+  handleMessage: (message: FileResponse) => void;
+  handleBinary: (payload: ArrayBuffer) => boolean;
+  initialize: (roots: string[], home: string, separator: string, fileTransfer?: number) => void;
+  refresh: () => void;
+};
+
+type Props = {
+  send: (message: Record<string, unknown>) => boolean;
+  sendBinary: (payload: Uint8Array) => boolean;
+  connected: boolean;
+};
+
+const requestTimeout = 30_000;
+const uploadChunkTimeout = 120_000;
+const legacyUploadChunkSize = 256 * 1024;
+const fastUploadChunkSize = 1024 * 1024;
+const fastUploadWindow = 4;
+const fastFileTransferVersion = 2;
+
+function joinRemotePath(base: string, name: string, separator: string) {
+  if (!base) return name;
+  if (base.endsWith(separator)) return `${base}${name}`;
+  return `${base}${separator}${name}`;
+}
+
+function legacyBase64(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
+function fromBase64(value: string) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function formatDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function nextCopyName(entry: FileEntry, reservedNames: Set<string>, t: TFunction) {
+  const dot = entry.directory ? -1 : entry.name.lastIndexOf(".");
+  const hasExtension = dot > 0;
+  const stem = hasExtension ? entry.name.slice(0, dot) : entry.name;
+  const extension = hasExtension ? entry.name.slice(dot) : "";
+  for (let index = 1; index < 10_000; index += 1) {
+    const suffix = index === 1
+      ? t("terminal.files.copy_suffix")
+      : t("terminal.files.copy_suffix_n", { index });
+    const candidate = `${stem}${suffix}${extension}`;
+    if (!reservedNames.has(candidate.toLocaleLowerCase())) return candidate;
+  }
+  return `${stem}${t("terminal.files.copy_suffix_fallback")}${Date.now()}${extension}`;
+}
+
+const FileManager = forwardRef<FileManagerHandle, Props>(({ send, sendBinary, connected }, ref) => {
+  const { t } = useTranslation();
+  const pending = useRef(new Map<string, PendingRequest>());
+  const downloads = useRef(new Map<string, DownloadState>());
+  const [roots, setRoots] = useState<string[]>([]);
+  const [homePath, setHomePath] = useState("");
+  const [separator, setSeparator] = useState("/");
+  const [currentPath, setCurrentPath] = useState("");
+  const [parentPath, setParentPath] = useState("");
+  const [pathInput, setPathInput] = useState("");
+  const [entries, setEntries] = useState<FileEntry[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
+  const [overwrite, setOverwrite] = useState(false);
+  const [createKind, setCreateKind] = useState<"file" | "folder" | null>(null);
+  const [createName, setCreateName] = useState("");
+  const [renameEntry, setRenameEntry] = useState<FileEntry | null>(null);
+  const [renameName, setRenameName] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [transferLabel, setTransferLabel] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [dropActive, setDropActive] = useState(false);
+  const [pendingOverwriteFiles, setPendingOverwriteFiles] = useState<File[] | null>(null);
+  const [copiedEntries, setCopiedEntries] = useState<FileEntry[]>([]);
+  const [contextMenu, setContextMenu] = useState<FileContextMenuState | null>(null);
+  const [newMenuAnchor, setNewMenuAnchor] = useState<HTMLElement | null>(null);
+  const [moreMenuAnchor, setMoreMenuAnchor] = useState<HTMLElement | null>(null);
+  const [selectionBox, setSelectionBox] = useState<SelectionBoxState | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const tableWrapRef = useRef<HTMLDivElement>(null);
+  const dragDepth = useRef(0);
+  const lastDirectoryClick = useRef<{ path: string; time: number } | null>(null);
+  const selectionAnchor = useRef<string | null>(null);
+  const selectionDrag = useRef<SelectionDragState | null>(null);
+  const suppressClick = useRef(false);
+  const uploadCancelled = useRef(false);
+  const activeUploadId = useRef("");
+  const fastTransfer = useRef(false);
+
+  const trackRequest = (id: string, timeoutMs = requestTimeout) => new Promise<any>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      const waiting = pending.current.get(id);
+      if (!waiting) return;
+      pending.current.delete(id);
+      waiting.reject(new Error(t("terminal.files.timeout")));
+    }, timeoutMs);
+    pending.current.set(id, { resolve, reject, timeout });
+  });
+
+  const failRequest = (id: string, error: Error) => {
+    const waiting = pending.current.get(id);
+    if (!waiting) return;
+    pending.current.delete(id);
+    window.clearTimeout(waiting.timeout);
+    waiting.reject(error);
+  };
+
+  const request = (type: string, payload: Record<string, unknown> = {}) => {
+    const id = createRandomId();
+    const waiter = trackRequest(id);
+    if (!send({ type, id, ...payload })) {
+      failRequest(id, new Error(t("terminal.files.not_ready")));
+    }
+    return waiter;
+  };
+
+  const load = async (path = currentPath) => {
+    if (!path) return;
+    setLoading(true);
+    try {
+      const data = await request("file.list", { path });
+      setCurrentPath(data.path);
+      setPathInput(data.path);
+      setParentPath(data.parent || "");
+      setRoots(data.roots || roots);
+      setEntries(data.entries || []);
+      setSelected(new Set());
+      selectionAnchor.current = null;
+      setContextMenu(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("terminal.files.list_failed"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useImperativeHandle(ref, () => ({
+    handleMessage(message) {
+      if (message.type === "file.response") {
+        const waiting = pending.current.get(message.id);
+        if (!waiting) return;
+        pending.current.delete(message.id);
+        window.clearTimeout(waiting.timeout);
+        if (message.ok) waiting.resolve(message.data);
+        else waiting.reject(new Error(message.error || t("terminal.files.operation_failed")));
+        return;
+      }
+      if (message.type === "file.download.begin") {
+        downloads.current.set(message.id, {
+          name: message.name || "download",
+          size: message.size || 0,
+          received: 0,
+          chunks: [],
+          hasher: createSha256(),
+        });
+        setTransferLabel(t("terminal.files.download_begin", { name: message.name || t("terminal.files.file") }));
+        return;
+      }
+      if (message.type === "file.download.chunk") {
+        const download = downloads.current.get(message.id);
+        if (!download || typeof (message as any).data !== "string") return;
+        const chunk = fromBase64((message as any).data);
+        download.chunks.push(chunk);
+        download.hasher.update(chunk);
+        download.received += chunk.byteLength;
+        setTransferLabel(t("terminal.files.download_progress", {
+          name: download.name,
+          percent: Math.round((download.received / Math.max(1, download.size)) * 100),
+        }));
+        return;
+      }
+      if (message.type === "file.download.end") {
+        const download = downloads.current.get(message.id);
+        if (!download) return;
+        downloads.current.delete(message.id);
+        const checksum = String(message.sha256 || "").toLowerCase();
+        if (!checksum || download.hasher.hex() !== checksum) {
+          setTransferLabel("");
+          toast.error(t("terminal.files.download_checksum_mismatch", "下载文件校验不一致"));
+          return;
+        }
+        const blob = new Blob(download.chunks as BlobPart[]);
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = download.name;
+        anchor.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setTransferLabel("");
+        toast.success(t("terminal.files.download_done", { name: download.name }));
+        return;
+      }
+      if (message.type === "file.download.error") {
+        downloads.current.delete(message.id);
+        setTransferLabel("");
+        toast.error((message as any).error || t("terminal.files.download_failed"));
+      }
+    },
+    handleBinary(payload) {
+      const frame = parseDownloadFrame(new Uint8Array(payload));
+      if (!frame) return false;
+      const download = downloads.current.get(frame.id);
+      if (!download) return false;
+      download.chunks.push(frame.payload);
+      download.hasher.update(frame.payload);
+      download.received += frame.payload.byteLength;
+      setTransferLabel(t("terminal.files.download_progress", {
+        name: download.name,
+        percent: Math.round((download.received / Math.max(1, download.size)) * 100),
+      }));
+      return true;
+    },
+    initialize(nextRoots, home, nextSeparator, fileTransfer = 1) {
+      fastTransfer.current = fileTransfer >= fastFileTransferVersion;
+      const nextHome = home || nextRoots[0] || "";
+      setRoots(nextRoots);
+      setHomePath(nextHome);
+      setSeparator(nextSeparator || "/");
+      void load(nextHome);
+    },
+    refresh() {
+      void load();
+    },
+  }));
+
+  useEffect(() => () => {
+    for (const waiting of pending.current.values()) {
+      window.clearTimeout(waiting.timeout);
+      waiting.reject(new Error(t("terminal.files.closed")));
+    }
+    pending.current.clear();
+    downloads.current.clear();
+  }, []);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("blur", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", keydown);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", keydown);
+    };
+  }, [contextMenu]);
+
+  const visibleEntries = useMemo(
+    () => entries.filter((entry) => showHidden || !entry.hidden),
+    [entries, showHidden],
+  );
+  const selectableEntries = visibleEntries.filter((entry) => !entry.protected);
+  const selectedSelectableCount = selectableEntries.filter((entry) => selected.has(entry.path)).length;
+  const selectAllState =
+    selectableEntries.length === 0
+      ? false
+      : selectedSelectableCount === selectableEntries.length
+        ? true
+        : selectedSelectableCount > 0
+          ? "indeterminate"
+          : false;
+  const selectedEntries = entries.filter((entry) => selected.has(entry.path));
+  const actionableEntries = selectedEntries.filter((entry) => !entry.protected);
+  const rootChoices = useMemo(
+    () => fileRootChoices(roots, homePath, separator, t("terminal.files.root")),
+    [roots, homePath, separator, t],
+  );
+  const selectedRoot = selectedRootValue(currentPath, rootChoices, separator);
+
+  const toggleSelectAll = () => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (selectAllState === true) {
+        for (const entry of selectableEntries) next.delete(entry.path);
+      } else {
+        for (const entry of selectableEntries) next.add(entry.path);
+        if (selectableEntries[0]) selectionAnchor.current = selectableEntries[0].path;
+      }
+      return next;
+    });
+  };
+
+  const toggleSelected = (entry: FileEntry) => {
+    if (entry.protected) return;
+    selectionAnchor.current = entry.path;
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(entry.path)) next.delete(entry.path);
+      else next.add(entry.path);
+      return next;
+    });
+  };
+
+  const selectEntry = (entry: FileEntry, event: React.MouseEvent<HTMLTableRowElement>) => {
+    if (entry.protected || suppressClick.current || (event.target as HTMLElement).closest("input, button")) return;
+    const visibleIndex = visibleEntries.findIndex((item) => item.path === entry.path);
+    const anchorIndex = visibleEntries.findIndex((item) => item.path === selectionAnchor.current);
+    if (event.shiftKey && anchorIndex >= 0 && visibleIndex >= 0) {
+      const start = Math.min(anchorIndex, visibleIndex);
+      const end = Math.max(anchorIndex, visibleIndex);
+      setSelected((current) => {
+        const next = event.ctrlKey || event.metaKey ? new Set(current) : new Set<string>();
+        for (const item of visibleEntries.slice(start, end + 1)) {
+          if (!item.protected) next.add(item.path);
+        }
+        return next;
+      });
+      return;
+    }
+    selectionAnchor.current = entry.path;
+    if (event.ctrlKey || event.metaKey) {
+      toggleSelected(entry);
+    } else {
+      setSelected(new Set([entry.path]));
+    }
+  };
+
+  const showContextMenu = (event: React.MouseEvent, entry?: FileEntry) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (entry?.protected) {
+      setSelected(new Set());
+      selectionAnchor.current = null;
+    } else if (entry && !selected.has(entry.path)) {
+      setSelected(new Set([entry.path]));
+      selectionAnchor.current = entry.path;
+    } else if (!entry) {
+      setSelected(new Set());
+      selectionAnchor.current = null;
+    }
+    setContextMenu({
+      x: Math.max(4, Math.min(event.clientX, window.innerWidth - 196)),
+      y: Math.max(4, Math.min(event.clientY, window.innerHeight - 274)),
+    });
+  };
+
+  const copySelected = () => {
+    if (!actionableEntries.length) return;
+    setCopiedEntries(actionableEntries);
+    setContextMenu(null);
+    toast.success(t("terminal.files.copy_done", { count: actionableEntries.length }));
+  };
+
+  const pasteCopied = async () => {
+    if (!copiedEntries.length || !currentPath) return;
+    setContextMenu(null);
+    const reservedNames = new Set(entries.map((entry) => entry.name.toLocaleLowerCase()));
+    let copied = 0;
+    try {
+      for (const entry of copiedEntries) {
+        let name = entry.name;
+        if (reservedNames.has(name.toLocaleLowerCase())) name = nextCopyName(entry, reservedNames, t);
+        reservedNames.add(name.toLocaleLowerCase());
+        setTransferLabel(t("terminal.files.copying", { name: entry.name }));
+        await request("file.copy", {
+          path: entry.path,
+          destination: joinRemotePath(currentPath, name, separator),
+        });
+        copied += 1;
+      }
+      await load();
+      toast.success(t("terminal.files.paste_done", { count: copied }));
+    } catch (error) {
+      if (copied > 0) await load();
+      toast.error(error instanceof Error ? error.message : t("terminal.files.paste_failed"));
+    } finally {
+      setTransferLabel("");
+    }
+  };
+
+  const createEntry = async () => {
+    if (!createKind || !createName.trim()) return;
+    try {
+      await request(createKind === "folder" ? "file.mkdir" : "file.create", {
+        path: joinRemotePath(currentPath, createName.trim(), separator),
+      });
+      setCreateKind(null);
+      setCreateName("");
+      await load();
+      toast.success(createKind === "folder" ? t("terminal.files.created_folder") : t("terminal.files.created_file"));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("terminal.files.create_failed"));
+    }
+  };
+
+  const rename = async () => {
+    if (!renameEntry || !renameName.trim()) return;
+    try {
+      await request("file.rename", {
+        path: renameEntry.path,
+        destination: joinRemotePath(currentPath, renameName.trim(), separator),
+      });
+      setRenameEntry(null);
+      await load();
+      toast.success(t("terminal.files.rename_done"));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("terminal.files.rename_failed"));
+    }
+  };
+
+  const removeSelected = async () => {
+    try {
+      for (const entry of actionableEntries) {
+        await request("file.delete", { path: entry.path, recursive: entry.directory });
+      }
+      setDeleteOpen(false);
+      await load();
+      toast.success(t("terminal.files.delete_done"));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("terminal.files.delete_failed"));
+    }
+  };
+
+  const downloadSelected = () => {
+    setContextMenu(null);
+    for (const entry of actionableEntries.filter((item) => !item.directory && !item.symlink)) {
+      const id = createRandomId();
+      if (!send({
+        type: "file.download",
+        id,
+        path: entry.path,
+        binary: fastTransfer.current,
+      })) {
+        toast.error(t("terminal.files.not_ready"));
+        return;
+      }
+    }
+  };
+
+  const cancelActiveUpload = () => {
+    uploadCancelled.current = true;
+    const uploadID = activeUploadId.current;
+    if (uploadID) {
+      void request("file.upload.cancel", { upload_id: uploadID }).catch(() => undefined);
+    }
+  };
+
+  const uploadFileBinary = async (file: File, uploadID: string) => {
+    const starts: number[] = [];
+    for (let offset = 0; offset < file.size; offset += fastUploadChunkSize) starts.push(offset);
+    let confirmed = 0;
+    let cursor = 0;
+    let failed = false;
+    const sendChunk = async (start: number) => {
+      const end = Math.min(file.size, start + fastUploadChunkSize);
+      const bytes = new Uint8Array(await file.slice(start, end).arrayBuffer());
+      if (uploadCancelled.current) return;
+      const id = createRandomId();
+      const waiter = trackRequest(id, uploadChunkTimeout);
+      let frame: Uint8Array;
+      try {
+        frame = encodeUploadFrame(id, uploadID, start, bytes);
+      } catch (error) {
+        failRequest(id, error instanceof Error ? error : new Error(t("terminal.files.upload_failed")));
+        throw error;
+      }
+      if (!sendBinary(frame)) {
+        const error = new Error(t("terminal.files.not_ready"));
+        failRequest(id, error);
+        throw error;
+      }
+      await waiter;
+      confirmed += bytes.byteLength;
+      setTransferLabel(t("terminal.files.upload_progress", {
+        name: file.name,
+        percent: Math.round((confirmed / Math.max(1, file.size)) * 100),
+      }));
+    };
+    const workers = Array.from({
+      length: Math.min(fastUploadWindow, Math.max(starts.length, 1)),
+    }, async () => {
+      while (!uploadCancelled.current && !failed) {
+        const index = cursor;
+        cursor += 1;
+        if (index >= starts.length) return;
+        try {
+          await sendChunk(starts[index]);
+        } catch (error) {
+          failed = true;
+          throw error;
+        }
+      }
+    });
+    try {
+      await Promise.all(workers);
+    } catch (error) {
+      await request("file.upload.cancel", { upload_id: uploadID }).catch(() => undefined);
+      throw error;
+    }
+    if (uploadCancelled.current) {
+      await request("file.upload.cancel", { upload_id: uploadID }).catch(() => undefined);
+    }
+  };
+
+  const uploadFiles = async (files: File[], allowOverwrite: boolean) => {
+    if (!files.length) return;
+    uploadCancelled.current = false;
+    setUploading(true);
+    try {
+      for (const file of files) {
+        if (uploadCancelled.current) break;
+        setTransferLabel(t("terminal.files.upload_progress", { name: file.name, percent: 0 }));
+        const start = await request("file.upload.start", {
+          path: joinRemotePath(currentPath, file.name, separator),
+          size: file.size,
+          overwrite: allowOverwrite,
+        });
+        if (uploadCancelled.current) {
+          if (start?.upload_id) {
+            await request("file.upload.cancel", { upload_id: start.upload_id }).catch(() => undefined);
+          }
+          break;
+        }
+        const uploadID = start.upload_id;
+        activeUploadId.current = uploadID;
+        const checksum = sha256File(file);
+        void checksum.catch(() => undefined);
+        if (fastTransfer.current) {
+          await uploadFileBinary(file, uploadID);
+        } else {
+          let sent = 0;
+          while (sent < file.size) {
+            if (uploadCancelled.current) {
+              await request("file.upload.cancel", { upload_id: uploadID }).catch(() => undefined);
+              break;
+            }
+            const buffer = await file.slice(sent, sent + legacyUploadChunkSize).arrayBuffer();
+            await request("file.upload.chunk", {
+              upload_id: uploadID,
+              offset: sent,
+              data: legacyBase64(buffer),
+            });
+            sent += buffer.byteLength;
+            setTransferLabel(t("terminal.files.upload_progress", {
+              name: file.name,
+              percent: Math.round((sent / Math.max(1, file.size)) * 100),
+            }));
+          }
+        }
+        if (uploadCancelled.current) break;
+        const sha256 = await checksum;
+        const finished = await request("file.upload.finish", { upload_id: uploadID, sha256 });
+        if (String(finished?.sha256 || "").toLowerCase() !== sha256) {
+          throw new Error(t("terminal.files.upload_checksum_mismatch", "上传文件校验不一致"));
+        }
+        toast.success(t("terminal.files.upload_done", { name: file.name }));
+      }
+      if (uploadCancelled.current) {
+        toast.info(t("terminal.files.upload_cancelled"));
+      }
+    } catch (error) {
+      if (uploadCancelled.current) {
+        toast.info(t("terminal.files.upload_cancelled"));
+      } else {
+        toast.error(error instanceof Error ? error.message : t("terminal.files.upload_failed"));
+      }
+    } finally {
+      activeUploadId.current = "";
+      uploadCancelled.current = false;
+      setUploading(false);
+      setTransferLabel("");
+      if (inputRef.current) inputRef.current.value = "";
+      void load();
+    }
+  };
+
+  const queueUpload = (files: File[]) => {
+    if (!connected || !currentPath || !files.length) return;
+    const existing = new Set(entries.map((entry) => entry.name.toLocaleLowerCase()));
+    const hasConflict = files.some((file) => existing.has(file.name.toLocaleLowerCase()));
+    if (hasConflict && !overwrite) {
+      setPendingOverwriteFiles(files);
+      return;
+    }
+    void uploadFiles(files, overwrite);
+  };
+
+  const hasDraggedDirectory = (items: DataTransferItemList) => Array.from(items).some((item) => {
+    const entry = (item as DataTransferItem & { webkitGetAsEntry?: () => { isDirectory?: boolean } | null }).webkitGetAsEntry?.();
+    return entry?.isDirectory === true;
+  });
+
+  const handleDragEnter = (event: React.DragEvent<HTMLElement>) => {
+    if (!event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    dragDepth.current += 1;
+    setDropActive(true);
+  };
+
+  const handleDragLeave = (event: React.DragEvent<HTMLElement>) => {
+    if (!event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDropActive(false);
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    dragDepth.current = 0;
+    setDropActive(false);
+    if (!connected) return;
+    if (hasDraggedDirectory(event.dataTransfer.items)) {
+      toast.error(t("terminal.files.folder_unsupported"));
+      return;
+    }
+    queueUpload(Array.from(event.dataTransfer.files));
+  };
+
+  const handleEntryClick = (entry: FileEntry, event: React.MouseEvent<HTMLTableRowElement>) => {
+    if (suppressClick.current) return;
+    event.currentTarget.focus({ preventScroll: true });
+    selectEntry(entry, event);
+    if (!entry.directory || event.shiftKey || event.ctrlKey || event.metaKey || (event.target as HTMLElement).closest("input, button")) return;
+    const now = window.performance.now();
+    const previous = lastDirectoryClick.current;
+    if (previous?.path === entry.path && now - previous.time <= 500) {
+      lastDirectoryClick.current = null;
+      event.preventDefault();
+      event.stopPropagation();
+      void load(entry.path);
+      return;
+    }
+
+    lastDirectoryClick.current = { path: entry.path, time: now };
+  };
+
+  const beginSelectionDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== "mouse" || event.button !== 0 ||
+      (event.target as HTMLElement).closest("input, button, select, textarea, .remote-file-context-menu, [data-slot=\"checkbox\"]")) return;
+    const wrap = tableWrapRef.current;
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    selectionDrag.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX - rect.left + wrap.scrollLeft,
+      startY: event.clientY - rect.top + wrap.scrollTop,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      base: event.ctrlKey || event.metaKey ? new Set(selected) : new Set<string>(),
+      moved: false,
+    };
+  };
+
+  const moveSelectionDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = selectionDrag.current;
+    const wrap = tableWrapRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !wrap) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.startClientX, event.clientY - drag.startClientY) < 5) return;
+    if (!drag.moved) wrap.setPointerCapture(event.pointerId);
+    drag.moved = true;
+    event.preventDefault();
+    lastDirectoryClick.current = null;
+    const wrapRect = wrap.getBoundingClientRect();
+    const edge = 28;
+    if (event.clientY < wrapRect.top + edge) wrap.scrollTop = Math.max(0, wrap.scrollTop - 12);
+    else if (event.clientY > wrapRect.bottom - edge) wrap.scrollTop += 12;
+    const currentX = event.clientX - wrapRect.left + wrap.scrollLeft;
+    const currentY = event.clientY - wrapRect.top + wrap.scrollTop;
+    const box = {
+      left: Math.min(drag.startX, currentX),
+      top: Math.min(drag.startY, currentY),
+      width: Math.abs(currentX - drag.startX),
+      height: Math.abs(currentY - drag.startY),
+    };
+    setSelectionBox(box);
+    const next = new Set(drag.base);
+    const boxRight = box.left + box.width;
+    const boxBottom = box.top + box.height;
+    for (const row of wrap.querySelectorAll<HTMLTableRowElement>("tr[data-file-path]")) {
+      if (row.dataset.protected === "true") continue;
+      const rowRect = row.getBoundingClientRect();
+      const left = rowRect.left - wrapRect.left + wrap.scrollLeft;
+      const top = rowRect.top - wrapRect.top + wrap.scrollTop;
+      if (left <= boxRight && left + rowRect.width >= box.left && top <= boxBottom && top + rowRect.height >= box.top) {
+        const path = row.dataset.filePath;
+        if (path) next.add(path);
+      }
+    }
+    setSelected(next);
+  };
+
+  const endSelectionDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = selectionDrag.current;
+    const wrap = tableWrapRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !wrap) return;
+    if (wrap.hasPointerCapture(event.pointerId)) wrap.releasePointerCapture(event.pointerId);
+    selectionDrag.current = null;
+    setSelectionBox(null);
+    if (drag.moved) {
+      suppressClick.current = true;
+      window.setTimeout(() => { suppressClick.current = false; }, 0);
+    }
+  };
+
+  return (
+    <section
+      className={`remote-files${dropActive ? " is-drop-active" : ""}`}
+      aria-label={t("terminal.files.title")}
+      onDragEnter={handleDragEnter}
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = connected ? "copy" : "none";
+      }}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      <div className="remote-files-title">
+        <div>
+          <strong>{t("terminal.files.title")}</strong>
+          <span className={`remote-status ${connected ? "is-connected" : ""}`}>
+            <i />
+            {connected ? t("terminal.files.connected") : t("terminal.files.not_connected")}
+          </span>
+        </div>
+        <IconButton size="small" title={t("terminal.files.refresh")} onClick={() => void load()} disabled={!connected || loading}>
+          <RefreshCw size={15} className={loading ? "remote-spin" : ""} />
+        </IconButton>
+      </div>
+
+      <div className="remote-file-location">
+        <Button
+          variant="outlined"
+          className="remote-file-up"
+          title={t("terminal.files.parent")}
+          aria-label={t("terminal.files.parent")}
+          disabled={!parentPath}
+          onClick={() => void load(parentPath)}
+        >
+          <ArrowUp size={16} />
+        </Button>
+        <div className="remote-file-pathbox">
+          <select
+            disabled={!connected}
+            value={selectedRoot}
+            onChange={(event) => {
+              if (event.target.value) void load(event.target.value);
+            }}
+            title={t("terminal.files.roots")}
+          >
+            {selectedRoot === "" && (
+              <option value="" disabled>
+                {t("terminal.files.root")}
+              </option>
+            )}
+            {rootChoices.map((choice) => (
+              <option key={choice.value} value={choice.value}>{choice.label}</option>
+            ))}
+          </select>
+          <span className="remote-file-path-sep">/</span>
+          <TextField
+            variant="standard"
+            disabled={!connected}
+            value={pathInput}
+            onChange={(event) => setPathInput(event.target.value)}
+            onKeyDown={(event) => event.key === "Enter" && void load(pathInput)}
+            slotProps={{ input: { disableUnderline: true } }}
+            sx={{ minWidth: 0, flex: 1, "& .MuiInputBase-input": { py: 0, fontSize: 12, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" } }}
+          />
+        </div>
+      </div>
+
+      <div className="remote-file-toolbar">
+        <input ref={inputRef} type="file" multiple hidden onChange={(event) => queueUpload(Array.from(event.target.files || []))} />
+        <Button
+          className="remote-file-upload"
+          variant="contained"
+          disableElevation
+          disabled={!connected}
+          onClick={() => inputRef.current?.click()}
+        >
+          <Upload size={14} />
+          {t("terminal.files.upload")}
+        </Button>
+        <Button
+          className="remote-file-new"
+          variant="outlined"
+          disabled={!connected}
+          onClick={(event) => setNewMenuAnchor(event.currentTarget)}
+        >
+          <Plus size={14} />
+          {t("terminal.files.new")}
+        </Button>
+        <Menu
+          anchorEl={newMenuAnchor}
+          open={Boolean(newMenuAnchor)}
+          onClose={() => setNewMenuAnchor(null)}
+          {...getAdminMenuProps()}
+        >
+          <MenuItem onClick={() => { setNewMenuAnchor(null); setCreateKind("file"); }}><FilePlus2 size={14} />{t("terminal.files.new_file")}</MenuItem>
+          <MenuItem onClick={() => { setNewMenuAnchor(null); setCreateKind("folder"); }}><FolderPlus size={14} />{t("terminal.files.new_folder")}</MenuItem>
+        </Menu>
+        <IconButton size="small" title={t("terminal.files.download")} disabled={!actionableEntries.some((entry) => !entry.directory && !entry.symlink)} onClick={downloadSelected}><Download size={14} /></IconButton>
+        <IconButton size="small" title={t("terminal.files.rename")} disabled={actionableEntries.length !== 1} onClick={() => {
+          const entry = actionableEntries[0];
+          if (entry) { setRenameEntry(entry); setRenameName(entry.name); }
+        }}><Pencil size={14} /></IconButton>
+        <IconButton size="small" color="error" title={t("common.delete")} disabled={actionableEntries.length === 0} onClick={() => setDeleteOpen(true)}><Trash2 size={14} /></IconButton>
+        <span className="remote-file-toolbar-spacer" />
+        <IconButton size="small" title={t("terminal.session.more")} onClick={(event) => setMoreMenuAnchor(event.currentTarget)}>
+          <MoreHorizontal size={16} />
+        </IconButton>
+        <Menu
+          anchorEl={moreMenuAnchor}
+          open={Boolean(moreMenuAnchor)}
+          onClose={() => setMoreMenuAnchor(null)}
+          {...getAdminMenuProps()}
+        >
+          <MenuItem disabled={!connected} onClick={() => { setMoreMenuAnchor(null); setCreateKind("file"); }}>{t("terminal.files.new_file")}</MenuItem>
+          <MenuItem disabled={!connected} onClick={() => { setMoreMenuAnchor(null); setCreateKind("folder"); }}>{t("terminal.files.new_folder")}</MenuItem>
+          <MenuItem disabled={actionableEntries.length === 0} onClick={() => { setMoreMenuAnchor(null); copySelected(); }}>{t("common.copy")}</MenuItem>
+          <MenuItem disabled={!connected || !currentPath || copiedEntries.length === 0} onClick={() => { setMoreMenuAnchor(null); void pasteCopied(); }}>{t("terminal.session.paste")}</MenuItem>
+        </Menu>
+      </div>
+
+      <div className="remote-file-options">
+        <label><Checkbox checked={showHidden} onCheckedChange={(checked) => setShowHidden(checked === true)} /> {t("terminal.files.hidden")}</label>
+        <label><Checkbox checked={overwrite} onCheckedChange={(checked) => setOverwrite(checked === true)} /> {t("terminal.files.overwrite")}</label>
+      </div>
+
+      {transferLabel && (
+        <div className="remote-transfer-status">
+          <span>{transferLabel}</span>
+          {uploading && (
+            <IconButton
+              size="small"
+              className="remote-transfer-cancel"
+              aria-label={t("common.cancel")}
+              onClick={cancelActiveUpload}
+            >
+              <X size={14} />
+            </IconButton>
+          )}
+        </div>
+      )}
+
+      {dropActive && connected && (
+        <div className="remote-file-drop-overlay" aria-hidden="true">
+          <Upload size={24} />
+          <strong>{t("terminal.files.drop_to_upload")}</strong>
+        </div>
+      )}
+
+      <div
+        ref={tableWrapRef}
+        className={`remote-file-table-wrap${selectionBox ? " is-selecting" : ""}`}
+        onPointerDown={beginSelectionDrag}
+        onPointerMove={moveSelectionDrag}
+        onPointerUp={endSelectionDrag}
+        onPointerCancel={endSelectionDrag}
+        onContextMenu={(event) => {
+          if (!(event.target as HTMLElement).closest("tr[data-file-path]")) showContextMenu(event);
+        }}
+      >
+        {selectionBox && <div className="remote-file-selection-box" style={selectionBox} aria-hidden="true" />}
+        <Table container={false} className="remote-file-table">
+          <TableHeader>
+            <TableRow>
+              <TableHead aria-label={t("common.select_all")}>
+                <span className="remote-file-select">
+                  <Checkbox
+                    checked={selectAllState}
+                    disabled={!connected || selectableEntries.length === 0}
+                    onClick={(event) => event.stopPropagation()}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                    onCheckedChange={() => toggleSelectAll()}
+                    aria-label={selectAllState === true ? t("common.deselect_all") : t("common.select_all")}
+                  />
+                </span>
+              </TableHead>
+              <TableHead>{t("common.name")}</TableHead>
+              <TableHead>{t("terminal.files.size")}</TableHead>
+              <TableHead>{t("terminal.files.modified")}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {visibleEntries.map((entry) => (
+              <TableRow
+                key={entry.path}
+                data-file-path={entry.path}
+                data-protected={entry.protected ? "true" : "false"}
+                className={`${entry.protected ? "is-protected" : ""}${entry.directory ? " is-directory" : ""}${selected.has(entry.path) ? " is-selected" : ""}`}
+                tabIndex={0}
+                onClick={(event) => handleEntryClick(entry, event)}
+                onContextMenu={(event) => showContextMenu(event, entry)}
+                onKeyDown={(event) => {
+                  if (entry.directory && event.key === "Enter") {
+                    event.preventDefault();
+                    void load(entry.path);
+                  }
+                }}
+              >
+                <TableCell>
+                  <span className="remote-file-select">
+                    <Checkbox
+                    checked={selected.has(entry.path)}
+                    disabled={entry.protected}
+                    onClick={(event) => event.stopPropagation()}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                    onCheckedChange={() => toggleSelected(entry)}
+                    aria-label={t("terminal.files.select_name", { name: entry.name })}
+                    />
+                  </span>
+                </TableCell>
+                <TableCell title={entry.protected ? t("terminal.files.protected_sqlite") : undefined}>
+                  <span className="remote-file-name">
+                    {entry.protected ? <LockKeyhole size={15} /> : entry.directory ? <Folder size={15} /> : <FileIcon size={15} />}
+                    <span>{entry.name}</span>
+                  </span>
+                </TableCell>
+                <TableCell>{entry.directory ? "-" : formatBytes(entry.size)}</TableCell>
+                <TableCell>{formatDate(entry.modified_at)}</TableCell>
+              </TableRow>
+            ))}
+            {!loading && visibleEntries.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={4} className="remote-file-empty">
+                  {t("terminal.files.empty")}
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {contextMenu && (
+        <div
+          className="remote-file-context-menu"
+          role="menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <button type="button" role="menuitem" disabled={!connected} onClick={() => {
+            setContextMenu(null);
+            setCreateName("");
+            setCreateKind("file");
+          }}><FilePlus2 size={15} />{t("terminal.files.new_file")}</button>
+          <button type="button" role="menuitem" disabled={!connected} onClick={() => {
+            setContextMenu(null);
+            setCreateName("");
+            setCreateKind("folder");
+          }}><FolderPlus size={15} />{t("terminal.files.new_folder")}</button>
+          <div className="remote-file-context-separator" role="separator" />
+          <button type="button" role="menuitem" disabled={actionableEntries.length === 0} onClick={copySelected}>
+            <Copy size={15} />{t("common.copy")}
+          </button>
+          <button type="button" role="menuitem" disabled={!connected || !currentPath || copiedEntries.length === 0} onClick={() => void pasteCopied()}>
+            <ClipboardPaste size={15} />{t("terminal.session.paste")}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={!actionableEntries.some((entry) => !entry.directory && !entry.symlink)}
+            onClick={downloadSelected}
+          >
+            <Download size={15} />{t("terminal.files.download_selected")}
+          </button>
+          <button type="button" role="menuitem" disabled={actionableEntries.length !== 1} onClick={() => {
+            const entry = actionableEntries[0];
+            if (!entry) return;
+            setContextMenu(null);
+            setRenameEntry(entry);
+            setRenameName(entry.name);
+          }}><Pencil size={15} />{t("terminal.files.rename")}</button>
+          <div className="remote-file-context-separator" role="separator" />
+          <button type="button" className="is-danger" role="menuitem" disabled={actionableEntries.length === 0} onClick={() => {
+            setContextMenu(null);
+            setDeleteOpen(true);
+          }}><Trash2 size={15} />{t("common.delete")}</button>
+        </div>
+      )}
+
+      <Dialog open={createKind !== null} onClose={() => setCreateKind(null)} {...remoteConfirmDialogProps}>
+        <DialogTitle>{createKind === "folder" ? t("terminal.files.new_folder") : t("terminal.files.new_file")}</DialogTitle>
+        <DialogContent>
+          <TextField autoFocus fullWidth value={createName} onChange={(event) => setCreateName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void createEntry()} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateKind(null)}>{t("common.cancel")}</Button>
+          <Button variant="contained" onClick={() => void createEntry()}>{t("terminal.files.create")}</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={renameEntry !== null} onClose={() => setRenameEntry(null)} {...remoteConfirmDialogProps}>
+        <DialogTitle>{t("terminal.files.rename")}</DialogTitle>
+        <DialogContent>
+          <TextField autoFocus fullWidth value={renameName} onChange={(event) => setRenameName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void rename()} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRenameEntry(null)}>{t("common.cancel")}</Button>
+          <Button variant="contained" onClick={() => void rename()}>{t("common.save")}</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} {...remoteConfirmDialogProps}>
+        <DialogTitle>{t("terminal.files.delete_confirm")}</DialogTitle>
+        <DialogContent>
+          <DialogContentText>{t("terminal.files.delete_count", { count: actionableEntries.length })}</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteOpen(false)}>{t("common.cancel")}</Button>
+          <Button color="error" variant="contained" onClick={() => void removeSelected()}>{t("common.delete")}</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={pendingOverwriteFiles !== null} onClose={() => setPendingOverwriteFiles(null)} {...remoteConfirmDialogProps}>
+        <DialogTitle>{t("terminal.files.overwrite_title")}</DialogTitle>
+        <DialogContent>
+          <DialogContentText>{t("terminal.files.overwrite_confirm")}</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPendingOverwriteFiles(null)}>{t("common.cancel")}</Button>
+          <Button variant="contained" onClick={() => {
+            const files = pendingOverwriteFiles || [];
+            setPendingOverwriteFiles(null);
+            void uploadFiles(files, true);
+          }}>{t("terminal.files.overwrite_and_upload")}</Button>
+        </DialogActions>
+      </Dialog>
+    </section>
+  );
+});
+
+FileManager.displayName = "FileManager";
+
+export default FileManager;

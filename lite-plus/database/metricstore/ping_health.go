@@ -1,0 +1,481 @@
+package metricstore
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"sort"
+	"strconv"
+	"time"
+
+	"github.com/nuomiiiii/lite/pkg/metric"
+)
+
+// PingHealthStats is the reusable ping window summary. Failed samples stored
+// as -1 are counted as loss and excluded from latency statistics.
+type PingHealthStats struct {
+	Total             int64
+	Lost              int64
+	Successful        int64
+	AverageLatencyMS  float64
+	MinLatencyMS      float64
+	MaxLatencyMS      float64
+	HasLatency        bool
+	FirstSuccessfulAt *time.Time
+	LastSuccessfulAt  *time.Time
+}
+
+func (stats PingHealthStats) LossRate() float64 {
+	if stats.Total == 0 {
+		return 0
+	}
+	return float64(stats.Lost) / float64(stats.Total) * 100
+}
+
+func AdaptiveBaselineRange(now time.Time, latencyWindowSeconds, baselineWindowSeconds int, startedAt *time.Time) (start, end time.Time) {
+	if latencyWindowSeconds < 0 {
+		latencyWindowSeconds = 0
+	}
+	if baselineWindowSeconds < 0 {
+		baselineWindowSeconds = 0
+	}
+	end = now.Add(-time.Duration(latencyWindowSeconds) * time.Second)
+	if latencyWindowSeconds > 0 {
+		// Metric queries treat End as inclusive; keep the current latency window
+		// out of baseline history.
+		end = end.Add(-time.Nanosecond)
+	}
+	start = end.Add(-time.Duration(baselineWindowSeconds) * time.Second)
+	if startedAt != nil {
+		bound := startedAt.UTC()
+		if bound.After(start) {
+			start = bound
+		}
+	}
+	return start, end
+}
+
+func AdaptiveBaselineRangeValid(start, end time.Time) bool {
+	return start.Before(end)
+}
+
+type PingBaselineCandidate struct {
+	Successful int64
+	MedianMS   float64
+}
+
+func QueryPingHealthStats(ctx context.Context, store *metric.Store, clientUUID string, taskID uint, start, end time.Time) (PingHealthStats, error) {
+	if store == nil {
+		return PingHealthStats{}, fmt.Errorf("metric store is not initialized")
+	}
+	window := end.Sub(start)
+	if window <= 0 {
+		window = time.Second
+	}
+	lossInterval := store.CompatibleSeriesIntervalForMetric(ctx, MetricPingLoss, start, end, time.Minute)
+	fineInterval := store.CompatibleSeriesIntervalForMetric(ctx, MetricPingLatency, start, end, time.Second)
+	tags := map[string]string{"task_id": strconv.FormatUint(uint64(taskID), 10)}
+
+	latencyBase := metric.Query{
+		MetricName: MetricPingLatency,
+		EntityID:   clientUUID,
+		Start:      start,
+		End:        end,
+		Order:      metric.OrderAsc,
+		Tags:       tags,
+	}
+	lossBase := metric.Query{
+		MetricName: MetricPingLoss,
+		EntityID:   clientUUID,
+		Start:      start,
+		End:        end,
+		Order:      metric.OrderAsc,
+		Tags:       tags,
+	}
+
+	queries := make([]metric.AggregateQuery, 0, 6)
+	queries = append(queries,
+		metric.AggregateQuery{Query: lossBase, Aggregation: metric.AggAvg, Interval: lossInterval, PreserveSeries: true},
+		metric.AggregateQuery{Query: latencyBase, Aggregation: metric.AggAvg, Interval: window, PreserveSeries: true},
+		metric.AggregateQuery{Query: latencyBase, Aggregation: metric.AggMin, Interval: window, PreserveSeries: true},
+		metric.AggregateQuery{Query: latencyBase, Aggregation: metric.AggMax, Interval: window, PreserveSeries: true},
+	)
+	lossWindowIdx := 0
+	if window != lossInterval {
+		lossWindowIdx = len(queries)
+		queries = append(queries, metric.AggregateQuery{Query: lossBase, Aggregation: metric.AggAvg, Interval: window, PreserveSeries: true})
+	}
+	fineIdx := 1
+	if fineInterval != window {
+		fineIdx = len(queries)
+		queries = append(queries, metric.AggregateQuery{Query: latencyBase, Aggregation: metric.AggAvg, Interval: fineInterval, PreserveSeries: true})
+	}
+
+	batched, err := store.SeriesBatch(ctx, queries, end)
+	if err != nil {
+		return PingHealthStats{}, err
+	}
+
+	loss := PingLossStatsFromPoints(batched[0])
+	avgPoints := batched[1]
+	minPoints := batched[2]
+	maxPoints := batched[3]
+	lossPoints := batched[lossWindowIdx]
+	finePoints := batched[fineIdx]
+
+	stats := CombinePingHealthStats(loss, avgPoints, minPoints, maxPoints, lossPoints)
+	coverage := PingHealthStatsFromLatencyPoints(finePoints)
+	stats.FirstSuccessfulAt = coverage.FirstSuccessfulAt
+	stats.LastSuccessfulAt = coverage.LastSuccessfulAt
+	return stats, nil
+}
+
+func QueryPingBaselineCandidate(ctx context.Context, store *metric.Store, clientUUID string, taskID uint, start, end time.Time) (PingBaselineCandidate, error) {
+	if store == nil {
+		return PingBaselineCandidate{}, fmt.Errorf("metric store is not initialized")
+	}
+	window := end.Sub(start)
+	if window <= 0 {
+		window = time.Second
+	}
+	lossInterval := store.CompatibleSeriesIntervalForMetric(ctx, MetricPingLoss, start, end, time.Minute)
+	tags := map[string]string{"task_id": strconv.FormatUint(uint64(taskID), 10)}
+	latencyBase := metric.Query{
+		MetricName: MetricPingLatency,
+		EntityID:   clientUUID,
+		Start:      start,
+		End:        end,
+		Order:      metric.OrderAsc,
+		Tags:       tags,
+	}
+	lossBase := metric.Query{
+		MetricName: MetricPingLoss,
+		EntityID:   clientUUID,
+		Start:      start,
+		End:        end,
+		Order:      metric.OrderAsc,
+		Tags:       tags,
+	}
+
+	initialBatch, err := store.SeriesBatch(ctx, []metric.AggregateQuery{
+		{Query: lossBase, Aggregation: metric.AggAvg, Interval: lossInterval, PreserveSeries: true},
+		{Query: latencyBase, Aggregation: metric.AggP50, Interval: window, PreserveSeries: true},
+	}, end)
+	if err != nil {
+		return PingBaselineCandidate{}, err
+	}
+	loss := PingLossStatsFromPoints(initialBatch[0])
+	points := initialBatch[1]
+	candidate := PingBaselineCandidateFromPoints(loss, points)
+	if candidate.MedianMS > 0 || candidate.Successful == 0 {
+		return candidate, nil
+	}
+	// Integer-millisecond samples on a sub-millisecond link have a median of 0.
+	// A whole-window percentile can also come back as 0 when its digest is empty.
+	// The average of successful samples still describes the latency the chart shows.
+	interval := store.CompatibleSeriesIntervalForMetric(ctx, MetricPingLatency, start, end, time.Second)
+	fallbackQueries := []metric.AggregateQuery{
+		{Query: latencyBase, Aggregation: metric.AggAvg, Interval: interval, PreserveSeries: true},
+	}
+	needFallbackLoss := interval != lossInterval
+	if needFallbackLoss {
+		fallbackQueries = append(fallbackQueries, metric.AggregateQuery{
+			Query: lossBase, Aggregation: metric.AggAvg, Interval: interval, PreserveSeries: true,
+		})
+	}
+	fallbackBatch, err := store.SeriesBatch(ctx, fallbackQueries, end)
+	if err != nil {
+		return PingBaselineCandidate{}, err
+	}
+	avgPoints := fallbackBatch[0]
+	lossPoints := initialBatch[0]
+	if needFallbackLoss {
+		lossPoints = fallbackBatch[1]
+	}
+	if average, ok := successWeightedAverage(avgPoints, lossPoints); ok && average > 0 {
+		candidate.MedianMS = RoundLatencyMS(average)
+	}
+	return candidate, nil
+}
+
+func queryPingLatencySeries(ctx context.Context, store *metric.Store, clientUUID string, taskID uint, start, end time.Time, aggregation metric.Aggregation) ([]metric.AggregatePoint, error) {
+	interval := store.CompatibleSeriesIntervalForMetric(ctx, MetricPingLatency, start, end, time.Second)
+	if aggregation == metric.AggP50 {
+		window := end.Sub(start)
+		if window <= 0 {
+			window = time.Second
+		}
+		interval = window
+	}
+	return queryPingLatencySeriesWithInterval(ctx, store, clientUUID, taskID, start, end, aggregation, interval)
+}
+
+func queryPingLatencySeriesWithInterval(ctx context.Context, store *metric.Store, clientUUID string, taskID uint, start, end time.Time, aggregation metric.Aggregation, interval time.Duration) ([]metric.AggregatePoint, error) {
+	return store.Series(ctx, metric.AggregateQuery{
+		Query: metric.Query{
+			MetricName: MetricPingLatency,
+			EntityID:   clientUUID,
+			Start:      start,
+			End:        end,
+			Order:      metric.OrderAsc,
+			Tags:       map[string]string{"task_id": fmt.Sprintf("%d", taskID)},
+		},
+		Aggregation:    aggregation,
+		Interval:       interval,
+		PreserveSeries: true,
+	}, end)
+}
+
+func queryPingLossSeriesWithInterval(ctx context.Context, store *metric.Store, clientUUID string, taskID uint, start, end time.Time, interval time.Duration) ([]metric.AggregatePoint, error) {
+	return store.Series(ctx, metric.AggregateQuery{
+		Query: metric.Query{
+			MetricName: MetricPingLoss,
+			EntityID:   clientUUID,
+			Start:      start,
+			End:        end,
+			Order:      metric.OrderAsc,
+			Tags:       map[string]string{"task_id": fmt.Sprintf("%d", taskID)},
+		},
+		Aggregation:    metric.AggAvg,
+		Interval:       interval,
+		PreserveSeries: true,
+	}, end)
+}
+
+func CombinePingHealthStats(loss PingLossStats, avgPoints, minPoints, maxPoints, lossPoints []metric.AggregatePoint) PingHealthStats {
+	stats := PingHealthStats{
+		Total:      loss.Total,
+		Lost:       loss.Lost,
+		Successful: loss.Total - loss.Lost,
+	}
+	if stats.Successful < 0 {
+		stats.Successful = 0
+	}
+	if stats.Successful > 0 {
+		if average, ok := successWeightedAverage(avgPoints, lossPoints); ok {
+			stats.AverageLatencyMS = RoundLatencyMS(average)
+			stats.HasLatency = true
+		}
+		successMin := bucketsWithSuccesses(minPoints, lossPoints)
+		successMax := bucketsWithSuccesses(maxPoints, lossPoints)
+		if minVal, ok := positiveExtreme(successMin, true); ok {
+			stats.MinLatencyMS = RoundLatencyMS(minVal)
+			stats.HasLatency = true
+		}
+		if maxVal, ok := positiveExtreme(successMax, false); ok {
+			stats.MaxLatencyMS = RoundLatencyMS(maxVal)
+			stats.HasLatency = true
+		}
+	}
+	fromSamples := PingHealthStatsFromLatencyPoints(avgPoints)
+	stats.FirstSuccessfulAt = fromSamples.FirstSuccessfulAt
+	stats.LastSuccessfulAt = fromSamples.LastSuccessfulAt
+	return stats
+}
+
+func lossRatioByBucket(points []metric.AggregatePoint) map[int64]float64 {
+	out := make(map[int64]float64, len(points))
+	for _, point := range points {
+		if point.Count <= 0 || math.IsNaN(point.Value) {
+			continue
+		}
+		ratio := point.Value
+		if ratio < 0 {
+			ratio = 0
+		} else if ratio > 1 {
+			ratio = 1
+		}
+		out[point.Bucket.UTC().UnixNano()] = ratio
+	}
+	return out
+}
+
+func bucketSuccessCount(point metric.AggregatePoint, lossRatio map[int64]float64) int64 {
+	if point.Count <= 0 || point.Value < 0 || math.IsNaN(point.Value) {
+		return 0
+	}
+	total := int64(point.Count)
+	ratio, ok := lossRatio[point.Bucket.UTC().UnixNano()]
+	if !ok {
+		return total
+	}
+	lost := int64(math.Round(float64(total) * ratio))
+	if lost < 0 {
+		lost = 0
+	} else if lost > total {
+		lost = total
+	}
+	return total - lost
+}
+
+func bucketsWithSuccesses(points []metric.AggregatePoint, lossPoints []metric.AggregatePoint) []metric.AggregatePoint {
+	lossRatio := lossRatioByBucket(lossPoints)
+	out := make([]metric.AggregatePoint, 0, len(points))
+	for _, point := range points {
+		if bucketSuccessCount(point, lossRatio) <= 0 {
+			continue
+		}
+		out = append(out, point)
+	}
+	return out
+}
+
+func successWeightedAverage(avgPoints, lossPoints []metric.AggregatePoint) (float64, bool) {
+	lossRatio := lossRatioByBucket(lossPoints)
+	var weightedSum float64
+	var success int64
+	for _, point := range avgPoints {
+		count := bucketSuccessCount(point, lossRatio)
+		if count <= 0 {
+			continue
+		}
+		weightedSum += point.Value * float64(count)
+		success += count
+	}
+	if success <= 0 {
+		return 0, false
+	}
+	return weightedSum / float64(success), true
+}
+
+func PingHealthStatsFromLatencyPoints(points []metric.AggregatePoint) PingHealthStats {
+	var stats PingHealthStats
+	var weightedSum float64
+	for _, point := range points {
+		if point.Count <= 0 {
+			continue
+		}
+		count := int64(point.Count)
+		stats.Total += count
+		if point.Value < 0 {
+			stats.Lost += count
+			continue
+		}
+		stats.Successful += count
+		weightedSum += point.Value * float64(count)
+		if !stats.HasLatency || point.Value < stats.MinLatencyMS {
+			stats.MinLatencyMS = point.Value
+		}
+		if !stats.HasLatency || point.Value > stats.MaxLatencyMS {
+			stats.MaxLatencyMS = point.Value
+		}
+		bucket := point.Bucket.UTC()
+		if stats.FirstSuccessfulAt == nil || bucket.Before(*stats.FirstSuccessfulAt) {
+			ts := bucket
+			stats.FirstSuccessfulAt = &ts
+		}
+		if stats.LastSuccessfulAt == nil || bucket.After(*stats.LastSuccessfulAt) {
+			ts := bucket
+			stats.LastSuccessfulAt = &ts
+		}
+		stats.HasLatency = true
+	}
+	if stats.Successful > 0 {
+		stats.AverageLatencyMS = RoundLatencyMS(weightedSum / float64(stats.Successful))
+		stats.MinLatencyMS = RoundLatencyMS(stats.MinLatencyMS)
+		stats.MaxLatencyMS = RoundLatencyMS(stats.MaxLatencyMS)
+	}
+	return stats
+}
+
+// RoundLatencyMS keeps latency figures at hundredths of a millisecond.
+// 0.00 is not a usable latency: comparisons and stored values share this precision.
+func RoundLatencyMS(value float64) float64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return value
+	}
+	return math.Round(value*100) / 100
+}
+
+// LatencyComparisonBand rounds a latency interval to 0.01 ms.
+// A usable raw interval that collapses to one centisecond is widened by 0.01 ms
+// around anchor, so comparison still has an inside and an outside.
+func LatencyComparisonBand(rawLow, rawHigh, anchor float64) (low, high float64, ok bool) {
+	if !(rawHigh > rawLow) || math.IsNaN(rawLow) || math.IsNaN(rawHigh) || math.IsNaN(anchor) {
+		return RoundLatencyMS(rawLow), RoundLatencyMS(rawHigh), false
+	}
+	low = RoundLatencyMS(rawLow)
+	high = RoundLatencyMS(rawHigh)
+	if high > low {
+		return low, high, true
+	}
+	center := RoundLatencyMS(anchor)
+	low = RoundLatencyMS(center - 0.01)
+	high = RoundLatencyMS(center + 0.01)
+	if high <= low {
+		high = RoundLatencyMS(low + 0.01)
+	}
+	return low, high, high > low
+}
+
+func PingBaselineCandidateFromPoints(loss PingLossStats, points []metric.AggregatePoint) PingBaselineCandidate {
+	candidate := PingBaselineCandidate{Successful: loss.Total - loss.Lost}
+	if candidate.Successful < 0 {
+		candidate.Successful = 0
+	}
+	values := make([]float64, 0, len(points))
+	for _, point := range points {
+		if point.Count <= 0 || point.Value < 0 || math.IsNaN(point.Value) {
+			continue
+		}
+		values = append(values, point.Value)
+	}
+	if median, ok := medianFloats(values); ok && median > 0 {
+		candidate.MedianMS = RoundLatencyMS(median)
+	}
+	if candidate.Successful == 0 {
+		fromSamples := PingHealthStatsFromLatencyPoints(points)
+		candidate.Successful = fromSamples.Successful
+	}
+	return candidate
+}
+
+func PingBaselineCandidateFromValues(values []float64) PingBaselineCandidate {
+	filtered := make([]float64, 0, len(values))
+	for _, value := range values {
+		if value < 0 || math.IsNaN(value) {
+			continue
+		}
+		filtered = append(filtered, value)
+	}
+	candidate := PingBaselineCandidate{Successful: int64(len(filtered))}
+	if median, ok := medianFloats(filtered); ok {
+		candidate.MedianMS = RoundLatencyMS(median)
+	}
+	return candidate
+}
+
+func positiveExtreme(points []metric.AggregatePoint, wantMin bool) (float64, bool) {
+	found := false
+	extreme := 0.0
+	for _, point := range points {
+		if point.Count <= 0 || point.Value < 0 || math.IsNaN(point.Value) {
+			continue
+		}
+		if !found {
+			extreme = point.Value
+			found = true
+			continue
+		}
+		if wantMin && point.Value < extreme {
+			extreme = point.Value
+		}
+		if !wantMin && point.Value > extreme {
+			extreme = point.Value
+		}
+	}
+	return extreme, found
+}
+
+func medianFloats(values []float64) (float64, bool) {
+	if len(values) == 0 {
+		return 0, false
+	}
+	sorted := append([]float64(nil), values...)
+	sort.Float64s(sorted)
+	mid := len(sorted) / 2
+	if len(sorted)%2 == 1 {
+		return sorted[mid], true
+	}
+	return (sorted[mid-1] + sorted[mid]) / 2, true
+}

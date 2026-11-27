@@ -1,0 +1,407 @@
+package client
+
+import (
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	logger "github.com/nuomiiiii/lite/utils/log"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+	"github.com/nuomiiiii/lite/database/clients"
+	"github.com/nuomiiiii/lite/database/dbcore"
+	"github.com/nuomiiiii/lite/database/tasks"
+	"github.com/nuomiiiii/lite/nodemgt/control"
+	"github.com/nuomiiiii/lite/nodemgt/ops"
+	"github.com/nuomiiiii/lite/nodemgt/store"
+	v2 "github.com/nuomiiiii/lite/protocol/v2"
+	"github.com/nuomiiiii/lite/utils/notifier"
+	agent_runtime "github.com/nuomiiiii/lite/web/agent"
+	"github.com/nuomiiiii/lite/web/api"
+	"github.com/nuomiiiii/lite/web/connection"
+	"github.com/nuomiiiii/lite/web/firewall"
+	"github.com/nuomiiiii/lite/web/protection"
+)
+
+func readMaybeCompressedBody(r *http.Request) ([]byte, error) {
+	defer r.Body.Close()
+	if strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip") {
+		zr, err := gzip.NewReader(r.Body)
+		if err != nil {
+			return nil, err
+		}
+		defer zr.Close()
+		return io.ReadAll(zr)
+	}
+	return io.ReadAll(r.Body)
+}
+
+func bindV2Params[T any](raw any, target *T) error {
+	if raw == nil {
+		return json.Unmarshal([]byte("null"), target)
+	}
+	switch v := raw.(type) {
+	case json.RawMessage:
+		if len(v) == 0 {
+			return json.Unmarshal([]byte("null"), target)
+		}
+		return json.Unmarshal(v, target)
+	case []byte:
+		if len(v) == 0 {
+			return json.Unmarshal([]byte("null"), target)
+		}
+		return json.Unmarshal(v, target)
+	case T:
+		*target = v
+		return nil
+	case *T:
+		if v == nil {
+			return json.Unmarshal([]byte("null"), target)
+		}
+		*target = *v
+		return nil
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, target)
+}
+
+func handleV2RPC(uuid string, req v2.Request, allowWait bool) v2.Response {
+	return handleV2RPCWithPresence(uuid, req, allowWait, true)
+}
+
+func handleV2RPCWithPresence(uuid string, req v2.Request, allowWait, markPresence bool) v2.Response {
+	if req.JSONRPC != v2.Version {
+		return v2.Error(req.ID, -32600, "invalid jsonrpc version", nil)
+	}
+	switch req.Method {
+	case v2.MethodAgentReport:
+		var params v2.ReportParams
+		if err := bindV2Params(req.Params, &params); err != nil {
+			return v2.Error(req.ID, -32602, "invalid report params", err.Error())
+		}
+		if err := ingestReport(uuid, params.Report, markPresence); err != nil {
+			return v2.Error(req.ID, -32000, "failed to save report", err.Error())
+		}
+		return v2.Success(req.ID, gin.H{
+			"status": "success",
+			"events": agent_runtime.TakeV2Events(uuid, params.AckEventIDs, 8),
+		})
+	case v2.MethodAgentBasicInfo:
+		var params v2.BasicInfoParams
+		if err := bindV2Params(req.Params, &params); err != nil {
+			return v2.Error(req.ID, -32602, "invalid basic info params", err.Error())
+		}
+		if err := ingestBasicInfo(uuid, params.Info, ""); err != nil {
+			return v2.Error(req.ID, -32000, "failed to save basic info", err.Error())
+		}
+		if params.ConfigState != nil {
+			if _, err := clients.AdoptDeploymentRuntimeConfig(uuid, params.Platform, *params.ConfigState); err != nil {
+				return v2.Error(req.ID, -32000, "failed to synchronize agent config", err.Error())
+			}
+		}
+		if params.ConfigResult != nil {
+			if _, err := clients.CompleteDeploymentConfig(uuid, *params.ConfigResult); err != nil {
+				return v2.Error(req.ID, -32000, "failed to save config result", err.Error())
+			}
+			if params.ConfigResult.EventID != "" {
+				agent_runtime.AckV2Events(uuid, []string{params.ConfigResult.EventID})
+			}
+		}
+		result := gin.H{"status": "success"}
+		runtimeConfig, err := getClientRuntimeConfig(uuid)
+		if err != nil {
+			return v2.Error(req.ID, -32000, "failed to load agent config", err.Error())
+		}
+		if runtimeConfig != nil {
+			result["config"] = runtimeConfig
+		} else {
+			result["request_config_state"] = true
+		}
+		return v2.Success(req.ID, result)
+	case v2.MethodAgentPingResult:
+		var params v2.PingResultParams
+		if err := bindV2Params(req.Params, &params); err != nil {
+			return v2.Error(req.ID, -32602, "invalid ping result params", err.Error())
+		}
+		if err := ingestPingResult(uuid, params.TaskID, params.LatencyMS(), params.FinishedAt); err != nil {
+			return v2.Error(req.ID, -32000, "failed to save ping result", err.Error())
+		}
+		return v2.Success(req.ID, gin.H{"status": "success"})
+	case v2.MethodAgentTaskResult:
+		var params v2.TaskResultParams
+		if err := bindV2Params(req.Params, &params); err != nil {
+			return v2.Error(req.ID, -32602, "invalid task result params", err.Error())
+		}
+		if params.TaskID == "" {
+			return v2.Error(req.ID, -32602, "invalid task result params", "task_id is required")
+		}
+		if err := ingestTaskResult(uuid, params); err != nil {
+			return v2.Error(req.ID, -32000, "failed to save task result", err.Error())
+		}
+		return v2.Success(req.ID, gin.H{"status": "success"})
+	case v2.MethodAgentRouteResult:
+		var params v2.RouteResultParams
+		if err := bindV2Params(req.Params, &params); err != nil {
+			return v2.Error(req.ID, -32602, "invalid route result params", err.Error())
+		}
+		if err := tasks.SaveReturnRouteResult(uuid, params); err != nil {
+			return v2.Error(req.ID, -32000, "failed to save route result", err.Error())
+		}
+		return v2.Success(req.ID, gin.H{"status": "success"})
+	case v2.MethodNodemgtControlResult:
+		var params struct {
+			OperationID string `json:"operation_id"`
+			Status      string `json:"status"`
+			Error       string `json:"error"`
+			Fingerprint string `json:"fingerprint"`
+			CSRPEM      string `json:"csr_pem"`
+			CertID      string `json:"cert_id"`
+			Domain      string `json:"domain"`
+			Issuer      string `json:"issuer"`
+			NotAfter    string `json:"not_after"`
+		}
+		if err := bindV2Params(req.Params, &params); err != nil {
+			return v2.Error(req.ID, -32602, "invalid nodemgt control result", err.Error())
+		}
+		var notAfter *time.Time
+		if ts := strings.TrimSpace(params.NotAfter); ts != "" {
+			if parsed, err := time.Parse(time.RFC3339, ts); err == nil {
+				notAfter = &parsed
+			}
+		}
+		st := store.New(dbcore.GetDBInstance())
+		if err := control.HandleResult(st, control.Result{
+			NodeUUID:    uuid,
+			OperationID: params.OperationID,
+			Status:      params.Status,
+			Error:       params.Error,
+			Fingerprint: params.Fingerprint,
+			CSRPEM:      params.CSRPEM,
+			CertID:      params.CertID,
+			Domain:      params.Domain,
+			Issuer:      params.Issuer,
+			NotAfter:    notAfter,
+		}); err != nil {
+			return v2.Error(req.ID, -32000, "failed to ack nodemgt control", err.Error())
+		}
+		return v2.Success(req.ID, gin.H{"status": "success"})
+	case v2.MethodNodemgtUsage:
+		var params struct {
+			UserID  string `json:"user_id"`
+			Bytes   int64  `json:"bytes"`
+			BatchID string `json:"batch_id"`
+		}
+		if err := bindV2Params(req.Params, &params); err != nil {
+			return v2.Error(req.ID, -32602, "invalid nodemgt usage", err.Error())
+		}
+		if err := ops.New(store.New(dbcore.GetDBInstance())).RecordUsageFromNode(uuid, params.UserID, params.Bytes, params.BatchID); err != nil {
+			return v2.Error(req.ID, -32000, "failed to record nodemgt usage", err.Error())
+		}
+		return v2.Success(req.ID, gin.H{"status": "success"})
+	case v2.MethodNodemgtPresence:
+		var params struct {
+			Users []store.UserPresence `json:"users"`
+		}
+		if err := bindV2Params(req.Params, &params); err != nil {
+			return v2.Error(req.ID, -32602, "invalid nodemgt presence", err.Error())
+		}
+		if err := ops.New(store.New(dbcore.GetDBInstance())).RecordPresenceFromNode(uuid, params.Users); err != nil {
+			return v2.Error(req.ID, -32000, "failed to record nodemgt presence", err.Error())
+		}
+		return v2.Success(req.ID, gin.H{"status": "success"})
+	case v2.MethodAgentFirewallResult:
+		var params v2.FirewallResultParams
+		if err := bindV2Params(req.Params, &params); err != nil {
+			return v2.Error(req.ID, -32602, "invalid firewall result", err.Error())
+		}
+		firewall.CompleteResult(uuid, params)
+		return v2.Success(req.ID, gin.H{"status": "success"})
+	case v2.MethodAgentProtectionResult:
+		var params v2.ProtectionResultParams
+		if err := bindV2Params(req.Params, &params); err != nil {
+			return v2.Error(req.ID, -32602, "invalid protection result", err.Error())
+		}
+		protection.CompleteResult(uuid, params)
+		return v2.Success(req.ID, gin.H{"status": "success"})
+	case v2.MethodAgentProtectionReport:
+		var params v2.ProtectionReportParams
+		if err := bindV2Params(req.Params, &params); err != nil {
+			return v2.Error(req.ID, -32602, "invalid protection report", err.Error())
+		}
+		protection.CompleteReport(uuid, params)
+		return v2.Success(req.ID, gin.H{"status": "success"})
+	case v2.MethodAgentPull:
+		var params v2.PullParams
+		if err := bindV2Params(req.Params, &params); err != nil {
+			return v2.Error(req.ID, -32602, "invalid pull params", err.Error())
+		}
+		ingestMCPCapability(uuid, params)
+		if markPresence {
+			refreshPostPresence(uuid)
+		}
+		protection.PushPending(uuid)
+		go func() {
+			_ = control.PushPending(store.New(dbcore.GetDBInstance()), uuid)
+			firewall.PushPending(uuid)
+		}()
+		timeout := 0 * time.Second
+		if allowWait {
+			timeout = 25 * time.Second
+		}
+		return v2.Success(req.ID, gin.H{
+			"events": agent_runtime.WaitV2Events(uuid, params.AckEventIDs, timeout),
+		})
+	default:
+		return v2.Error(req.ID, -32601, "method not found", req.Method)
+	}
+}
+
+func UploadV2RPC(c *gin.Context) {
+	bytesBody, err := readMaybeCompressedBody(c.Request)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, v2.Error(nil, -32700, "invalid compressed body", err.Error()))
+		return
+	}
+	var req v2.Request
+	if err := v2.DecodeRequest(bytesBody, &req); err != nil {
+		c.JSON(http.StatusBadRequest, v2.Error(nil, -32700, "parse error", err.Error()))
+		return
+	}
+	uuid, ok := clientUUIDFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, v2.Error(req.ID, -32001, "invalid token", nil))
+		return
+	}
+	resp := handleV2RPCWithPresence(uuid, req, true, true)
+	status := http.StatusOK
+	if resp.Error != nil {
+		status = http.StatusBadRequest
+	}
+	c.JSON(status, resp)
+}
+
+func WebSocketV2RPC(c *gin.Context) {
+	if !api.IsWebSocketUpgrade(c) {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "Require WebSocket upgrade"})
+		return
+	}
+	unsafeConn, err := api.UpgradeWebSocket(c, api.EnableWebSocketCompression, api.AllowAgentWebSocket)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "Failed to upgrade to WebSocket." + err.Error()})
+		return
+	}
+	conn := connection.NewSafeConn(unsafeConn)
+	defer conn.Close()
+	attachAgentWebSocketKeepalive(conn)
+
+	uuid, ok := clientUUIDFromContext(c)
+	if !ok {
+		conn.WriteJSON(v2.Error(nil, -32001, "invalid token", nil))
+		return
+	}
+	if oldConn := agent_runtime.GetConnectedClient(uuid); oldConn != nil {
+		go oldConn.Close()
+	}
+	agent_runtime.SetConnectedClients(uuid, conn)
+	if agent_runtime.GetConnectedClient(uuid) != conn {
+		return
+	}
+	clearPostPresence(uuid)
+	notifierOnline(uuid, conn.ID)
+	defer func() {
+		agent_runtime.DeleteClientConditionally(uuid, conn)
+		if liveID, live := agent_runtime.ActiveConnectionID(uuid); live {
+			notifier.RebindOnlineConnection(uuid, conn.ID, liveID)
+			return
+		}
+		notifierOffline(uuid, conn.ID)
+	}()
+	firewall.SyncOnConnect(uuid)
+	protection.SyncOnConnect(uuid)
+	if !pushQueuedV2Events(conn, uuid) {
+		return
+	}
+
+	for {
+		refreshAgentWebSocketReadDeadline(conn)
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				logger.Errorf("client-api", "Client %s v2 connection error: %v", uuid, err)
+			}
+			return
+		}
+		message = bytes.TrimSpace(message)
+		var req v2.Request
+		if err := v2.DecodeRequest(message, &req); err != nil {
+			conn.WriteJSON(v2.Error(nil, -32700, "parse error", err.Error()))
+			continue
+		}
+		resp := handleV2RPCWithPresence(uuid, req, false, false)
+		if req.ID != nil {
+			if err := conn.WriteJSON(resp); err != nil {
+				logger.Errorf("client-api", "failed to write v2 rpc response: %v", err)
+				return
+			}
+		}
+	}
+}
+
+func pushQueuedV2Events(conn *connection.SafeConn, uuid string) bool {
+	events := agent_runtime.TakeV2Events(uuid, nil, 0)
+	if len(events) == 0 {
+		return true
+	}
+	ackIDs := make([]string, 0, len(events))
+	for _, event := range events {
+		payload := v2.Request{JSONRPC: v2.Version, Method: event.Method, Params: event.Params}
+		if event.Method == v2.MethodAgentConfig {
+			payload.ID = event.ID
+		}
+		if err := conn.WriteJSON(payload); err != nil {
+			agent_runtime.AckV2Events(uuid, ackIDs)
+			logger.Errorf("client-api", "failed to push queued v2 event %s to client %s: %v", event.ID, uuid, err)
+			return false
+		}
+		if event.Method == v2.MethodAgentConfig {
+			var config v2.ConfigParams
+			if err := bindV2Params(event.Params, &config); err != nil {
+				logger.Errorf("client-api", "failed to read queued config revision for client %s: %v", uuid, err)
+				continue
+			}
+			if _, err := clients.MarkDeploymentConfigSent(uuid, config.Revision); err != nil {
+				logger.Errorf("client-api", "failed to mark queued config sent for client %s: %v", uuid, err)
+			}
+			continue
+		}
+		ackIDs = append(ackIDs, event.ID)
+	}
+	agent_runtime.AckV2Events(uuid, ackIDs)
+	return true
+}
+
+func clientUUIDFromContext(c *gin.Context) (string, bool) {
+	if v, ok := c.Get("client_uuid"); ok {
+		if uuid, ok := v.(string); ok && uuid != "" {
+			return uuid, true
+		}
+	}
+	return "", false
+}
+
+func notifierOnline(uuid string, connID int64) {
+	notifier.NotifyOnlineAsync(uuid, connID)
+}
+
+func notifierOffline(uuid string, connID int64) {
+	defer func() { _ = recover() }()
+	notifier.OfflineNotification(uuid, connID)
+}

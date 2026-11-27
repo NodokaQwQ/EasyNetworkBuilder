@@ -1,0 +1,164 @@
+name: Publish Stable Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable version number, for example 2.1.5
+        required: true
+        type: string
+      version_hash:
+        description: Optional seven-character identifier. Leave empty to generate one.
+        required: false
+        type: string
+      target_ref:
+        description: Git ref to release
+        required: true
+        default: main
+        type: string
+      web_ref:
+        description: Lite-Plus-web branch or tag. Leave empty to use the same x.y.z tag as this release.
+        required: false
+        default: ""
+        type: string
+      theme_ref:
+        description: Lite-theme branch or tag. Leave empty to use the pin in plus-baseline.json.
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: stable-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_ref }}
+          fetch-depth: 0
+
+      - name: Prepare version metadata
+        id: metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          REQUESTED_HASH: ${{ inputs.version_hash }}
+          WEB_REF: ${{ inputs.web_ref }}
+          THEME_REF: ${{ inputs.theme_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must contain only three numeric components, for example 2.1.5." >&2
+            exit 1
+          fi
+
+          VERSION_HASH="$REQUESTED_HASH"
+          HASH_FROM_EXISTING=0
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            EXISTING_BODY="$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json body --jq .body)"
+            if [ -z "$VERSION_HASH" ] && [[ "$EXISTING_BODY" =~ (lite|komari)-version-hash:[[:space:]]*([A-Za-z0-9]{7}) ]]; then
+              VERSION_HASH="${BASH_REMATCH[2]}"
+              HASH_FROM_EXISTING=1
+            fi
+          fi
+
+          if [ -z "$VERSION_HASH" ]; then
+            VERSION_HASH="$(node -e 'const c=require("crypto"),a="abcdefghijklmnoprstuvwxyz0123456789";let s;do{s=Array.from(c.randomBytes(7),b=>a[b%a.length]).join("")}while(!/[a-z]/.test(s)||!/[0-9]/.test(s));process.stdout.write(s)')"
+          fi
+
+          if [[ ! "$VERSION_HASH" =~ ^[A-Za-z0-9]{7}$ ]]; then
+            echo "Version identifier must contain exactly seven letters or digits." >&2
+            exit 1
+          fi
+          if [ "$HASH_FROM_EXISTING" != 1 ] && [[ "$VERSION_HASH" == *q* ]]; then
+            echo "Version identifier must not contain q: $VERSION_HASH" >&2
+            exit 1
+          fi
+
+          WEB_REF="${WEB_REF:-$VERSION}"
+          OWNER="${GITHUB_REPOSITORY_OWNER}"
+          WEB_REPO="${OWNER}/Lite-Plus-web"
+          if git ls-remote --exit-code "https://github.com/${WEB_REPO}.git" "refs/tags/${WEB_REF}" >/dev/null; then
+            echo "Using Lite-Plus-web tag ${WEB_REF}"
+          elif git ls-remote --exit-code "https://github.com/${WEB_REPO}.git" "refs/heads/${WEB_REF}" >/dev/null; then
+            echo "Using Lite-Plus-web branch ${WEB_REF}"
+          else
+            echo "Lite-Plus-web has no tag or branch named ${WEB_REF}. Publish Lite-Plus-web ${VERSION} first." >&2
+            exit 1
+          fi
+
+          WEB_VERSION="$(gh api "repos/${WEB_REPO}/contents/package.json?ref=${WEB_REF}" --jq .content | python3 -c "import json,sys,base64; print(json.loads(base64.b64decode(sys.stdin.read()).decode())['version'])")"
+          if [ "$WEB_VERSION" != "$VERSION" ]; then
+            echo "Lite-Plus-web ${WEB_REF} is version ${WEB_VERSION}, expected ${VERSION}." >&2
+            exit 1
+          fi
+
+          THEME_REF="$(python3 scripts/plus_follow.py theme-ref "${THEME_REF:-}")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_hash=$VERSION_HASH" >> "$GITHUB_OUTPUT"
+          echo "web_ref=$WEB_REF" >> "$GITHUB_OUTPUT"
+          echo "theme_ref=$THEME_REF" >> "$GITHUB_OUTPUT"
+          echo "Release display version: $VERSION ($VERSION_HASH), Lite-Plus-web ${WEB_REF} (${WEB_VERSION})"
+
+      - name: Create version-only tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+          VERSION_HASH: ${{ steps.metadata.outputs.version_hash }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TARGET_SHA="$(git rev-parse HEAD)"
+          if git rev-parse "refs/tags/$VERSION" >/dev/null 2>&1; then
+            TAG_SHA="$(git rev-list -n 1 "$VERSION")"
+            if [ "$TAG_SHA" != "$TARGET_SHA" ]; then
+              echo "Tag $VERSION already points to $TAG_SHA instead of $TARGET_SHA." >&2
+              exit 1
+            fi
+          else
+            git tag "$VERSION" "$TARGET_SHA"
+            git push origin "refs/tags/$VERSION"
+          fi
+
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$VERSION" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$VERSION" \
+              --latest
+          else
+            gh release create "$VERSION" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$TARGET_SHA" \
+              --title "$VERSION" \
+              --notes "<!-- lite-version-hash: $VERSION_HASH -->" \
+              --latest \
+              --verify-tag
+          fi
+
+      - name: Build release assets and Docker image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+          VERSION_HASH: ${{ steps.metadata.outputs.version_hash }}
+          WEB_REF: ${{ steps.metadata.outputs.web_ref }}
+          THEME_REF: ${{ steps.metadata.outputs.theme_ref }}
+        shell: bash
+        run: |
+          gh workflow run release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$VERSION" \
+            -f tag="$VERSION" \
+            -f version_hash="$VERSION_HASH" \
+            -f web_ref="$WEB_REF" \
+            -f theme_ref="$THEME_REF"

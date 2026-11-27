@@ -1,0 +1,823 @@
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, type CSSProperties, type KeyboardEvent } from "react";
+import Loading from "@/components/loading";
+import { NodeDetailsProvider, useNodeDetails } from "@/contexts/NodeDetailsContext";
+import { AdminNodeLiveDataProvider } from "@/hooks/use-admin-node-live-data";
+import { useTranslation } from "react-i18next";
+import {
+    Button,
+    Card,
+    Flex,
+    IconButton,
+    Text,
+    Badge,
+    Popover
+} from "@/components/admin/ui";
+import MuiButton from "@mui/material/Button";
+import MuiTextField from "@mui/material/TextField";
+import { AlertCircle, CheckCircle2, Copy, Clock } from "@/components/admin/muiIcons";
+import { toast } from "sonner";
+import RemoteExecNodeSelector from "@/components/remote/RemoteExecNodeSelector";
+import AdminPageTitle from "@/components/admin/AdminPageTitle";
+import { RequireAllowRemoteManagement } from "@/components/admin/RemoteManagementGate";
+import {
+    localizeRemoteError,
+    loadStoredRemoteGrant,
+    saveStoredRemoteGrant,
+    clearStoredRemoteGrant,
+    isRemoteGrantLive,
+} from "@/utils/remoteSession";
+import { createRandomId } from "@/utils/randomId";
+import { isExecTimeoutResult, localizeExecResult } from "@/utils/execResult";
+import { useAccount } from "@/contexts/AccountContext";
+import {
+    AdminPagination,
+    useAdminPagination,
+} from "@/components/admin/AdminPagination";
+import { confirmAdminPasskey, passkeyUnavailableMessage } from "@/utils/webauthn";
+import { CommandClipboardProvider } from "@/contexts/CommandClipboardContext";
+import { SavedExecCommands } from "@/pages/admin/execSavedCommands";
+
+interface TaskResult {
+    task_id: string;
+    client: string;
+    client_info: {
+        uuid: string;
+        name: string;
+        [key: string]: any;
+    };
+    result: string;
+    exit_code: number | null;
+    finished_at: string | null;
+    created_at: string;
+}
+
+interface ExecResponse {
+    success?: boolean;
+    task_id?: string;
+    clients?: string[];
+    message?: string;
+    // 新的响应格式
+    status?: string;
+    data?: {
+        task_id: string;
+        next_grant?: string;
+        expires_at?: string;
+    };
+}
+
+interface TaskResultResponse {
+    success?: boolean;
+    results?: TaskResult[];
+    message?: string;
+    // 新的响应格式
+    status?: string;
+    data?: TaskResult[];
+}
+
+const COMMAND_EDITOR_ID = "remote-exec-command-editor";
+const COMMAND_EDITOR_COLLAPSED_LINES = 3;
+const COMMAND_EDITOR_LINE_HEIGHT_VAR = "--command-editor-line-height";
+const COMMAND_EDITOR_VERTICAL_PADDING_VAR = "--command-editor-vertical-padding";
+const COMMAND_EDITOR_COLLAPSED_HEIGHT = `calc(${COMMAND_EDITOR_COLLAPSED_LINES} * var(${COMMAND_EDITOR_LINE_HEIGHT_VAR}) + var(${COMMAND_EDITOR_VERTICAL_PADDING_VAR}))`;
+const COMMAND_EDITOR_LINE_NUMBER_LIMIT = 500;
+const SELECTED_NODE_PREVIEW_LIMIT = 15;
+
+const parsePixelValue = (value: string) => {
+    const parsedValue = Number.parseFloat(value);
+    return Number.isFinite(parsedValue) ? parsedValue : 0;
+};
+
+const getCommandEditorBorderHeight = (element: HTMLElement | null) => {
+    if (!element) {
+        return 0;
+    }
+
+    const style = window.getComputedStyle(element);
+    return parsePixelValue(style.borderTopWidth) + parsePixelValue(style.borderBottomWidth);
+};
+
+const getCommandEditorCollapsedHeight = (textarea: HTMLTextAreaElement, editor: HTMLElement | null) => {
+    const style = window.getComputedStyle(textarea);
+    const lineHeight = parsePixelValue(style.lineHeight);
+    const verticalPadding = parsePixelValue(style.paddingTop) + parsePixelValue(style.paddingBottom);
+
+    return COMMAND_EDITOR_COLLAPSED_LINES * lineHeight + verticalPadding + getCommandEditorBorderHeight(editor);
+};
+
+const ExecPage = () => {
+    return (
+        <RequireAllowRemoteManagement>
+            <CommandClipboardProvider>
+                <NodeDetailsProvider>
+                    <AdminNodeLiveDataProvider>
+                        <ExecContent />
+                    </AdminNodeLiveDataProvider>
+                </NodeDetailsProvider>
+            </CommandClipboardProvider>
+        </RequireAllowRemoteManagement>
+    );
+};
+
+const ExecContent = () => {
+    const { t } = useTranslation();
+    const { nodeDetail, isLoading, error } = useNodeDetails();
+    const { account } = useAccount();
+    const [command, setCommand] = useState("");
+    const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
+    const [executing, setExecuting] = useState(false);
+    const [results, setResults] = useState<TaskResult[]>([]);
+    const [taskId, setTaskId] = useState<string | null>(null);
+    const [polling, setPolling] = useState(false);
+    const [commandFocused, setCommandFocused] = useState(false);
+    const [commandEditorHeight, setCommandEditorHeight] = useState(COMMAND_EDITOR_COLLAPSED_HEIGHT);
+    const [passwordInput, setPasswordInput] = useState("");
+    const [twoFaCode, setTwoFaCode] = useState("");
+    const [passkeyAvailable, setPasskeyAvailable] = useState(false);
+    const twoFaEnabled = Boolean(account?.["2fa_enabled"]);
+    const grantRef = useRef("");
+    const grantExpiresAtRef = useRef(0);
+    const pageIDRef = useRef(loadStoredRemoteGrant("exec")?.pageID || createRandomId());
+    const [hasGrant, setHasGrant] = useState(() => Boolean(loadStoredRemoteGrant("exec")));
+    const {
+        page: resultPage,
+        setPage: setResultPage,
+        pageItems: pagedResults,
+        pageSize: resultPageSize,
+        setPageSize: setResultPageSize,
+    } = useAdminPagination(results);
+
+    // 使用 useRef 来保存轮询相关的引用
+    const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const pollingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const commandTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+    const commandEditorRef = useRef<HTMLDivElement | null>(null);
+    const commandLineGutterRef = useRef<HTMLDivElement | null>(null);
+
+    const clearExecGrant = useCallback(() => {
+        grantRef.current = "";
+        grantExpiresAtRef.current = 0;
+        clearStoredRemoteGrant("exec");
+        setHasGrant(false);
+    }, []);
+
+    useEffect(() => {
+        const stored = loadStoredRemoteGrant("exec");
+        if (!stored) return;
+        grantRef.current = stored.grant;
+        grantExpiresAtRef.current = stored.expiresAt;
+        if (stored.pageID) pageIDRef.current = stored.pageID;
+        setHasGrant(true);
+    }, []);
+
+    useEffect(() => {
+        fetch("/api/admin/account/passkeys")
+            .then((response) => response.json())
+            .then((body) => {
+                const items = Array.isArray(body?.data) ? body.data : Array.isArray(body) ? body : [];
+                setPasskeyAvailable(items.length > 0);
+            })
+            .catch(() => setPasskeyAvailable(false));
+    }, []);
+
+    useEffect(() => {
+        if (!hasGrant) return;
+        if (!grantExpiresAtRef.current) return;
+        const timer = window.setInterval(() => {
+            if (isRemoteGrantLive(grantRef.current, grantExpiresAtRef.current)) return;
+            clearExecGrant();
+        }, 1000);
+        return () => window.clearInterval(timer);
+    }, [clearExecGrant, hasGrant]);
+
+    const commandLineCount = useMemo(() => {
+        return command === "" ? 1 : command.split("\n").length;
+    }, [command]);
+
+    const commandLineLabels = useMemo(() => {
+        if (commandFocused) {
+            const renderedLineCount = Math.min(commandLineCount, COMMAND_EDITOR_LINE_NUMBER_LIMIT);
+            const labels = Array.from({ length: renderedLineCount }, (_, index) => String(index + 1));
+
+            if (commandLineCount > renderedLineCount) {
+                labels.push(`+${commandLineCount - renderedLineCount}`);
+            }
+
+            return labels;
+        }
+
+        if (commandLineCount <= COMMAND_EDITOR_COLLAPSED_LINES) {
+            return Array.from({ length: commandLineCount }, (_, index) => String(index + 1));
+        }
+
+        const visibleNumberedLines = COMMAND_EDITOR_COLLAPSED_LINES - 1;
+        const remainingLines = commandLineCount - visibleNumberedLines;
+        return [
+            ...Array.from({ length: visibleNumberedLines }, (_, index) => String(index + 1)),
+            `+${remainingLines}`,
+        ];
+    }, [commandFocused, commandLineCount]);
+
+    const commandEditorStyle = useMemo<CSSProperties>(() => ({
+        [COMMAND_EDITOR_LINE_HEIGHT_VAR]: "1.5rem",
+        [COMMAND_EDITOR_VERTICAL_PADDING_VAR]: "1.5rem",
+        height: commandEditorHeight,
+        maxHeight: commandFocused ? "60vh" : COMMAND_EDITOR_COLLAPSED_HEIGHT,
+    }), [commandEditorHeight, commandFocused]);
+
+    // 清理轮询的函数
+    const clearPolling = () => {
+        if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+        }
+        if (pollingTimeoutRef.current) {
+            clearTimeout(pollingTimeoutRef.current);
+            pollingTimeoutRef.current = null;
+        }
+        setPolling(false);
+    };
+
+    // 组件卸载时清理轮询
+    useEffect(() => {
+        return () => {
+            clearPolling();
+        };
+    }, []);
+
+    useLayoutEffect(() => {
+        const textarea = commandTextareaRef.current;
+        if (!textarea) {
+            return;
+        }
+
+        if (!commandFocused) {
+            textarea.scrollTop = 0;
+            if (commandLineGutterRef.current) {
+                commandLineGutterRef.current.scrollTop = 0;
+            }
+            setCommandEditorHeight(COMMAND_EDITOR_COLLAPSED_HEIGHT);
+            return;
+        }
+
+        textarea.style.height = "0px";
+
+        const measuredHeight = textarea.scrollHeight + getCommandEditorBorderHeight(commandEditorRef.current);
+        const collapsedHeight = getCommandEditorCollapsedHeight(textarea, commandEditorRef.current);
+
+        setCommandEditorHeight(`${Math.max(collapsedHeight, measuredHeight)}px`);
+        textarea.style.height = "100%";
+    }, [command, commandFocused]);
+
+    if (isLoading) {
+        return <Loading />;
+    }
+
+    if (error) {
+        return <div className="text-red-500">{error}</div>;
+    }
+
+    // 轮询任务结果
+    const pollTaskResult = async (taskId: string) => {
+        try {
+            const response = await fetch(`/api/admin/task/${taskId}/result`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data: TaskResultResponse = await response.json();
+            let taskResults: TaskResult[] | undefined;
+
+            // 支持旧格式和新格式
+            if (data.success && data.results) {
+                taskResults = data.results;
+            } else if (data.status === "success" && data.data) {
+                taskResults = data.data;
+            }
+
+            if (taskResults) {
+                setResults(taskResults);
+
+                // 检查是否所有任务都已完成
+                const allCompleted = taskResults.every(result => result.finished_at !== null);
+                if (allCompleted) {
+                    clearPolling();
+                    toast.success(t("exec.allCompleted", "所有任务执行完成"));
+                }
+            }
+        } catch (err) {
+            console.error("轮询任务结果失败:", err);
+            clearPolling();
+        }
+    };
+
+    // 开始轮询
+    const startPolling = (taskId: string) => {
+        // 先清理之前的轮询
+        clearPolling();
+
+        setPolling(true);
+
+        // 首次立即执行
+        pollTaskResult(taskId);
+
+        // 设置定时轮询
+        pollingIntervalRef.current = setInterval(() => {
+            pollTaskResult(taskId);
+        }, 2000);
+
+        // 60秒后停止轮询并设置为超时状态
+        pollingTimeoutRef.current = setTimeout(() => {
+            // 将未完成的任务状态设置为超时
+            setResults(prevResults =>
+                prevResults.map(result =>
+                    result.finished_at === null
+                        ? { ...result, finished_at: new Date().toISOString(), exit_code: -1, result: "执行超时" }
+                        : result
+                )
+            );
+            clearPolling();
+            toast.warning(t("exec.pollingTimeout", "任务执行超时"));
+        }, 60000);
+    };
+
+    const executeCommand = async (usePasskey = false) => {
+        if (!command.trim()) {
+            toast.error(t("exec.errors.emptyCommand"));
+            return;
+        }
+
+        if (selectedNodes.length === 0) {
+            toast.error(t("exec.errors.noNodes"));
+            return;
+        }
+
+        const hasLiveGrant = isRemoteGrantLive(grantRef.current, grantExpiresAtRef.current);
+        if (!hasLiveGrant) clearExecGrant();
+        if (!usePasskey && twoFaEnabled && !hasLiveGrant && !twoFaCode.trim()) {
+            toast.error(t("account.otp_empty_error"));
+            return;
+        }
+        if (!usePasskey && !twoFaEnabled && !hasLiveGrant && !passwordInput.trim()) {
+            toast.error(t("terminal.session.reauth_password_prompt"));
+            return;
+        }
+
+        // 清理之前的轮询
+        clearPolling();
+
+        setExecuting(true);
+        setResults([]);
+        setTaskId(null);
+
+        const password = passwordInput;
+        const otp = twoFaCode;
+        setPasswordInput("");
+        setTwoFaCode("");
+
+        try {
+            if (!hasLiveGrant) {
+                grantRef.current = "";
+                let ceremony_id: string | undefined;
+                let credential: unknown;
+                if (usePasskey) {
+                    const assertion = await confirmAdminPasskey();
+                    ceremony_id = assertion.ceremony_id;
+                    credential = assertion.credential;
+                }
+                const authorizeResponse = await fetch("/api/admin/client/remote/authorize", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "same-origin",
+                    body: JSON.stringify({
+                        scope: "exec",
+                        page_id: pageIDRef.current,
+                        password: usePasskey || twoFaEnabled ? undefined : password || undefined,
+                        otp: usePasskey || !twoFaEnabled ? undefined : otp,
+                        ceremony_id,
+                        credential,
+                    }),
+                });
+                const authorizePayload = await authorizeResponse.json().catch(() => ({}));
+                if (!authorizeResponse.ok) {
+                    throw new Error(
+                        localizeRemoteError(
+                            authorizePayload?.message || `HTTP error! status: ${authorizeResponse.status}`,
+                            t,
+                        ),
+                    );
+                }
+                const nextGrant = authorizePayload?.data?.grant;
+                if (typeof nextGrant !== "string" || !nextGrant) {
+                    throw new Error(t("terminal.session.auth_failed"));
+                }
+                grantRef.current = nextGrant;
+                const expiresAt = Date.parse(String(authorizePayload?.data?.expires_at ?? ""));
+                grantExpiresAtRef.current = Number.isFinite(expiresAt) ? expiresAt : 0;
+                saveStoredRemoteGrant("exec", nextGrant, grantExpiresAtRef.current, pageIDRef.current);
+                setHasGrant(true);
+            }
+            const usedGrant = grantRef.current;
+            grantRef.current = "";
+            const response = await fetch("/api/admin/task/exec", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    command,
+                    clients: selectedNodes,
+                    grant: usedGrant,
+                    page_id: pageIDRef.current,
+                }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(
+                    localizeRemoteError(
+                        errorData.message || `HTTP error! status: ${response.status}`,
+                        t,
+                    ),
+                );
+            }
+
+            const data: ExecResponse = await response.json();
+            const payload = data.data ?? data;
+            const rotatedGrant = data.data?.next_grant;
+            if (typeof rotatedGrant === "string" && rotatedGrant) {
+                grantRef.current = rotatedGrant;
+                const expiresAt = Date.parse(String(data.data?.expires_at ?? ""));
+                if (Number.isFinite(expiresAt)) {
+                    grantExpiresAtRef.current = expiresAt;
+                }
+                saveStoredRemoteGrant("exec", rotatedGrant, grantExpiresAtRef.current, pageIDRef.current);
+                setHasGrant(true);
+            }
+
+            if (data.success && data.task_id) {
+                setTaskId(data.task_id);
+                toast.success(t("exec.taskStarted"));
+                startPolling(data.task_id);
+            } else if (data.status === "success" && payload?.task_id) {
+                setTaskId(payload.task_id);
+                toast.success(t("exec.taskStarted"));
+                startPolling(payload.task_id);
+            } else {
+                throw new Error(data.message);
+            }
+        } catch (err) {
+            const code = passkeyUnavailableMessage(err, "");
+            if (code === "cancelled") {
+                toast.error(t("account.passkey_cancelled"));
+            } else {
+                clearExecGrant();
+                const errorMessage = err instanceof Error ? err.message : t("common.error");
+                toast.error(localizeRemoteError(errorMessage, t));
+            }
+        } finally {
+            setPasswordInput("");
+            setTwoFaCode("");
+            setExecuting(false);
+        }
+    };
+
+    const handleCommandKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+            return;
+        }
+
+        event.preventDefault();
+        if (!executing) {
+            executeCommand();
+        }
+    };
+
+    const copyOutput = (output: string) => {
+        navigator.clipboard.writeText(output);
+        toast.success(t("common.success"));
+    };
+
+    const selectedNodeNames = selectedNodes.map(uuid => {
+        const node = nodeDetail.find(n => n.uuid === uuid);
+        return node ? node.name : uuid;
+    });
+    const selectedNodePreview = selectedNodeNames.slice(0, SELECTED_NODE_PREVIEW_LIMIT);
+    const hiddenSelectedNodeCount = selectedNodeNames.length - selectedNodePreview.length;
+
+    const getTaskStatus = (result: TaskResult) => {
+        if (result.finished_at === null) {
+            return { status: "running", color: "blue" as const, text: t("exec.status.running") };
+        }
+        if (isExecTimeoutResult(result.result)) {
+            return { status: "timeout", color: "orange" as const, text: t("exec.status.timeout") };
+        }
+        if (result.exit_code === 0) {
+            return { status: "success", color: "green" as const, text: t("common.success") };
+        }
+        return { status: "failed", color: "red" as const, text: t("common.error") };
+    };
+
+    return (
+        <div className="flex flex-col gap-4 p-0 md:p-4">
+            <AdminPageTitle description={t("exec.description")}>
+                {t("exec.title")}
+            </AdminPageTitle>
+
+            {/* 命令输入区域 */}
+            <section>
+                <Flex direction="column" gap="4">
+
+                    <label htmlFor={COMMAND_EDITOR_ID} className="text-base font-semibold leading-6">
+                        {t("exec.command")}
+                    </label>
+                    <SavedExecCommands onApply={setCommand} />
+                    <div
+                        ref={commandEditorRef}
+                        className="grid grid-cols-[3.75rem_minmax(0,1fr)] overflow-hidden rounded-md border border-[var(--gray-a7)] bg-[var(--color-panel-solid)] transition-[height,border-color,box-shadow] duration-200 focus-within:border-[var(--accent-8)] focus-within:shadow-[0_0_0_1px_var(--accent-8)]"
+                        style={commandEditorStyle}
+                    >
+                        <div
+                            ref={commandLineGutterRef}
+                            aria-hidden="true"
+                            className="select-none overflow-hidden border-r border-[var(--gray-a5)] bg-[var(--gray-2)] px-2 text-right font-mono text-xs text-[var(--gray-11)] [line-height:var(--command-editor-line-height)] [padding-bottom:calc(var(--command-editor-vertical-padding)/2)] [padding-top:calc(var(--command-editor-vertical-padding)/2)]"
+                        >
+                            {commandLineLabels.map((label, index) => (
+                                <div
+                                    key={`${label}-${index}`}
+                                    className={label.startsWith("+") ? "font-medium text-[var(--accent-11)]" : undefined}
+                                >
+                                    {label}
+                                </div>
+                            ))}
+                        </div>
+                        <textarea
+                            id={COMMAND_EDITOR_ID}
+                            ref={commandTextareaRef}
+                            value={command}
+                            onChange={(e) => setCommand(e.target.value)}
+                            onFocus={() => setCommandFocused(true)}
+                            onBlur={() => setCommandFocused(false)}
+                            onKeyDown={handleCommandKeyDown}
+                            onScroll={(event) => {
+                                if (commandLineGutterRef.current) {
+                                    commandLineGutterRef.current.scrollTop = event.currentTarget.scrollTop;
+                                }
+                            }}
+                            placeholder={t("exec.commandPlaceholder")}
+                            rows={COMMAND_EDITOR_COLLAPSED_LINES}
+                            wrap="soft"
+                            spellCheck={false}
+                            className="h-full w-full resize-none border-0 bg-transparent px-3 font-mono text-sm text-[var(--gray-12)] outline-none placeholder:text-[var(--gray-9)] [line-height:var(--command-editor-line-height)] [padding-bottom:calc(var(--command-editor-vertical-padding)/2)] [padding-top:calc(var(--command-editor-vertical-padding)/2)]"
+                            style={{
+                                maxHeight: commandFocused ? "60vh" : COMMAND_EDITOR_COLLAPSED_HEIGHT,
+                                overflowY: commandFocused ? "auto" : "hidden",
+                                overflowWrap: "break-word",
+                                whiteSpace: "pre-wrap",
+                            }}
+                        />
+                    </div>
+
+
+                    <div>
+                        <div className="mb-3 text-sm font-semibold text-[var(--gray-12)]">
+                            {t("exec.selectNodes")}
+                        </div>
+                        <RemoteExecNodeSelector
+                            nodes={nodeDetail}
+                            value={selectedNodes}
+                            onChange={setSelectedNodes}
+                        />
+                        {selectedNodes.length > 0 && (
+                            <Flex align="center" gap="2" wrap="wrap" className="mt-2">
+                                <Text size="2" color="gray">
+                                    {t("exec.selectedNodes", "已选择节点")}
+                                </Text>
+                                {selectedNodePreview.map((name, index) => (
+                                    <Badge key={`${selectedNodes[index]}-${name}`} variant="soft">
+                                        {name}
+                                    </Badge>
+                                ))}
+                                {hiddenSelectedNodeCount > 0 && (
+                                    <Popover.Root>
+                                        <Popover.Trigger>
+                                            <Button size="1" variant="soft" className="tabular-nums">
+                                                +{hiddenSelectedNodeCount}
+                                            </Button>
+                                        </Popover.Trigger>
+                                        <Popover.Content
+                                            align="end"
+                                            sideOffset={6}
+                                            className="max-h-72 w-[min(22rem,calc(100vw-2rem))] overflow-y-auto p-3"
+                                        >
+                                            <Text as="div" size="2" weight="medium" className="mb-2">
+                                                {t("exec.selectedNodes", "已选择节点")}
+                                            </Text>
+                                            <Flex gap="1" wrap="wrap">
+                                                {selectedNodeNames.map((name, index) => (
+                                                    <Badge key={`${selectedNodes[index]}-${name}`} color="gray" variant="soft">
+                                                        {name}
+                                                    </Badge>
+                                                ))}
+                                            </Flex>
+                                        </Popover.Content>
+                                    </Popover.Root>
+                                )}
+                            </Flex>
+                        )}
+                    </div>
+
+                    <div className="remote-exec-actions flex flex-col justify-end gap-2 rounded-md border border-[var(--gray-a5)] bg-[var(--gray-a2)] p-3 sm:flex-row sm:items-center">
+                        <MuiTextField
+                            size="small"
+                            className="w-full sm:w-64"
+                            type={twoFaEnabled ? "text" : "password"}
+                            inputMode={twoFaEnabled ? "numeric" : undefined}
+                            autoComplete={twoFaEnabled ? "one-time-code" : "current-password"}
+                            aria-label={twoFaEnabled ? t("admin.nodeTable.twoFactorCode") : t("terminal.session.reauth_password_prompt")}
+                            placeholder={twoFaEnabled ? t("admin.nodeTable.twoFactorCode") : t("login.password")}
+                            value={twoFaEnabled ? twoFaCode : passwordInput}
+                            onChange={(e) => {
+                                const value = (e.target as HTMLInputElement).value;
+                                if (twoFaEnabled) setTwoFaCode(value.replace(/\D/g, "").slice(0, 6));
+                                else setPasswordInput(value);
+                            }}
+                            slotProps={{ htmlInput: twoFaEnabled ? { maxLength: 6 } : undefined }}
+                            sx={{
+                                "& .MuiOutlinedInput-root": {
+                                    height: 40,
+                                    borderRadius: "8px",
+                                    bgcolor: "background.paper",
+                                },
+                            }}
+                        />
+                        <MuiButton
+                            variant="contained"
+                            disableElevation
+                            className="w-full sm:w-auto"
+                            onClick={() => void executeCommand(false)}
+                            disabled={executing || !command.trim() || selectedNodes.length === 0 || (!hasGrant && (twoFaEnabled ? !twoFaCode.trim() : !passwordInput.trim()))}
+                            sx={{ minWidth: 120, height: 40, borderRadius: "8px", textTransform: "none", fontWeight: 600 }}
+                        >
+                            {executing ? (
+                                <>
+                                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent" />
+                                    {t("exec.executing")}
+                                </>
+                            ) : (
+                                t("exec.execute")
+                            )}
+                        </MuiButton>
+                        {passkeyAvailable && !hasGrant ? (
+                            <MuiButton
+                                variant="outlined"
+                                className="w-full sm:w-auto"
+                                onClick={() => void executeCommand(true)}
+                                disabled={executing || !command.trim() || selectedNodes.length === 0}
+                                sx={{
+                                    minWidth: 140,
+                                    height: 40,
+                                    borderRadius: "8px",
+                                    textTransform: "none",
+                                    fontWeight: 600,
+                                    color: "text.primary",
+                                    borderColor: "divider",
+                                }}
+                            >
+                                {t("login.passkey", "使用通行密钥")}
+                            </MuiButton>
+                        ) : null}
+                    </div>
+                </Flex>
+            </section>
+
+            {/* 执行结果区域 */}
+            {results.length > 0 && (
+                <section className="space-y-4">
+                    <Flex direction="column" gap="4">
+                        <Flex justify="between" align="start" gap="2" wrap="wrap">
+                            <h2 className="text-base font-semibold leading-6 text-foreground">
+                                {t("exec.results", "执行结果")}
+                            </h2>
+                            {taskId && (
+                                <Text size="2" color="gray">
+                                    {t("exec.task_id", { id: taskId })}
+                                </Text>
+                            )}
+                        </Flex>
+
+                        <div className="space-y-4">
+                            {pagedResults.map((result) => {
+                                const status = getTaskStatus(result);
+                                return (
+                                    <Card key={result.client} className="p-4">
+                                        <Flex direction="column" gap="3">
+                                            {/* 节点信息和状态 */}
+                                            <label className="text-base font-semibold leading-6">
+                                                {nodeDetail.find(n => n.uuid === result.client)?.name || result.client}
+                                            </label>
+                                            <Flex justify="between" align="center">
+                                                <Flex align="center" gap="2">
+                                                    <Text weight="medium">{result.client_info.name}</Text>
+                                                    <Badge
+                                                        color={status.color}
+                                                        variant="soft"
+                                                    >
+                                                        {status.status === "running" ? (
+                                                            <>
+                                                                <div className="animate-spin rounded-full h-3 w-3 border-2 border-current border-t-transparent" />
+                                                                {status.text}
+                                                            </>
+                                                        ) : status.status === "success" ? (
+                                                            <>
+                                                                <CheckCircle2 size={12} />
+                                                                {status.text}
+                                                            </>
+                                                        ) : status.status === "timeout" ? (
+                                                            <>
+                                                                <Clock size={12} />
+                                                                {status.text}
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <AlertCircle size={12} />
+                                                                {status.text}
+                                                            </>
+                                                        )}
+                                                    </Badge>
+                                                    {result.exit_code !== null && (
+                                                        <Text size="1" color="gray">
+                                                            {t("exec.exit_code", { code: result.exit_code })}
+                                                        </Text>
+                                                    )}
+                                                </Flex>
+
+                                                {result.result && (
+                                                    <IconButton
+                                                        variant="ghost"
+                                                        size="1"
+                                                        title={t("common.copy")}
+                                                        onClick={() => copyOutput(localizeExecResult(result.result, t))}
+                                                    >
+                                                        <Copy size={14} />
+                                                    </IconButton>
+                                                )}
+                                            </Flex>
+
+                                            {/* 时间信息 */}
+                                            {/* <Flex gap="4" className="text-sm text-gray-500">
+                                                <Text size="1" color="gray">
+                                                    创建时间: {new Date(result.created_at).toLocaleString()}
+                                                </Text>
+                                                {result.finished_at && (
+                                                    <Text size="1" color="gray">
+                                                        完成时间: {new Date(result.finished_at).toLocaleString()}
+                                                    </Text>
+                                                )}
+                                            </Flex> */}
+
+                                            {/* 输出内容 */}
+                                            {result.result && (
+                                                <div className="bg-[var(--gray-2)] rounded-md p-3 font-mono text-sm overflow-x-auto">
+                                                    <pre className="whitespace-pre-wrap">{localizeExecResult(result.result, t)}</pre>
+                                                </div>
+                                            )}
+                                        </Flex>
+                                    </Card>
+                                );
+                            })}
+                        </div>
+
+                        <AdminPagination
+                            page={resultPage}
+                            total={results.length}
+                            pageSize={resultPageSize}
+                            onPageChange={setResultPage}
+                            onPageSizeChange={setResultPageSize}
+                        />
+
+                        {/* 轮询状态提示 */}
+                        {polling && (
+                            <Flex align="center" justify="between" className="text-sm text-gray-500">
+                                <Flex align="center" gap="2">
+                                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent" />
+                                    <Text size="2" color="gray">
+                                        {t("exec.polling")}
+                                    </Text>
+                                </Flex>
+                                <Button
+                                    variant="soft"
+                                    size="1"
+                                    onClick={clearPolling}
+                                >
+                                    {t("exec.stop_polling")}
+                                </Button>
+                            </Flex>
+                        )}
+                    </Flex>
+                </section>
+            )}
+        </div>
+    );
+};
+
+export default ExecPage;

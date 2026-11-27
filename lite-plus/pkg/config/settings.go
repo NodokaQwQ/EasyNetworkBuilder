@@ -1,0 +1,149 @@
+package config
+
+import (
+	"time"
+)
+
+const (
+	AdminDefaultPageSize    = 20
+	AdminDefaultPageSizeMin = 5
+	AdminDefaultPageSizeMax = 100
+	DefaultSitename         = "Lite-Plus"
+	DefaultSiteDescription  = "Lite-Plus"
+)
+
+type Settings struct {
+	ID                     uint   `json:"id,omitempty"`                                             // 1
+	Sitename               string `json:"sitename" default:"Lite-Plus"`                             // 站点名称，默认 "Lite-Plus"
+	Description            string `json:"description" default:"Lite-Plus"`                           // 站点描述
+	AdminDefaultPageSize   int    `json:"admin_default_page_size" default:"20"`                     // 后台列表默认每页条数
+	ReduceMotion           bool   `json:"reduce_motion" default:"false"`                            // 兼容旧库；界面不再提供关闭动效的开关
+	AutoOrderNewClients    bool   `json:"auto_order_new_clients_by_region" default:"false"`         // 新服务器首次识别国家\地区后自动排到同组同国家\地区节点后面，默认关闭
+	CorsOriginCheckEnabled bool   `json:"cors_origin_check_enabled" default:"true"`                 // 是否启用 API CORS 跨域请求校验，默认 true
+	CorsAllowedOrigins     string `json:"cors_allowed_origins" default:""`                          // API 跨域允许列表
+	WsOriginCheckEnabled   bool   `json:"ws_origin_check_enabled" default:"true"`                   // 是否校验 WebSocket Origin
+	WsAllowedOrigins       string `json:"ws_allowed_origins" default:""`                            // WebSocket Origin 允许列表
+	Theme                  string `json:"theme" default:"lite-theme"`                               // 新安装默认使用 Lite-Theme 公共主题
+	PrivateSite            bool   `json:"private_site" default:"false"`                             // 是否为私有站点，默认 false
+	ApiKey                 string `json:"api_key" default:""`                                       // API 密钥，默认空字符串
+	AutoDiscoveryKey       string `json:"auto_discovery_key"`                                       // Historical; leftover DB value is unused and not shown in admin settings
+	ScriptDomain           string `json:"script_domain" default:""`                                 // 自定义脚本域名
+	SendIpAddrToGuest      bool   `json:"send_ip_addr_to_guest" default:"false"`                    // 是否向访客页面发送 IP 地址，默认 false
+	VisitorAuditEnabled    bool   `json:"visitor_audit_enabled" default:"false"`                    // 是否允许公开访客事件写入审计日志，默认 false
+	EulaAccepted           bool   `json:"eula_accepted" default:"false"`
+	BaseScriptsURLKey      string `json:"base_scripts_url" default:""`
+	AllowRemoteManagement  bool   `json:"allow_remote_management" default:"false"`
+	AllowMCP               bool   `json:"allow_mcp" default:"false"`
+	MCPDefaultDurationMin  int    `json:"mcp_default_duration_minutes" default:"30"`
+	MCPMaxDurationMin      int    `json:"mcp_max_duration_minutes" default:"1440"`
+	MCPMaxConcurrency      int    `json:"mcp_max_concurrency" default:"4"`
+	SessionTTLSeconds      int    `json:"session_ttl_seconds" default:"86400"`
+	// GeoIP 配置
+	GeoIpEnabled  bool   `json:"geo_ip_enabled" default:"true"`
+	GeoIpProvider string `json:"geo_ip_provider" default:"ipinfo"` // empty, mmdb, ip-api, geojs
+	// OAuth 配置
+	OAuthEnabled          bool   `json:"o_auth_enabled" default:"false"`
+	OAuthProvider         string `json:"o_auth_provider" default:"github"`
+	DisablePasswordLogin  bool   `json:"disable_password_login" default:"false"`
+	CloudflareTunnelToken string `json:"cloudflare_tunnel_token" default:""`
+	HTTPSEnabled          bool   `json:"https_enabled" default:"false"`
+	HTTPSListen           string `json:"https_listen" default:":37888"`
+	HTTPSRedirectHTTP     bool   `json:"https_redirect_http" default:"false"`
+	HTTPSCertificatePath  string `json:"https_certificate_path" default:"./data/tls/server.crt"`
+	HTTPSPrivateKeyPath   string `json:"https_private_key_path" default:"./data/tls/server.key"`
+	// 自定义美化
+	CustomHead string `json:"custom_head" default:""`
+	CustomBody string `json:"custom_body" default:""`
+
+	// 通知
+	NotificationEnabled        bool    `json:"notification_enabled" default:"true"` // 通知总开关
+	NotificationMethod         string  `json:"notification_method" default:"none"`
+	NotificationTemplate       string  `json:"notification_template" default:"{{emoji}}{{emoji}}{{emoji}}\nEvent: {{event}}\nClients: {{client}}\nMessage: {{message}}\nTime: {{time}}"`
+	ExpireNotificationEnabled  bool    `json:"expire_notification_enabled" default:"true"` // 是否启用过期通知
+	ExpireNotificationLeadDays int     `json:"expire_notification_lead_days" default:"7"`  // 过期前多少天通知，默认7天
+	LoginNotification          bool    `json:"login_notification" default:"true"`          // 登录通知
+	TrafficLimitPercentage     float64 `json:"traffic_limit_percentage" default:"80.00"`   // 流量限制百分比，默认80.00%
+	TrafficReminderStep        float64 `json:"traffic_reminder_step" default:"5"`          // 达到起始比例后，每增加多少个百分点再提醒
+	TrafficReportTime          string  `json:"traffic_report_time" default:"00:00"`        // 流量日报/周报/月报发送时间（北京时间）
+	UpdatedAt                  time.Time
+}
+
+const (
+	SitenameKey               = "sitename"
+	DescriptionKey            = "description"
+	AdminDefaultPageSizeKey   = "admin_default_page_size"
+	ReduceMotionKey           = "reduce_motion"
+	AutoOrderNewClientsKey    = "auto_order_new_clients_by_region"
+	CorsOriginCheckEnabledKey = "cors_origin_check_enabled"
+	CorsAllowedOriginsKey     = "cors_allowed_origins"
+	WsOriginCheckEnabledKey   = "ws_origin_check_enabled"
+	WsAllowedOriginsKey       = "ws_allowed_origins"
+	ThemeKey                  = "theme"
+	PrivateSiteKey            = "private_site"
+	ApiKeyKey                 = "api_key"
+	AutoDiscoveryKeyKey       = "auto_discovery_key"
+	ScriptDomainKey           = "script_domain"
+	SendIpAddrToGuestKey      = "send_ip_addr_to_guest"
+	VisitorAuditEnabledKey    = "visitor_audit_enabled"
+	// LowResourceModeKey is retained only to normalize databases created by
+	// releases that exposed the removed low-resource mode.
+	LowResourceModeKey       = "low_resource_mode"
+	SiteFactoryDefaultsKey   = "site_factory_defaults_v2"
+	EulaAcceptedKey          = "eula_accepted"
+	BaseScriptsURLKey        = "base_scripts_url"
+	AllowRemoteManagementKey = "allow_remote_management"
+	AllowMCPKey              = "allow_mcp"
+	MCPDefaultDurationMinKey = "mcp_default_duration_minutes"
+	MCPMaxDurationMinKey     = "mcp_max_duration_minutes"
+	MCPMaxConcurrencyKey     = "mcp_max_concurrency"
+	SessionTTLSecondsKey     = "session_ttl_seconds"
+	SessionTTLCappedKey      = "session_ttl_capped_v1"
+	GeoIpEnabledKey          = "geo_ip_enabled"
+	GeoIpProviderKey         = "geo_ip_provider"
+	OAuthEnabledKey          = "o_auth_enabled"
+	OAuthProviderKey         = "o_auth_provider"
+	DisablePasswordLoginKey  = "disable_password_login"
+	CloudflareTunnelTokenKey = "cloudflare_tunnel_token"
+	HTTPSEnabledKey          = "https_enabled"
+	HTTPSListenKey           = "https_listen"
+	HTTPSRedirectHTTPKey     = "https_redirect_http"
+	HTTPSCertificatePathKey  = "https_certificate_path"
+	HTTPSPrivateKeyPathKey   = "https_private_key_path"
+	CustomHeadKey            = "custom_head"
+	CustomBodyKey            = "custom_body"
+
+	NotificationEnabledKey               = "notification_enabled"
+	NotificationMethodKey                = "notification_method"
+	NotificationRoutesKey                = "notification_routes"
+	NotificationRoutesMigratedKey        = "notification_routes_migrated"
+	NotificationDigestEnabledKey         = "notification_digest_enabled"
+	NotificationDigestSecondsKey         = "notification_digest_seconds"
+	NotificationTemplateKey              = "notification_template"
+	OfflineNotificationDefaultKey        = "offline_notification_default"
+	PingLossNotificationDefaultKey       = "ping_loss_notification_default"
+	LatencyAnomalyNotificationDefaultKey = "latency_anomaly_notification_default"
+	TrafficReportDefaultKey              = "traffic_report_default"
+	ExpireNotificationEnabledKey         = "expire_notification_enabled"
+	ExpireNotificationLeadDaysKey        = "expire_notification_lead_days"
+	LoginNotificationKey                 = "login_notification"
+	TrafficLimitPercentageKey            = "traffic_limit_percentage"
+	TrafficReminderStepKey               = "traffic_reminder_step"
+	TrafficReportTimeKey                 = "traffic_report_time"
+	UpdatedAtKey                         = "updated_at"
+	XtermjsSettingsKey                   = "xtermjs_settings"
+	DashboardSettingsKey                 = "dashboard_settings"
+	ThemeMarketSourcesKey                = "theme_market_sources"
+)
+
+const (
+	ThemeAutoUpdateIntervalMinHours     = 1
+	ThemeAutoUpdateIntervalMaxHours     = 24 * 30
+	ThemeAutoUpdateDefaultIntervalHours = 24
+
+	ThemeAutoUpdateEnabledKey       = "theme_auto_update_enabled"
+	ThemeAutoUpdateIntervalHoursKey = "theme_auto_update_interval_hours"
+	ThemeAutoUpdateNextUnixKey      = "theme_auto_update_next_unix"
+	ThemeAutoUpdateLastUnixKey      = "theme_auto_update_last_unix"
+	ThemeAutoUpdateLastSummaryKey   = "theme_auto_update_last_summary"
+	GitHubProxyKey                  = "github_proxy"
+)

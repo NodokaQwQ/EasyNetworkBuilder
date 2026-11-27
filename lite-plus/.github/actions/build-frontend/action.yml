@@ -1,0 +1,122 @@
+name: Build system UI
+description: Clone Lite-Plus-web and Lite-theme, build the system UI and bundled public theme, and optionally upload them as an artifact.
+
+inputs:
+  node-version:
+    description: Node.js version used to build Lite-web and Lite-theme.
+    default: "24"
+  repository:
+    description: Lite-Plus-web Git clone URL. Leave empty to use the sibling repo under the current GitHub owner.
+    default: ""
+  ref:
+    description: Optional Lite-Plus-web ref to build. Uses the repository default branch when empty.
+    default: main
+  theme-repository:
+    description: Lite-theme Git clone URL. Leave empty to clone nuomiiiii/Lite-theme.
+    default: ""
+  theme-ref:
+    description: Optional Lite-theme ref to build. Empty uses the pin in plus-baseline.json.
+    default: ""
+  expected-version:
+    description: If set, fail unless Lite-Plus-web package.json version matches this x.y.z.
+    default: ""
+  artifact-name:
+    description: Optional artifact name for the packed system UI and bundled theme.
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Clone and build system UI and public theme
+      shell: bash
+      run: |
+        set -euxo pipefail
+        owner="${{ github.repository_owner }}"
+
+        rm -rf Lite-web
+        repo="${{ inputs.repository }}"
+        if [ -z "$repo" ]; then
+          repo="https://github.com/${owner}/Lite-Plus-web"
+        fi
+        if [ -n "${{ inputs.ref }}" ]; then
+          git clone --depth=1 --branch "${{ inputs.ref }}" "$repo" Lite-web
+        else
+          git clone --depth=1 "$repo" Lite-web
+        fi
+        cd Lite-web
+        expected="${{ inputs.expected-version }}"
+        if [ -n "$expected" ]; then
+          web_version="$(node -p "require('./package.json').version")"
+          if [ "$web_version" != "$expected" ]; then
+            echo "Lite-Plus-web package.json version is ${web_version}, expected ${expected}." >&2
+            git log -1 --oneline
+            exit 1
+          fi
+        fi
+        npm ci
+        VITE_SYSTEM_UI_BUILD=1 VITE_BASE_URL=/system-assets/ npm run build
+        cd ..
+
+        rm -rf web/public/systemUI
+        mkdir -p web/public/systemUI
+        cp -r Lite-web/dist web/public/systemUI/
+
+        theme_dir="$RUNNER_TEMP/Lite-theme"
+        rm -rf "$theme_dir"
+        theme_repo="${{ inputs.theme-repository }}"
+        if [ -z "$theme_repo" ]; then
+          theme_repo="https://github.com/nuomiiiii/Lite-theme"
+        fi
+        theme_ref="${{ inputs.theme-ref }}"
+        if [ -z "$theme_ref" ]; then
+          follow_py="${GITHUB_ACTION_PATH}/../../scripts/plus_follow.py"
+          if [ -f "$follow_py" ]; then
+            theme_ref="$(python3 "$follow_py" theme-ref "")"
+          else
+            theme_ref="$(python3 -c "import json; print('v'+json.load(open('plus-baseline.json'))['lite_theme'].lstrip('v'))")"
+          fi
+        fi
+        git clone --depth=1 --branch "$theme_ref" "$theme_repo" "$theme_dir"
+        (
+          cd "$theme_dir"
+          npm ci
+          npm run build
+          node -e "const t=JSON.parse(require('fs').readFileSync('Lite-theme.json','utf8')); if(!t.version) process.exit(1); console.log('Bundled Lite-theme version '+t.version)"
+        )
+
+        dest="web/public/bundledThemes/Lite-theme"
+        rm -rf "$dest" web/public/rescueTheme
+        mkdir -p "$dest"
+        cp "$theme_dir/Lite-theme.json" "$dest/"
+        cp "$theme_dir/preview.png" "$dest/"
+        cp -r "$theme_dir/dist" "$dest/"
+
+        grep -F '/system-assets/' web/public/systemUI/dist/index.html
+        test -f web/public/bundledThemes/Lite-theme/Lite-theme.json
+        test -f web/public/bundledThemes/Lite-theme/preview.png
+        test -f web/public/bundledThemes/Lite-theme/dist/index.html
+        test ! -e web/public/rescueTheme
+        test ! -e web/public/bundledThemes/Lite-theme/komari-theme.json
+        test ! -e web/public/bundledThemes/nezha
+        grep -F '/favicon.png' web/public/bundledThemes/Lite-theme/dist/index.html
+        grep -F '/assets/index.' web/public/bundledThemes/Lite-theme/dist/index.html
+
+    - name: Pack frontend artifact
+      if: ${{ inputs.artifact-name != '' }}
+      shell: bash
+      run: |
+        set -euxo pipefail
+        tar -czf "$RUNNER_TEMP/${{ inputs.artifact-name }}.tar.gz" -C web/public \
+          systemUI bundledThemes/Lite-theme
+
+    - name: Upload frontend artifact
+      if: ${{ inputs.artifact-name != '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ runner.temp }}/${{ inputs.artifact-name }}.tar.gz

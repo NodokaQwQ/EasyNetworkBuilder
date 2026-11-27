@@ -1,0 +1,927 @@
+package clients
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/nuomiiiii/lite/database/billing"
+	"github.com/nuomiiiii/lite/database/models"
+	nodemgtmodels "github.com/nuomiiiii/lite/nodemgt/models"
+	"github.com/nuomiiiii/lite/pkg/expiry"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+)
+
+func TestGetClientBasicInfoUsesConfiguredOrder(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:client-configured-order?mode=memory&cache=shared"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Client{}, &models.ClientDeploymentProfile{}))
+
+	createdAt := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, db.Create([]models.Client{
+		{UUID: "client-c", Token: "token-c", Name: "C", Weight: 20, CreatedAt: createdAt},
+		{UUID: "client-b", Token: "token-b", Name: "B", Weight: 10, CreatedAt: createdAt.Add(time.Minute)},
+		{UUID: "client-a", Token: "token-a", Name: "A", Weight: 10, CreatedAt: createdAt},
+	}).Error)
+	require.NoError(t, db.Create([]models.ClientDeploymentProfile{
+		{Client: "client-a", Config: `{}`, Revision: 1, DeliveryStatus: DeploymentDeliveryApplied},
+		{Client: "client-c", Config: `{}`, Revision: 2, DeliveryStatus: DeploymentDeliveryFailed},
+	}).Error)
+
+	clients, err := getClientBasicInfo(db)
+	require.NoError(t, err)
+	require.Len(t, clients, 3)
+	assert.Equal(t, []string{"client-a", "client-b", "client-c"}, []string{
+		clients[0].UUID, clients[1].UUID, clients[2].UUID,
+	})
+	assert.Equal(t, DeploymentDeliveryApplied, clients[0].DeploymentStatus)
+	assert.Empty(t, clients[1].DeploymentStatus)
+	assert.Equal(t, DeploymentDeliveryFailed, clients[2].DeploymentStatus)
+}
+
+func TestNewClientDefaultsTrafficLimitTypeToSum(t *testing.T) {
+	now := time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)
+	client := newClient("client-new", "token-new", "New Server", now)
+
+	assert.Equal(t, "sum", client.TrafficLimitType)
+	assert.Equal(t, now, client.CreatedAt)
+	assert.Equal(t, now, client.UpdatedAt)
+}
+
+func TestSaveClientInfoPlacesNewClientAfterSameRegionWithinGroup(t *testing.T) {
+	db := newClientTestDB(t, "auto-order-same-region")
+	now := time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, db.Create([]models.Client{
+		{UUID: "hk-1", Token: "token-hk-1", Region: "🇭🇰", Group: "edge", Weight: 0, CreatedAt: now},
+		{UUID: "jp-1", Token: "token-jp-1", Region: "🇯🇵", Group: "edge", Weight: 1, CreatedAt: now.Add(time.Minute)},
+		{UUID: "hk-other", Token: "token-hk-other", Region: "🇭🇰", Group: "other", Weight: 2, CreatedAt: now.Add(2 * time.Minute)},
+		{UUID: "hk-new", Token: "token-hk-new", Group: "edge", Weight: 3, CreatedAt: now.Add(3 * time.Minute)},
+		{UUID: "sg-1", Token: "token-sg-1", Region: "🇸🇬", Group: "edge", Weight: 4, CreatedAt: now.Add(4 * time.Minute)},
+	}).Error)
+
+	require.NoError(t, saveClientInfo(db, map[string]interface{}{
+		"uuid": "hk-new", "region": "🇭🇰",
+	}))
+
+	assertClientOrder(t, db, []string{"hk-1", "hk-new", "jp-1", "hk-other", "sg-1"})
+}
+
+func TestSaveClientInfoUsesRegionOverrideForInitialPlacement(t *testing.T) {
+	db := newClientTestDB(t, "auto-order-region-override")
+	now := time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, db.Create([]models.Client{
+		{UUID: "hk-1", Token: "token-hk-1", Region: "🇭🇰", Weight: 0, CreatedAt: now},
+		{UUID: "sg-1", Token: "token-sg-1", Region: "🇸🇬", Weight: 1, CreatedAt: now.Add(time.Minute)},
+		{UUID: "new", Token: "token-new", RegionOverride: "🇭🇰", Weight: 2, CreatedAt: now.Add(2 * time.Minute)},
+	}).Error)
+
+	require.NoError(t, saveClientInfo(db, map[string]interface{}{
+		"uuid": "new", "region": "🇸🇬",
+	}))
+
+	assertClientOrder(t, db, []string{"hk-1", "new", "sg-1"})
+}
+
+func TestSaveClientInfoSkipsAutoOrderWhenDisabled(t *testing.T) {
+	db := newClientTestDB(t, "auto-order-disabled")
+	now := time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, db.Create([]models.Client{
+		{UUID: "hk-1", Token: "token-hk-1", Region: "🇭🇰", Group: "edge", Weight: 0, CreatedAt: now},
+		{UUID: "jp-1", Token: "token-jp-1", Region: "🇯🇵", Group: "edge", Weight: 1, CreatedAt: now.Add(time.Minute)},
+		{UUID: "hk-new", Token: "token-hk-new", Group: "edge", Weight: 2, CreatedAt: now.Add(2 * time.Minute)},
+	}).Error)
+
+	require.NoError(t, saveClientInfoWithAutoOrder(db, map[string]interface{}{
+		"uuid": "hk-new", "region": "🇭🇰",
+	}, false))
+
+	assertClientOrder(t, db, []string{"hk-1", "jp-1", "hk-new"})
+	var created models.Client
+	require.NoError(t, db.First(&created, "uuid = ?", "hk-new").Error)
+	assert.Equal(t, "🇭🇰", created.Region)
+}
+
+func TestSaveClientInfoDoesNotReorderAfterInitialRegion(t *testing.T) {
+	db := newClientTestDB(t, "auto-order-first-report-only")
+	now := time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, db.Create([]models.Client{
+		{UUID: "hk-1", Token: "token-hk-1", Region: "🇭🇰", Weight: 0, CreatedAt: now},
+		{UUID: "jp-1", Token: "token-jp-1", Region: "🇯🇵", Weight: 1, CreatedAt: now.Add(time.Minute)},
+		{UUID: "existing", Token: "token-existing", Region: "🇸🇬", Weight: 2, CreatedAt: now.Add(2 * time.Minute)},
+	}).Error)
+
+	require.NoError(t, saveClientInfo(db, map[string]interface{}{
+		"uuid": "existing", "region": "🇭🇰",
+	}))
+
+	assertClientOrder(t, db, []string{"hk-1", "jp-1", "existing"})
+	var existing models.Client
+	require.NoError(t, db.First(&existing, "uuid = ?", "existing").Error)
+	assert.Equal(t, "🇭🇰", existing.Region)
+}
+
+func TestOrderClientAfterRegionPeers(t *testing.T) {
+	ordered := []clientOrderState{
+		{UUID: "hk-1", Region: "🇭🇰", Group: "edge", Weight: 0},
+		{UUID: "jp-1", Region: "🇯🇵", Group: "edge", Weight: 1},
+		{UUID: "hk-other", Region: "🇭🇰", Group: "other", Weight: 2},
+		{UUID: "new", Region: "🇸🇬", RegionOverride: "🇭🇰", Group: "edge", Weight: 3},
+		{UUID: "sg-1", Region: "🇸🇬", Group: "edge", Weight: 4},
+	}
+
+	reordered, changed, err := orderClientAfterRegionPeers(ordered, "new", "🇭🇰")
+	require.NoError(t, err)
+	require.True(t, changed)
+	assert.Equal(t, []string{"hk-1", "new", "jp-1", "hk-other", "sg-1"}, clientOrderUUIDs(reordered))
+}
+
+func TestOrderClientAfterRegionPeersKeepsOrderWithoutPeer(t *testing.T) {
+	ordered := []clientOrderState{
+		{UUID: "hk-1", Region: "🇭🇰", Weight: 10},
+		{UUID: "new", Region: "🇸🇬", Weight: 20},
+	}
+
+	reordered, changed, err := orderClientAfterRegionPeers(ordered, "new", "🇸🇬")
+	require.NoError(t, err)
+	assert.False(t, changed)
+	assert.Equal(t, []string{"hk-1", "new"}, clientOrderUUIDs(reordered))
+	assert.Equal(t, []int{10, 20}, []int{reordered[0].Weight, reordered[1].Weight})
+}
+
+func clientOrderUUIDs(ordered []clientOrderState) []string {
+	uuids := make([]string, len(ordered))
+	for index := range ordered {
+		uuids[index] = ordered[index].UUID
+	}
+	return uuids
+}
+
+func newClientTestDB(t *testing.T, name string) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open("file:"+name+"?mode=memory&cache=shared"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Client{}))
+	return db
+}
+
+func assertClientOrder(t *testing.T, db *gorm.DB, want []string) {
+	t.Helper()
+	var ordered []models.Client
+	require.NoError(t, db.Order("weight ASC").Order("created_at ASC").Order("uuid ASC").Find(&ordered).Error)
+	got := make([]string, len(ordered))
+	for index := range ordered {
+		got[index] = ordered[index].UUID
+		assert.Equal(t, index, ordered[index].Weight)
+	}
+	assert.Equal(t, want, got)
+}
+
+func TestSaveClientKeepsExistingTrafficLimitTypeWhenOmitted(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:keep-existing-traffic-type?mode=memory&cache=shared"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Client{}))
+	require.NoError(t, db.Create(&models.Client{
+		UUID: "client-existing", Token: "token-existing", Name: "Existing Server", TrafficLimitType: "max",
+	}).Error)
+
+	require.NoError(t, saveClient(db, map[string]interface{}{
+		"uuid": "client-existing",
+		"name": "Renamed Server",
+	}))
+
+	var client models.Client
+	require.NoError(t, db.First(&client, "uuid = ?", "client-existing").Error)
+	assert.Equal(t, "max", client.TrafficLimitType)
+	assert.Equal(t, "Renamed Server", client.Name)
+}
+
+func TestDeleteClientCleansAllRelatedRowsAndSharedAssignments(t *testing.T) {
+	for _, foreignKeys := range []bool{false, true} {
+		t.Run(fmt.Sprintf("foreign_keys_%t", foreignKeys), func(t *testing.T) {
+			dsn := fmt.Sprintf("file:delete-client-cleanup-%t?mode=memory&cache=shared&_foreign_keys=%t", foreignKeys, foreignKeys)
+			db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+			require.NoError(t, err)
+			require.NoError(t, db.AutoMigrate(
+				&models.Client{},
+				&models.PingTask{},
+				&models.PingLossNotification{},
+				&models.OfflineNotification{},
+				&models.TrafficReportNotification{},
+				&models.TrafficDailyLedger{},
+				&models.TrafficCycleFirstDay{},
+				&models.LoadNotification{},
+				&models.LoadNotificationState{},
+				&models.MetricCleanupJob{},
+				&models.Task{},
+				&models.TaskResult{},
+				&models.BillingPriceVersion{},
+				&models.ClientFirewallIntent{},
+			))
+			for _, table := range []string{"records", "records_long_term", "gpu_records", "ping_records"} {
+				require.NoError(t, db.Exec("CREATE TABLE "+table+" (client TEXT NOT NULL, task_id INTEGER)").Error)
+			}
+			require.NoError(t, db.Create([]models.Client{
+				{UUID: "client-a", Token: "token-a", Name: "Server A"},
+				{UUID: "client-b", Token: "token-b", Name: "Server B"},
+			}).Error)
+			require.NoError(t, db.Create([]models.ClientFirewallIntent{
+				{Client: "client-a", RulesJSON: "[]", BlockPing4: true},
+				{Client: "client-b", RulesJSON: "[]"},
+			}).Error)
+			require.NoError(t, db.Create(&models.BillingPriceVersion{
+				Client: "client-a", ClientName: "Server A", PriceMicros: 1_000_000, Currency: "USD",
+				CurrencyValid: true, BillingCycleDays: 30, EffectiveFrom: time.Now().UTC(), Source: "migration",
+			}).Error)
+
+			pingTask := models.PingTask{
+				Name: "Public DNS", Clients: models.StringArray{"client-a", "client-b"},
+				Type: "icmp", Target: "1.1.1.1", Interval: 10,
+			}
+			require.NoError(t, db.Create(&pingTask).Error)
+			require.NoError(t, db.Create([]models.PingLossNotification{
+				{Client: "client-a", TaskId: pingTask.Id, Enable: true, WindowSeconds: 60, LossThreshold: 5, MinimumSamples: 1, CooldownSeconds: 300},
+				{Client: "client-b", TaskId: pingTask.Id, Enable: true, WindowSeconds: 60, LossThreshold: 5, MinimumSamples: 1, CooldownSeconds: 300},
+			}).Error)
+			require.NoError(t, db.Create([]models.OfflineNotification{{Client: "client-a"}, {Client: "client-b"}}).Error)
+			require.NoError(t, db.Create([]models.TrafficReportNotification{{Client: "client-a"}, {Client: "client-b"}}).Error)
+			require.NoError(t, db.Create([]models.TrafficDailyLedger{
+				{Client: "client-a", Day: "2026-07-24", UpBytes: 100, DownBytes: 200},
+				{Client: "client-b", Day: "2026-07-24", UpBytes: 300, DownBytes: 400},
+			}).Error)
+			loadRules := []models.LoadNotification{
+				{Name: "shared", Clients: models.StringArray{"client-a", "client-b"}, Metric: "cpu", Interval: 15},
+				{Name: "only-a", Clients: models.StringArray{"client-a"}, Metric: "cpu", Interval: 15},
+			}
+			require.NoError(t, db.Create(&loadRules).Error)
+			require.NoError(t, db.Create([]models.LoadNotificationState{
+				{NotificationID: loadRules[0].Id, Client: "client-a", AlertActive: true},
+				{NotificationID: loadRules[0].Id, Client: "client-b", AlertActive: true},
+				{NotificationID: loadRules[1].Id, Client: "client-a", AlertActive: true},
+			}).Error)
+			commandTasks := []models.Task{
+				{TaskId: "shared", Clients: models.StringArray{"client-a", "client-b"}, Command: "uptime"},
+				{TaskId: "only-a", Clients: models.StringArray{"client-a"}, Command: "uptime"},
+			}
+			require.NoError(t, db.Create(&commandTasks).Error)
+			require.NoError(t, db.Create([]models.TaskResult{
+				{TaskId: "shared", Client: "client-a"},
+				{TaskId: "shared", Client: "client-b"},
+				{TaskId: "only-a", Client: "client-a"},
+			}).Error)
+			for _, table := range []string{"records", "records_long_term", "gpu_records", "ping_records"} {
+				require.NoError(t, db.Exec("INSERT INTO "+table+" (client, task_id) VALUES (?, ?), (?, ?)",
+					"client-a", pingTask.Id, "client-b", pingTask.Id).Error)
+			}
+
+			changed, err := deleteClient(db, "client-a")
+			require.NoError(t, err)
+			assert.True(t, changed)
+
+			assertRowCount(t, db, &models.Client{}, "uuid = ?", 0, "client-a")
+			assertRowCount(t, db, &models.ClientFirewallIntent{}, "client = ?", 0, "client-a")
+			assertRowCount(t, db, &models.ClientFirewallIntent{}, "client = ?", 1, "client-b")
+			assertRowCount(t, db, &models.PingLossNotification{}, "client = ?", 0, "client-a")
+			assertRowCount(t, db, &models.OfflineNotification{}, "client = ?", 0, "client-a")
+			assertRowCount(t, db, &models.TrafficReportNotification{}, "client = ?", 0, "client-a")
+			assertRowCount(t, db, &models.TrafficDailyLedger{}, "client = ?", 0, "client-a")
+			assertRowCount(t, db, &models.LoadNotificationState{}, "client = ?", 0, "client-a")
+			assertRowCount(t, db, &models.TaskResult{}, "client = ?", 0, "client-a")
+			for _, table := range []string{"records", "records_long_term", "gpu_records", "ping_records"} {
+				var count int64
+				require.NoError(t, db.Table(table).Where("client = ?", "client-a").Count(&count).Error)
+				assert.Zero(t, count, table)
+			}
+
+			var gotPingTask models.PingTask
+			require.NoError(t, db.First(&gotPingTask, pingTask.Id).Error)
+			assert.Equal(t, models.StringArray{"client-b"}, gotPingTask.Clients)
+			var remainingLoadRules []models.LoadNotification
+			require.NoError(t, db.Order("id ASC").Find(&remainingLoadRules).Error)
+			require.Len(t, remainingLoadRules, 1)
+			assert.Equal(t, models.StringArray{"client-b"}, remainingLoadRules[0].Clients)
+			assertRowCount(t, db, &models.LoadNotificationState{}, "notification_id = ? AND client = ?", 1, loadRules[0].Id, "client-b")
+			var remainingTasks []models.Task
+			require.NoError(t, db.Order("task_id ASC").Find(&remainingTasks).Error)
+			require.Len(t, remainingTasks, 1)
+			assert.Equal(t, "shared", remainingTasks[0].TaskId)
+			assert.Equal(t, models.StringArray{"client-b"}, remainingTasks[0].Clients)
+			assertRowCount(t, db, &models.TaskResult{}, "client = ?", 1, "client-b")
+			assertRowCount(t, db, &models.MetricCleanupJob{}, "kind = ? AND entity_id = ?", 1, models.MetricCleanupEntity, "client-a")
+			assertRowCount(t, db, &models.BillingPriceVersion{}, "client = ? AND effective_to IS NULL", 0, "client-a")
+			var closed models.BillingPriceVersion
+			require.NoError(t, db.Where("client = ? AND effective_to IS NOT NULL", "client-a").First(&closed).Error)
+			assert.Equal(t, "client-a", closed.Client)
+		})
+	}
+}
+
+func assertRowCount(t *testing.T, db *gorm.DB, model any, query string, expected int64, args ...any) {
+	t.Helper()
+	var count int64
+	require.NoError(t, db.Model(model).Where(query, args...).Count(&count).Error)
+	assert.Equal(t, expected, count)
+}
+
+func TestDeleteClientRemovesNodemgtRecords(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:delete-client-nodemgt?mode=memory&cache=shared&_foreign_keys=off"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.Client{},
+		&models.MetricCleanupJob{},
+		&models.PingTask{},
+		&models.LoadNotification{},
+		&models.Task{},
+		&nodemgtmodels.Inbound{},
+		&nodemgtmodels.Outbound{},
+		&nodemgtmodels.Route{},
+		&nodemgtmodels.ForwardChain{},
+		&nodemgtmodels.ForwardLanding{},
+		&nodemgtmodels.ForwardLink{},
+		&nodemgtmodels.NodeUser{},
+		&nodemgtmodels.Certificate{},
+		&nodemgtmodels.ControlCommand{},
+	))
+	require.NoError(t, db.Create(&models.Client{UUID: "client-a", Token: "token-a", Name: "Server A"}).Error)
+	require.NoError(t, db.Create(&nodemgtmodels.Inbound{ID: "in-a", NodeUUID: "client-a", Name: "edge", Protocol: "vless", Port: 443, Core: nodemgtmodels.CoreXray}).Error)
+	require.NoError(t, db.Create(&nodemgtmodels.Outbound{ID: "ob-a", NodeUUID: "client-a", Name: "exit-a", Protocol: "freedom", Enabled: true}).Error)
+	require.NoError(t, db.Create(&nodemgtmodels.NodeUser{ID: "u-a", NodeUUID: "client-a", Username: "bob", Status: nodemgtmodels.UserActive}).Error)
+
+	_, err = deleteClient(db, "client-a")
+	require.NoError(t, err)
+	assertRowCount(t, db, &models.Client{}, "uuid = ?", 0, "client-a")
+	assertRowCount(t, db, &nodemgtmodels.Inbound{}, "node_uuid = ?", 0, "client-a")
+	assertRowCount(t, db, &nodemgtmodels.Outbound{}, "node_uuid = ?", 0, "client-a")
+	assertRowCount(t, db, &nodemgtmodels.NodeUser{}, "node_uuid = ?", 0, "client-a")
+}
+
+func TestDeleteClientRollsBackRelatedRowsWhenClientDeleteFails(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:delete-client-rollback?mode=memory&cache=shared&_foreign_keys=off"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.Client{}, &models.PingTask{}, &models.PingLossNotification{},
+		&models.OfflineNotification{}, &models.TrafficReportNotification{},
+		&models.LoadNotification{}, &models.Task{}, &models.TaskResult{}, &models.MetricCleanupJob{},
+	))
+	require.NoError(t, db.Create(&models.Client{UUID: "client-a", Token: "token-a"}).Error)
+	require.NoError(t, db.Create(&models.OfflineNotification{Client: "client-a", Enable: true}).Error)
+	require.NoError(t, db.Exec(`CREATE TRIGGER reject_client_delete BEFORE DELETE ON clients
+		BEGIN SELECT RAISE(FAIL, 'delete rejected'); END`).Error)
+
+	_, err = deleteClient(db, "client-a")
+	require.Error(t, err)
+	assertRowCount(t, db, &models.Client{}, "uuid = ?", 1, "client-a")
+	assertRowCount(t, db, &models.OfflineNotification{}, "client = ?", 1, "client-a")
+	assertRowCount(t, db, &models.MetricCleanupJob{}, "entity_id = ?", 0, "client-a")
+}
+
+func TestNormalizeTrafficResetDay(t *testing.T) {
+	for _, value := range []interface{}{float64(0), float64(1), float64(31), 26, json.Number("15")} {
+		day, err := normalizeTrafficResetDay(value)
+		require.NoError(t, err)
+		require.NotNil(t, day)
+	}
+
+	for _, value := range []interface{}{float64(-1), float64(32), float64(1.5), "26"} {
+		_, err := normalizeTrafficResetDay(value)
+		require.Error(t, err)
+	}
+
+	day, err := normalizeTrafficResetDay(nil)
+	require.NoError(t, err)
+	assert.Nil(t, day)
+}
+
+func TestSaveClientPersistsTrafficResetDay(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:client-reset-day?mode=memory&cache=shared"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Client{}))
+	require.NoError(t, db.Create(&models.Client{UUID: "node-a", Token: "token-a", Name: "A"}).Error)
+
+	require.NoError(t, saveClient(db, map[string]interface{}{
+		"uuid":              "node-a",
+		"traffic_reset_day": float64(1),
+	}))
+
+	var client models.Client
+	require.NoError(t, db.First(&client, "uuid = ?", "node-a").Error)
+	require.NotNil(t, client.TrafficResetDay)
+	assert.Equal(t, 1, *client.TrafficResetDay)
+}
+
+func TestSaveClientPersistsTrafficResetClockAndTimezone(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:client-reset-clock?mode=memory&cache=shared"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Client{}))
+	require.NoError(t, db.Create(&models.Client{UUID: "node-a", Token: "token-a", Name: "A"}).Error)
+
+	require.NoError(t, saveClient(db, map[string]interface{}{
+		"uuid":                    "node-a",
+		"traffic_reset_day":       float64(15),
+		"traffic_reset_time":      "12:38:12",
+		"traffic_reset_timezone":  "UTC",
+	}))
+
+	var client models.Client
+	require.NoError(t, db.First(&client, "uuid = ?", "node-a").Error)
+	require.NotNil(t, client.TrafficResetDay)
+	assert.Equal(t, 15, *client.TrafficResetDay)
+	assert.Equal(t, "12:38:12", client.TrafficResetTime)
+	assert.Equal(t, "UTC", client.TrafficResetTimezone)
+}
+
+func TestSaveClientPersistsHKDCurrency(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "lite.db")
+	db, err := gorm.Open(sqlite.Open(databasePath), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Client{}))
+	require.NoError(t, db.Create(&models.Client{
+		UUID: "client-hkd", Token: "token-hkd", Name: "Hong Kong Server", Currency: "$",
+	}).Error)
+
+	require.NoError(t, saveClient(db, map[string]interface{}{
+		"uuid":     "client-hkd",
+		"currency": " hk$ ",
+	}))
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	db, err = gorm.Open(sqlite.Open(databasePath), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	sqlDB, err = db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+
+	var client models.Client
+	require.NoError(t, db.First(&client, "uuid = ?", "client-hkd").Error)
+	assert.Equal(t, "HKD", client.Currency)
+}
+
+func TestSaveClientPersistsCADCurrency(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "lite.db")
+	db, err := gorm.Open(sqlite.Open(databasePath), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Client{}))
+	require.NoError(t, db.Create(&models.Client{
+		UUID: "client-cad", Token: "token-cad", Name: "Canada Server", Currency: "$",
+	}).Error)
+
+	require.NoError(t, saveClient(db, map[string]interface{}{
+		"uuid":     "client-cad",
+		"currency": " c$ ",
+	}))
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	db, err = gorm.Open(sqlite.Open(databasePath), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	sqlDB, err = db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+
+	var client models.Client
+	require.NoError(t, db.First(&client, "uuid = ?", "client-cad").Error)
+	assert.Equal(t, "CAD", client.Currency)
+}
+
+func TestRotateClientTokenKeepsOldTokenUntilNewTokenConnects(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:client-token-rotation?mode=memory&cache=shared"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Client{}))
+	require.NoError(t, db.Create(&models.Client{UUID: "client-a", Token: "old-token", Name: "A"}).Error)
+
+	newToken, expiresAt, err := rotateClientToken(db, "client-a", time.Hour)
+	require.NoError(t, err)
+	require.NotEmpty(t, newToken)
+	require.NotEqual(t, "old-token", newToken)
+
+	uuid, err := getClientUUIDByToken(db, "old-token", expiresAt.Add(-time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, "client-a", uuid)
+	_, _, err = rotateClientToken(db, "client-a", time.Hour)
+	require.Error(t, err)
+	assert.Equal(t, "Token 重置仍在过渡期内，请先使用新 Token 重新部署 Agent；新 Token 首次成功连接后才能再次重置", err.Error())
+
+	uuid, err = getClientUUIDByToken(db, newToken, expiresAt.Add(-time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, "client-a", uuid)
+
+	_, err = getClientUUIDByToken(db, "old-token", expiresAt.Add(-time.Minute))
+	require.Error(t, err)
+
+	var client models.Client
+	require.NoError(t, db.First(&client, "uuid = ?", "client-a").Error)
+	assert.Empty(t, client.PreviousToken)
+	assert.Nil(t, client.PreviousTokenExpiresAt)
+}
+
+func TestExpiredPreviousClientTokenIsRejected(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:client-token-expiry?mode=memory&cache=shared"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Client{}))
+	expiresAt := time.Now().UTC().Add(-time.Minute)
+	require.NoError(t, db.Create(&models.Client{
+		UUID: "client-a", Token: "new-token", PreviousToken: "old-token", PreviousTokenExpiresAt: &expiresAt,
+	}).Error)
+
+	_, err = getClientUUIDByToken(db, "old-token", time.Now().UTC())
+	require.Error(t, err)
+}
+
+func TestNormalizeBandwidthInsertsSingleSpace(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"100M", "100 M"},
+		{"200M", "200 M"},
+		{"1.5Gbps", "1.5 Gbps"},
+		{"100    M", "100 M"},
+		{"  100   Mbps  ", "100 Mbps"},
+		{"1 Gbps", "1 Gbps"},
+		{"10 G", "10 G"},
+		{"", ""},
+		{"   ", ""},
+		{"100", "100"},
+	}
+	for _, tc := range tests {
+		assert.Equal(t, tc.want, normalizeBandwidth(tc.in), tc.in)
+	}
+}
+
+func TestSaveClientNormalizesBandwidth(t *testing.T) {
+	db := newClientTestDB(t, "normalize-bandwidth")
+	require.NoError(t, db.Create(&models.Client{
+		UUID: "n1", Token: "token-n1", Name: "N",
+	}).Error)
+
+	require.NoError(t, saveClient(db, map[string]interface{}{
+		"uuid": "n1", "bandwidth": "100M",
+	}))
+	var first models.Client
+	require.NoError(t, db.Where("uuid = ?", "n1").First(&first).Error)
+	assert.Equal(t, "100 M", first.Bandwidth)
+
+	require.NoError(t, saveClient(db, map[string]interface{}{
+		"uuid": "n1", "bandwidth": "200    Mbps",
+	}))
+	var second models.Client
+	require.NoError(t, db.Where("uuid = ?", "n1").First(&second).Error)
+	assert.Equal(t, "200 Mbps", second.Bandwidth)
+}
+
+func TestSaveClientParsesExpiryLocalDateTimeInNamedZone(t *testing.T) {
+	db := newClientTestDB(t, "expiry-local-datetime")
+	require.NoError(t, db.Create(&models.Client{
+		UUID: "n1", Token: "token-n1", Name: "N",
+	}).Error)
+
+	require.NoError(t, saveClient(db, map[string]interface{}{
+		"uuid":                   "n1",
+		"expiry_timezone":        "America/New_York",
+		"expiry_local_datetime":  "2026-10-01T09:30:45",
+	}))
+	var client models.Client
+	require.NoError(t, db.Where("uuid = ?", "n1").First(&client).Error)
+	assert.Equal(t, "America/New_York", client.ExpiryTimezone)
+	loc, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+	want := time.Date(2026, 10, 1, 9, 30, 45, 0, loc).UTC()
+	require.NotNil(t, client.ExpiredAt)
+	assert.True(t, client.ExpiredAt.UTC().Equal(want), "got %s want %s", client.ExpiredAt.UTC(), want)
+
+	err = saveClient(db, map[string]interface{}{
+		"uuid":                  "n1",
+		"expired_at":            want.Format(time.RFC3339),
+		"expiry_local_datetime": "2026-10-01T09:30:45",
+	})
+	require.Error(t, err)
+
+	require.NoError(t, saveClient(db, map[string]interface{}{
+		"uuid":       "n1",
+		"expired_at": want.Add(time.Hour).UTC(),
+		"_match_expired_at": want.UTC(),
+	}))
+	require.NoError(t, db.Where("uuid = ?", "n1").First(&client).Error)
+	assert.True(t, client.ExpiredAt.UTC().Equal(want.Add(time.Hour).UTC()))
+
+	err = saveClient(db, map[string]interface{}{
+		"uuid":              "n1",
+		"expired_at":        want.Add(2 * time.Hour).UTC(),
+		"_match_expired_at": want.UTC(),
+	})
+	require.ErrorIs(t, err, ErrExpiryAlreadyChanged)
+	require.NoError(t, db.Where("uuid = ?", "n1").First(&client).Error)
+	assert.True(t, client.ExpiredAt.UTC().Equal(want.Add(time.Hour).UTC()))
+}
+
+func TestSaveClientRenewExpiryUsesServerRulesAndCAS(t *testing.T) {
+	db := newClientTestDB(t, "renew-expiry")
+	require.NoError(t, db.AutoMigrate(&models.BillingPriceVersion{}, &models.BillingFXSnapshot{}))
+	loc, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+	now := time.Date(2027, 2, 1, 12, 0, 0, 0, time.UTC)
+	start := time.Date(2027, 2, 14, 2, 30, 45, 0, loc).UTC()
+	require.NoError(t, db.Create(&models.Client{
+		UUID: "n1", Token: "token-n1", Name: "N",
+		BillingCycle: 30, ExpiryTimezone: "America/New_York",
+		ExpiredAt: &start, Price: 10, Currency: "CNY",
+	}).Error)
+
+	require.NoError(t, saveClientAt(db, map[string]interface{}{
+		"uuid": "n1", "renew_expiry": true,
+	}, now))
+	var client models.Client
+	require.NoError(t, db.Where("uuid = ?", "n1").First(&client).Error)
+	want := time.Date(2027, 3, 14, 3, 30, 45, 0, loc).UTC()
+	require.NotNil(t, client.ExpiredAt)
+	assert.True(t, client.ExpiredAt.UTC().Equal(want), "got %s want %s", client.ExpiredAt.UTC(), want)
+
+	err = saveClientAt(db, map[string]interface{}{
+		"uuid":              "n1",
+		"expired_at":        want.AddDate(0, 1, 0),
+		"_match_expired_at": start.UTC(),
+	}, now)
+	require.ErrorIs(t, err, ErrExpiryAlreadyChanged)
+
+	long := time.Date(2226, 1, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, db.Create(&models.Client{
+		UUID: "long", Token: "token-long", Name: "L",
+		BillingCycle: 30, ExpiredAt: &long,
+	}).Error)
+	err = saveClientAt(db, map[string]interface{}{"uuid": "long", "renew_expiry": true}, now)
+	require.Error(t, err)
+}
+
+func TestSaveClientRenewExpiryCatchesUpOnce(t *testing.T) {
+	db := newClientTestDB(t, "renew-expiry-catchup")
+	require.NoError(t, db.AutoMigrate(&models.BillingPriceVersion{}, &models.BillingFXSnapshot{}))
+	now := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
+	expired := now.Add(-20 * 24 * time.Hour)
+	require.Equal(t, 20*24*time.Hour, now.Sub(expired.UTC()))
+	require.True(t, expired.UTC().Before(now))
+	require.NoError(t, db.Create(&models.Client{
+		UUID: "n1", Token: "token-n1", Name: "N",
+		BillingCycle: 7, ExpiryTimezone: "Asia/Shanghai",
+		ExpiredAt: &expired, Price: 10, Currency: "CNY",
+	}).Error)
+	from := now.AddDate(0, -1, 0)
+	require.NoError(t, db.Create(&models.BillingPriceVersion{
+		Client: "n1", ClientName: "N", PriceMicros: 10_000_000, Currency: "CNY", CurrencyValid: true,
+		BillingCycleDays: 7, ExpiredAt: &expired, EffectiveFrom: from, Source: "migration",
+	}).Error)
+
+	require.NoError(t, saveClientAt(db, map[string]interface{}{
+		"uuid": "n1", "renew_expiry": true,
+	}, now))
+	var client models.Client
+	require.NoError(t, db.Where("uuid = ?", "n1").First(&client).Error)
+	require.NotNil(t, client.ExpiredAt)
+	assert.True(t, client.ExpiredAt.UTC().After(now))
+
+	want, err := expiry.NextDue(expired, "Asia/Shanghai", 7, now)
+	require.NoError(t, err)
+	assert.True(t, client.ExpiredAt.UTC().Equal(want), "got %s want %s", client.ExpiredAt.UTC(), want)
+
+	var versions []models.BillingPriceVersion
+	require.NoError(t, db.Where("client = ?", "n1").Order("id").Find(&versions).Error)
+	require.Len(t, versions, 2)
+	assert.NotNil(t, versions[0].EffectiveTo)
+	assert.Nil(t, versions[1].EffectiveTo)
+	require.NotNil(t, versions[1].ExpiredAt)
+	assert.True(t, versions[1].ExpiredAt.UTC().Equal(client.ExpiredAt.UTC()))
+}
+
+func TestSaveClientRenewExpiryConcurrentCAS(t *testing.T) {
+	t.Run("early then auto-renewal", func(t *testing.T) {
+		db, now, expired, next := newRenewalCASFixture(t)
+		assertRenewalCASPair(t, db, next,
+			saveEarlyRenewAt(db, now, expired),
+			saveAutoRenewAt(db, now, expired, next),
+		)
+	})
+	t.Run("auto-renewal then early", func(t *testing.T) {
+		db, now, expired, next := newRenewalCASFixture(t)
+		assertRenewalCASPair(t, db, next,
+			saveAutoRenewAt(db, now, expired, next),
+			saveEarlyRenewAt(db, now, expired),
+		)
+	})
+	t.Run("concurrent", func(t *testing.T) {
+		db, now, expired, next := newRenewalCASFixture(t)
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		sqlDB.SetMaxOpenConns(1)
+		sqlDB.SetMaxIdleConns(1)
+
+		start := make(chan struct{})
+		errs := make(chan error, 2)
+		go func() {
+			<-start
+			errs <- saveEarlyRenewAt(db, now, expired)
+		}()
+		go func() {
+			<-start
+			errs <- saveAutoRenewAt(db, now, expired, next)
+		}()
+		close(start)
+		assertRenewalCASPair(t, db, next, <-errs, <-errs)
+	})
+}
+
+func newRenewalCASFixture(t *testing.T) (*gorm.DB, time.Time, time.Time, time.Time) {
+	t.Helper()
+	db := newClientTestDB(t, fmt.Sprintf("renew-expiry-cas-%d", time.Now().UnixNano()))
+	require.NoError(t, db.AutoMigrate(&models.BillingPriceVersion{}, &models.BillingFXSnapshot{}))
+	now := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
+	expired := now.Add(-time.Hour)
+	require.NoError(t, db.Create(&models.Client{
+		UUID: "n1", Token: "token-n1", Name: "N",
+		BillingCycle: 30, ExpiryTimezone: "Asia/Shanghai",
+		ExpiredAt: &expired, Price: 10, Currency: "CNY",
+	}).Error)
+	from := now.AddDate(0, -1, 0)
+	require.NoError(t, db.Create(&models.BillingPriceVersion{
+		Client: "n1", ClientName: "N", PriceMicros: 10_000_000, Currency: "CNY", CurrencyValid: true,
+		BillingCycleDays: 30, ExpiredAt: &expired, EffectiveFrom: from, Source: "migration",
+	}).Error)
+	next, err := expiry.NextDue(expired, "Asia/Shanghai", 30, now)
+	require.NoError(t, err)
+	return db, now, expired.UTC(), next
+}
+
+func saveEarlyRenewAt(db *gorm.DB, now, matchOld time.Time) error {
+	return saveClientAt(db, map[string]interface{}{
+		"uuid":              "n1",
+		"renew_expiry":      true,
+		"_match_expired_at": matchOld.UTC().Format(time.RFC3339Nano),
+	}, now)
+}
+
+func saveAutoRenewAt(db *gorm.DB, now, matchOld, next time.Time) error {
+	_, err := saveClientWithDispatchAt(db, map[string]interface{}{
+		"uuid":              "n1",
+		"expired_at":        next,
+		"_match_expired_at": matchOld,
+	}, billing.PriceSourceRenewal, now)
+	return err
+}
+
+func assertRenewalCASPair(t *testing.T, db *gorm.DB, next time.Time, first, second error) {
+	t.Helper()
+	okCount, conflictCount := 0, 0
+	for _, saveErr := range []error{first, second} {
+		if saveErr == nil {
+			okCount++
+			continue
+		}
+		if errors.Is(saveErr, ErrExpiryAlreadyChanged) {
+			conflictCount++
+			continue
+		}
+		t.Fatalf("unexpected save error: %v", saveErr)
+	}
+	require.Equal(t, 1, okCount)
+	require.Equal(t, 1, conflictCount)
+
+	var client models.Client
+	require.NoError(t, db.Where("uuid = ?", "n1").First(&client).Error)
+	require.NotNil(t, client.ExpiredAt)
+	assert.True(t, client.ExpiredAt.UTC().Equal(next), "got %s want %s", client.ExpiredAt.UTC(), next)
+
+	var versions []models.BillingPriceVersion
+	require.NoError(t, db.Where("client = ?", "n1").Order("id").Find(&versions).Error)
+	require.Len(t, versions, 2)
+	assert.NotNil(t, versions[0].EffectiveTo)
+	assert.Nil(t, versions[1].EffectiveTo)
+	require.NotNil(t, versions[1].ExpiredAt)
+	assert.True(t, versions[1].ExpiredAt.UTC().Equal(next))
+}
+
+func TestParseExpiryInstantNormalizesJSONAndGoTimes(t *testing.T) {
+	utc := time.Date(2026, 10, 21, 11, 0, 0, 0, time.UTC)
+	parsed, err := parseExpiryInstant(utc, "_match_expired_at")
+	require.NoError(t, err)
+	assert.True(t, parsed.Equal(utc))
+
+	pointer := utc
+	parsed, err = parseExpiryInstant(&pointer, "_match_expired_at")
+	require.NoError(t, err)
+	assert.True(t, parsed.Equal(utc))
+
+	parsed, err = parseExpiryInstant(utc.Format(time.RFC3339), "_match_expired_at")
+	require.NoError(t, err)
+	assert.True(t, parsed.Equal(utc))
+
+	parsed, err = parseExpiryInstant("2026-10-21T19:00:00+08:00", "_match_expired_at")
+	require.NoError(t, err)
+	assert.True(t, parsed.Equal(utc))
+
+	_, err = parseExpiryInstant("not-a-time", "_match_expired_at")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "_match_expired_at")
+
+	_, err = parseExpiryInstant((*time.Time)(nil), "expired_at")
+	require.Error(t, err)
+	_, err = parseExpiryInstant(21, "expired_at")
+	require.Error(t, err)
+}
+
+func TestSaveClientMatchExpiredAtParsesJSONStrings(t *testing.T) {
+	now := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
+	expired := time.Date(2026, 10, 21, 11, 0, 0, 0, time.UTC)
+	next, err := expiry.NextDue(expired, "Asia/Shanghai", 30, now)
+	require.NoError(t, err)
+
+	t.Run("rfc3339 string matches stored expiry", func(t *testing.T) {
+		db := newClientTestDB(t, "match-rfc3339")
+		require.NoError(t, db.Create(&models.Client{
+			UUID: "n1", Token: "token-n1", Name: "N",
+			BillingCycle: 30, ExpiryTimezone: "Asia/Shanghai",
+			ExpiredAt: &expired,
+		}).Error)
+		require.NoError(t, saveClientAt(db, map[string]interface{}{
+			"uuid":              "n1",
+			"renew_expiry":      true,
+			"_match_expired_at": expired.Format(time.RFC3339),
+		}, now))
+		var client models.Client
+		require.NoError(t, db.Where("uuid = ?", "n1").First(&client).Error)
+		require.NotNil(t, client.ExpiredAt)
+		assert.True(t, client.ExpiredAt.UTC().Equal(next), "got %s want %s", client.ExpiredAt.UTC(), next)
+	})
+
+	t.Run("offset instant matches after utc normalize", func(t *testing.T) {
+		db := newClientTestDB(t, "match-offset")
+		require.NoError(t, db.Create(&models.Client{
+			UUID: "n1", Token: "token-n1", Name: "N",
+			BillingCycle: 30, ExpiryTimezone: "Asia/Shanghai",
+			ExpiredAt: &expired,
+		}).Error)
+		require.NoError(t, saveClientAt(db, map[string]interface{}{
+			"uuid":              "n1",
+			"renew_expiry":      true,
+			"_match_expired_at": "2026-10-21T19:00:00+08:00",
+		}, now))
+		var client models.Client
+		require.NoError(t, db.Where("uuid = ?", "n1").First(&client).Error)
+		require.NotNil(t, client.ExpiredAt)
+		assert.True(t, client.ExpiredAt.UTC().Equal(next), "got %s want %s", client.ExpiredAt.UTC(), next)
+	})
+
+	t.Run("invalid string is rejected", func(t *testing.T) {
+		db := newClientTestDB(t, "match-invalid")
+		require.NoError(t, db.Create(&models.Client{
+			UUID: "n1", Token: "token-n1", Name: "N",
+			BillingCycle: 30, ExpiryTimezone: "Asia/Shanghai",
+			ExpiredAt: &expired,
+		}).Error)
+		err := saveClientAt(db, map[string]interface{}{
+			"uuid":              "n1",
+			"renew_expiry":      true,
+			"_match_expired_at": "not-a-time",
+		}, now)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, ErrExpiryAlreadyChanged)
+		assert.Contains(t, err.Error(), "_match_expired_at")
+		var client models.Client
+		require.NoError(t, db.Where("uuid = ?", "n1").First(&client).Error)
+		require.NotNil(t, client.ExpiredAt)
+		assert.True(t, client.ExpiredAt.UTC().Equal(expired), "got %s want %s", client.ExpiredAt.UTC(), expired)
+	})
+}

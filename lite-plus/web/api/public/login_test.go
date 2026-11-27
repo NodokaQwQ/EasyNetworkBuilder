@@ -1,0 +1,162 @@
+package public
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/nuomiiiii/lite/database/accounts"
+	"github.com/nuomiiiii/lite/database/dbcore"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestLogin(t *testing.T) {
+	// 设置测试模式
+	gin.SetMode(gin.TestMode)
+	accounts.CreateAccountWithDB(dbcore.GetDBInstance(), "testuser", "correctpassword")
+	tests := []struct {
+		name           string
+		requestBody    LoginRequest
+		expectedStatus int
+		expectedBody   map[string]interface{}
+	}{
+		{
+			name: "成功登录",
+			requestBody: LoginRequest{
+				Username: "testuser",
+				Password: "correctpassword",
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "无效的请求体",
+			requestBody: LoginRequest{
+				Username: "",
+				Password: "",
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody: map[string]interface{}{
+				"status":  "error",
+				"message": "Invalid request body: Username and password are required",
+			},
+		},
+		{
+			name: "错误的凭据",
+			requestBody: LoginRequest{
+				Username: "wronguser",
+				Password: "wrongpassword",
+			},
+			expectedStatus: http.StatusUnauthorized,
+			expectedBody: map[string]interface{}{
+				"status":  "error",
+				"message": "Invalid credentials",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// 创建测试路由
+			router := gin.New()
+			router.POST("/login", Login)
+
+			// 创建测试请求
+			jsonBody, _ := json.Marshal(tt.requestBody)
+			req, _ := http.NewRequest("POST", "/login", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+
+			// 创建响应记录器
+			w := httptest.NewRecorder()
+
+			// 执行请求
+			router.ServeHTTP(w, req)
+
+			// 断言状态码
+			assert.Equal(t, tt.expectedStatus, w.Code)
+
+			// 解析响应体
+			var response map[string]interface{}
+			err := json.Unmarshal(w.Body.Bytes(), &response)
+			assert.NoError(t, err)
+
+			// 断言响应体
+			if tt.expectedStatus == http.StatusOK {
+				assert.Equal(t, "success", response["status"])
+				assert.Equal(t, "", response["message"])
+				if data, ok := response["data"].(map[string]interface{}); ok {
+					if setCookie, ok := data["set-cookie"].(map[string]interface{}); ok {
+						assert.NotContains(t, setCookie, "session_token")
+					}
+				}
+				assert.NotContains(t, w.Body.String(), "session_token")
+				assert.Contains(t, strings.Join(w.Header().Values("Set-Cookie"), "\n"), "session_token=")
+			} else {
+				assert.Equal(t, tt.expectedBody, response)
+			}
+		})
+	}
+	// 清除测试数据
+	accounts.DeleteAccountByUsernameWithDB(dbcore.GetDBInstance(), "testuser")
+	accounts.DeleteAllSessions()
+}
+
+func TestSessionCookieSecureFollowsRequestScheme(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name       string
+		requestURL string
+		remoteAddr string
+		forwarded  string
+		wantSecure bool
+	}{
+		{
+			name:       "http",
+			requestURL: "http://example.test/login",
+		},
+		{
+			name:       "https",
+			requestURL: "https://example.test/login",
+			wantSecure: true,
+		},
+		{
+			name:       "trusted reverse proxy",
+			requestURL: "http://example.test/login",
+			remoteAddr: "127.0.0.1:43000",
+			forwarded:  "https",
+			wantSecure: true,
+		},
+		{
+			name:       "untrusted spoofed reverse proxy",
+			requestURL: "http://example.test/login",
+			remoteAddr: "203.0.113.10:43000",
+			forwarded:  "https",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodGet, tt.requestURL, nil)
+			if tt.remoteAddr != "" {
+				c.Request.RemoteAddr = tt.remoteAddr
+			}
+			if tt.forwarded != "" {
+				c.Request.Header.Set("X-Forwarded-Proto", tt.forwarded)
+			}
+
+			setSessionCookie(c, "test-session", sessionCookieMaxAge)
+
+			setCookie := strings.Join(w.Header().Values("Set-Cookie"), "\n")
+			if tt.wantSecure {
+				assert.Contains(t, setCookie, "Secure")
+			} else {
+				assert.NotContains(t, setCookie, "Secure")
+			}
+		})
+	}
+}

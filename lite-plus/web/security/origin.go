@@ -1,0 +1,200 @@
+package security
+
+import (
+	"crypto/subtle"
+	"net"
+	"net/http"
+	"net/url"
+	"strings"
+
+	"github.com/nuomiiiii/lite/pkg/config"
+)
+
+func SplitAllowlist(raw string) []string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == '\n' || r == '\r'
+	})
+	entries := make([]string, 0, len(parts))
+	for _, part := range parts {
+		entry := strings.TrimSpace(part)
+		if entry != "" {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
+func OriginMatchesHost(origin, host string) bool {
+	_, originHost, ok := normalizeOrigin(origin)
+	return ok && strings.EqualFold(originHost, host)
+}
+
+// OriginMatchesRequest accepts the direct Host and, only behind a local or
+// private reverse proxy, the original host forwarded by that proxy.
+func OriginMatchesRequest(origin string, r *http.Request) bool {
+	if OriginMatchesHost(origin, r.Host) {
+		return true
+	}
+	if !isPrivateProxy(r.RemoteAddr) {
+		return false
+	}
+	for _, host := range forwardedHosts(r) {
+		if OriginMatchesHost(origin, host) {
+			return true
+		}
+	}
+	return false
+}
+
+// RemoteOriginAllowed rejects opaque and cross-site Origins.
+// Same-origin GET/HEAD from a browser often omit Origin; those are allowed.
+// State-changing methods must present a matching Origin (or a trusted
+// reverse-proxy forwarded host). Loopback Vite (5273) talking to a loopback
+// Lite process is an explicit local-development exception and does not trust
+// forwarded Host headers.
+func RemoteOriginAllowed(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if strings.EqualFold(origin, "null") {
+		return false
+	}
+	if origin == "" {
+		return remoteOriginOptionalMethod(r.Method)
+	}
+	if OriginMatchesRequest(origin, r) {
+		return true
+	}
+	return loopbackDevOrigin(origin, r)
+}
+
+func remoteOriginOptionalMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead
+}
+
+func loopbackDevOrigin(origin string, r *http.Request) bool {
+	if !RequestIsLoopback(r) {
+		return false
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	host := parsed.Hostname()
+	ip := net.ParseIP(host)
+	return (ip != nil && ip.IsLoopback()) || strings.EqualFold(host, "localhost")
+}
+
+func RequestIsLoopback(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	host := strings.TrimSpace(r.RemoteAddr)
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		host = parsedHost
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
+}
+
+func OriginInAllowlist(origin, rawAllowlist string) bool {
+	explicit, wildcard := matchOriginAllowlist(origin, rawAllowlist)
+	return explicit || wildcard
+}
+
+func matchOriginAllowlist(origin, rawAllowlist string) (explicit bool, wildcard bool) {
+	normalizedOrigin, originHost, ok := normalizeOrigin(origin)
+	if !ok {
+		return false, false
+	}
+	for _, entry := range SplitAllowlist(rawAllowlist) {
+		if entry == "*" {
+			wildcard = true
+			continue
+		}
+		if strings.Contains(entry, "://") {
+			normalizedEntry, _, ok := normalizeOrigin(entry)
+			if ok && strings.EqualFold(normalizedEntry, normalizedOrigin) {
+				return true, wildcard
+			}
+			continue
+		}
+		if strings.EqualFold(entry, originHost) {
+			return true, wildcard
+		}
+	}
+	return false, wildcard
+}
+
+func IsAPIKeyRequest(r *http.Request) bool {
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return false
+	}
+	apiKeyConfig, err := config.GetAs[string](config.ApiKeyKey, "")
+	if err != nil || apiKeyConfig == "" || len(apiKeyConfig) < 12 {
+		return false
+	}
+	token := auth[len("Bearer "):]
+	return subtle.ConstantTimeCompare([]byte(token), []byte(apiKeyConfig)) == 1
+}
+
+func IsAuthorizationPreflight(r *http.Request) bool {
+	if r.Method != http.MethodOptions {
+		return false
+	}
+	for _, header := range strings.Split(r.Header.Get("Access-Control-Request-Headers"), ",") {
+		if strings.EqualFold(strings.TrimSpace(header), "authorization") {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeOrigin(raw string) (string, string, bool) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", "", false
+	}
+	host := strings.ToLower(parsed.Host)
+	return strings.ToLower(parsed.Scheme) + "://" + host, host, true
+}
+
+func isPrivateProxy(remoteAddr string) bool {
+	host := strings.TrimSpace(remoteAddr)
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		host = parsedHost
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate())
+}
+
+func forwardedHosts(r *http.Request) []string {
+	hosts := make([]string, 0, 2)
+	for _, value := range strings.Split(r.Header.Get("X-Forwarded-Host"), ",") {
+		if host := cleanForwardedHost(value); host != "" {
+			hosts = append(hosts, host)
+		}
+	}
+	for _, forwarded := range strings.Split(r.Header.Get("Forwarded"), ",") {
+		for _, parameter := range strings.Split(forwarded, ";") {
+			key, value, ok := strings.Cut(parameter, "=")
+			if !ok || !strings.EqualFold(strings.TrimSpace(key), "host") {
+				continue
+			}
+			if host := cleanForwardedHost(value); host != "" {
+				hosts = append(hosts, host)
+			}
+		}
+	}
+	return hosts
+}
+
+func cleanForwardedHost(value string) string {
+	host := strings.Trim(strings.TrimSpace(value), `"`)
+	if host == "" || strings.ContainsAny(host, "/\\@") {
+		return ""
+	}
+	return host
+}

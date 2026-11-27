@@ -1,0 +1,43 @@
+package factory
+
+import (
+	logger "github.com/nuomiiiii/lite/utils/log"
+
+	"github.com/nuomiiiii/lite/utils/item"
+)
+
+var (
+	providers                = make(map[string]IOidcProvider)
+	providerConstructor      = make(map[string]OidcConstructor)
+	providersAdditionalItems = make(map[string][]item.Item)
+)
+
+func RegisterOidcProvider(constructor OidcConstructor) {
+	provider := constructor()
+	providerConstructor[provider.GetName()] = constructor
+	if provider == nil {
+		panic("OIDC provider constructor returned nil")
+	}
+	if _, exists := providers[provider.GetName()]; exists {
+		logger.InfoArgs("oauth", "OIDC provider already registered: "+provider.GetName())
+	}
+	providers[provider.GetName()] = provider
+
+	// 使用反射来提取提供程序的配置字段
+	config := provider.GetConfiguration()
+	items := item.Parse(config)
+	providersAdditionalItems[provider.GetName()] = items
+}
+
+func GetProviderConfigs() map[string][]item.Item {
+	return providersAdditionalItems
+}
+
+func GetAllOidcProviders() map[string]IOidcProvider {
+	return providers
+}
+
+func GetConstructor(name string) (OidcConstructor, bool) {
+	constructor, exists := providerConstructor[name]
+	return constructor, exists
+}

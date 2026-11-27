@@ -1,0 +1,234 @@
+{
+  "menu": [
+    {
+      "labelKey": "virtualnet.title",
+      "path": "/admin/virtualnet",
+      "icon": "Hub"
+    },
+    {
+      "labelKey": "admin_dashboard.title",
+      "path": "/admin",
+      "icon": "LayoutDashboard"
+    },
+    {
+      "labelKey": "common.server",
+      "path": "/admin/servers",
+      "icon": "Server"
+    },
+    {
+      "labelKey": "navigation.billing",
+      "path": "/admin/billing",
+      "icon": "Payments"
+    },
+    {
+      "labelKey": "navigation.alert_center",
+      "path": "/admin/notification/center",
+      "icon": "BellRing"
+    },
+    {
+      "labelKey": "navigation.monitoring",
+      "path": "/admin/monitoring",
+      "icon": "Activity",
+      "children": [
+        {
+          "labelKey": "ping.title",
+          "path": "/admin/ping",
+          "icon": "Activity"
+        },
+        {
+          "labelKey": "return_route.title",
+          "path": "/admin/return-route",
+          "icon": "Route"
+        }
+      ]
+    },
+    {
+      "labelKey": "navigation.nodemgt",
+      "path": "/admin/nodemgt",
+      "icon": "Hub",
+      "children": [
+        {
+          "labelKey": "nodemgt.tab_overview",
+          "path": "/admin/nodemgt/overview",
+          "icon": "LayoutDashboard"
+        },
+        {
+          "labelKey": "nodemgt.tab_inbounds",
+          "path": "/admin/nodemgt/inbounds",
+          "icon": "Hub"
+        },
+        {
+          "labelKey": "nodemgt.tab_chains",
+          "path": "/admin/nodemgt/forwarding",
+          "icon": "CallSplit"
+        },
+        {
+          "labelKey": "nodemgt.tab_outbounds",
+          "path": "/admin/nodemgt/outbounds",
+          "icon": "Send"
+        },
+        {
+          "labelKey": "nodemgt.tab_routes",
+          "path": "/admin/nodemgt/routes",
+          "icon": "Route"
+        },
+        {
+          "labelKey": "nodemgt.tab_users",
+          "path": "/admin/nodemgt/users",
+          "icon": "Users"
+        },
+        {
+          "labelKey": "nodemgt.tab_plans",
+          "path": "/admin/nodemgt/plans",
+          "icon": "Payments"
+        },
+        {
+          "labelKey": "nodemgt.tab_subscriptions",
+          "path": "/admin/nodemgt/subscriptions",
+          "icon": "FileText"
+        },
+        {
+          "labelKey": "nodemgt.tab_certs",
+          "path": "/admin/nodemgt/certificates",
+          "icon": "Globe"
+        }
+      ]
+    },
+    {
+      "labelKey": "navigation.remote_management",
+      "path": "/admin/remote-management",
+      "icon": "Terminal",
+      "children": [
+        {
+          "labelKey": "exec.title",
+          "path": "/admin/exec",
+          "icon": "Code"
+        },
+        {
+          "labelKey": "scheduled_exec.title",
+          "path": "/admin/remote-management/schedules",
+          "icon": "Schedule"
+        },
+        {
+          "labelKey": "firewall.title",
+          "path": "/admin/remote-management/firewall",
+          "icon": "Firewall"
+        },
+        {
+          "labelKey": "mcp.title",
+          "path": "/admin/remote-management/mcp",
+          "icon": "Hub"
+        },
+        {
+          "labelKey": "navigation.terminal_settings",
+          "path": "/admin/settings/xtermjs",
+          "icon": "Terminal"
+        }
+      ]
+    },
+    {
+      "labelKey": "navigation.notifications",
+      "path": "/admin/notifications",
+      "icon": "Bell",
+      "children": [
+        {
+          "labelKey": "navigation.notification_channels",
+          "path": "/admin/settings/notification",
+          "icon": "MessageCircleMore"
+        },
+        {
+          "labelKey": "notification.offline.title",
+          "path": "/admin/notification/offline",
+          "icon": "Unplug"
+        },
+        {
+          "labelKey": "notification.load.title",
+          "path": "/admin/notification/load",
+          "icon": "TrendingUp"
+        },
+        {
+          "labelKey": "notification.traffic_report.title",
+          "path": "/admin/notification/traffic-report",
+          "icon": "BarChart2"
+        },
+        {
+          "labelKey": "notification.ping_loss.title",
+          "path": "/admin/notification/ping-loss",
+          "icon": "Gauge"
+        },
+        {
+          "labelKey": "settings.general.title",
+          "path": "/admin/notification/general",
+          "icon": "Ellipsis"
+        }
+      ]
+    },
+    {
+      "labelKey": "navigation.appearance",
+      "path": "/admin/appearance",
+      "icon": "Palette",
+      "children": [
+        {
+          "labelKey": "theme.title",
+          "path": "/admin/settings/theme",
+          "icon": "Palette"
+        },
+        {
+          "labelKey": "market.themes",
+          "path": "/admin/market/themes",
+          "icon": "Store"
+        }
+      ]
+    },
+    {
+      "labelKey": "navigation.system_settings",
+      "path": "/admin/settings",
+      "icon": "Bolt",
+      "children": [
+        {
+          "labelKey": "settings.site.title",
+          "path": "/admin/settings/site",
+          "icon": "Home"
+        },
+        {
+          "labelKey": "settings.dashboard.title",
+          "path": "/admin/settings/dashboard",
+          "icon": "LayoutDashboard"
+        },
+        {
+          "labelKey": "settings.reverse_proxy.title",
+          "path": "/admin/settings/reverse-proxy",
+          "icon": "Globe"
+        },
+        {
+          "labelKey": "navigation.data_storage",
+          "path": "/admin/settings/metrics",
+          "icon": "Database"
+        },
+        {
+          "labelKey": "navigation.account_security",
+          "path": "/admin/settings/account-security",
+          "icon": "UserCircle"
+        },
+        {
+          "labelKey": "settings.general.title",
+          "path": "/admin/settings/general",
+          "icon": "Ellipsis"
+        }
+      ]
+    }
+  ],
+  "footer": [
+    {
+      "labelKey": "logs.title",
+      "path": "/admin/logs",
+      "icon": "FileText"
+    },
+    {
+      "labelKey": "common.documentation",
+      "path": "https://nuomiiiii.github.io/Lite-document/",
+      "icon": "Book",
+      "newTab": true
+    }
+  ]
+}

@@ -1,0 +1,1303 @@
+package coreadapter
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"strings"
+	"sync"
+	"time"
+
+	xraycore "github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/features/stats"
+)
+
+func init() {
+	linkedXray = func() Core { return newXrayCore() }
+}
+
+type xrayCore struct {
+	mu              sync.Mutex
+	inst            *xraycore.Instance
+	users           []UserSpec
+	inbounds        []InboundSpec
+	outbounds       []OutboundSpec
+	routes          []RouteSpec
+	denied          map[string]struct{}
+	builtUsers      []UserSpec
+	lastUsers       []UserSpec
+	lastIn          []InboundSpec
+	lastOut         []OutboundSpec
+	lastRoutes      []RouteSpec
+	lastInboundTags map[string][]string
+	dialStack       string
+	lastDialStack   string
+	fronts          []*spliceFront
+	policy          *policyEngine
+}
+
+func (c *xrayCore) SetForwarding(outbounds []OutboundSpec, routes []RouteSpec) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.outbounds = append([]OutboundSpec(nil), outbounds...)
+	c.routes = append([]RouteSpec(nil), routes...)
+}
+
+func (c *xrayCore) SetDialStack(stack string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.dialStack = NormalizeDialStack(stack)
+	c.policy.setDialStack(c.dialStack)
+}
+
+func newXrayCore() *xrayCore {
+	return &xrayCore{denied: map[string]struct{}{}, policy: newPolicyEngineWithRole("xray")}
+}
+
+func (c *xrayCore) Name() string    { return "xray" }
+func (c *xrayCore) Version() string { return XrayVersion }
+func (c *xrayCore) Linked() bool    { return true }
+
+func (c *xrayCore) LiveInbounds() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.inst != nil
+}
+
+func (c *xrayCore) Start(_ context.Context, inbounds []InboundSpec) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	prev := c.inbounds
+	c.inbounds = coreInbounds("xray", inbounds)
+	c.policy.sync(liveUsers(c.users, c.denied, c.inbounds), c.denied)
+	if err := c.applyIfChangedLocked(); err != nil {
+		c.inbounds = prev
+		c.policy.sync(liveUsers(c.users, c.denied, c.inbounds), c.denied)
+		return err
+	}
+	return nil
+}
+
+func (c *xrayCore) Stop() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	nodeExec.clearRole("xray", c.policy)
+	c.lastInboundTags = nil
+	return c.stopLocked()
+}
+
+func (c *xrayCore) StageUsers(users []UserSpec) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.stageUsersLocked(users)
+}
+
+func (c *xrayCore) stageUsersLocked(users []UserSpec) {
+	c.users = append([]UserSpec(nil), users...)
+	if c.denied == nil {
+		c.denied = map[string]struct{}{}
+	}
+	for _, u := range users {
+		if userLive(u) {
+			delete(c.denied, u.ID)
+		}
+	}
+	check := c.inbounds
+	if len(check) == 0 {
+		check = c.lastIn
+	}
+	c.policy.sync(liveUsers(c.users, c.denied, check), c.denied)
+}
+
+func (c *xrayCore) ApplyUsers(users []UserSpec) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.stageUsersLocked(users)
+	return c.applyIfChangedLocked()
+}
+
+func (c *xrayCore) CloseUserSessions(userID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.denied == nil {
+		c.denied = map[string]struct{}{}
+	}
+	c.denied[userID] = struct{}{}
+	c.users = markDenied(c.users, userID)
+	c.lastUsers = markDenied(c.lastUsers, userID)
+	check := c.inbounds
+	if len(check) == 0 {
+		check = c.lastIn
+	}
+	c.policy.sync(liveUsers(c.users, c.denied, check), c.denied)
+	c.policy.deny(userID)
+	if c.inst != nil {
+		removeXrayUser(c.inst, userID)
+	}
+	return nil
+}
+
+func (c *xrayCore) ClearUserIPs(userID string) {
+	c.policy.clearUserIPs(userID)
+	c.mu.Lock()
+	inst := c.inst
+	c.mu.Unlock()
+	if inst == nil {
+		return
+	}
+	if feat := inst.GetFeature(stats.ManagerType()); feat != nil {
+		if mgr, ok := feat.(stats.Manager); ok && mgr != nil {
+			mgr.VisitOnlineMaps(func(name string, om stats.OnlineMap) bool {
+				parts := strings.Split(name, ">>>")
+				if len(parts) != 3 || parts[0] != "user" || parts[2] != "online" {
+					return true
+				}
+				rawUser := strings.TrimSpace(parts[1])
+				if rawUser == "" || c.policy.isLoopUser(rawUser) {
+					return true
+				}
+				if c.policy.mapStatName(rawUser) != strings.TrimSpace(userID) {
+					return true
+				}
+				var drop []string
+				om.ForEach(func(ip string, _ int64) bool {
+					drop = append(drop, ip)
+					return true
+				})
+				for _, ip := range drop {
+					om.RemoveIP(ip)
+				}
+				return true
+			})
+		}
+	}
+}
+
+func (c *xrayCore) TakeSnapshots() []Snapshot {
+	return c.policy.snapshots()
+}
+
+func (c *xrayCore) AcknowledgeUsage() {
+	c.policy.ack()
+}
+
+func (c *xrayCore) AcknowledgeUsageItem(userID string, maxBytes int64) int64 {
+	return c.policy.ackUser(userID, maxBytes)
+}
+
+func (c *xrayCore) Presence() []Presence {
+	out := c.policy.presence()
+	unacked := c.policy.unackedMap()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	byID := map[string]Presence{}
+	for _, row := range out {
+		byID[row.UserID] = row
+	}
+	now := time.Now().UTC()
+	if c.inst != nil {
+		if feat := c.inst.GetFeature(stats.ManagerType()); feat != nil {
+			if mgr, ok := feat.(stats.Manager); ok && mgr != nil {
+				mgr.VisitOnlineMaps(func(name string, om stats.OnlineMap) bool {
+					parts := strings.Split(name, ">>>")
+					if len(parts) != 3 || parts[0] != "user" || parts[2] != "online" {
+						return true
+					}
+					rawUser := strings.TrimSpace(parts[1])
+					if rawUser == "" || c.policy.isLoopUser(rawUser) {
+						return true
+					}
+					id := c.policy.mapStatName(rawUser)
+					clearedAt := c.policy.ipClearedAt(id)
+					row := byID[id]
+					row.UserID = id
+					om.ForEach(func(ip string, unix int64) bool {
+						ip = publicPresenceIP(ip)
+						if ip == "" {
+							return true
+						}
+						seen := presenceIPAt(ip, unix, now)
+						if !clearedAt.IsZero() && !seen.SeenAt.After(clearedAt) {
+							return true
+						}
+						if now.Sub(seen.SeenAt) > presenceFresh {
+							return true
+						}
+						row.Online = true
+						row.IPs = mergePresenceIP(row.IPs, seen)
+						return true
+					})
+					byID[id] = row
+					return true
+				})
+			}
+		}
+	}
+	for id, d := range unacked {
+		if d <= 0 {
+			continue
+		}
+		row := byID[id]
+		row.UserID = id
+		row.Online = true
+		byID[id] = row
+	}
+	rows := make([]Presence, 0, len(byID))
+	for _, row := range byID {
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func (c *xrayCore) matchesBuiltTopologyLocked(nextUsers []UserSpec) bool {
+	if c.inst == nil || len(c.inbounds) == 0 {
+		return true
+	}
+	nextLive := mergeInboundAccountUsers(nextUsers, c.inbounds)
+	for _, in := range c.inbounds {
+		if identityFront(in, c.builtUsers) != identityFront(in, nextLive) ||
+			coreOwnedTLS(in, c.builtUsers) != coreOwnedTLS(in, nextLive) ||
+			policyExitNeeded(in, c.builtUsers, true) != policyExitNeeded(in, nextLive, true) ||
+			inboundHasActiveUsers(in, c.builtUsers, true) != inboundHasActiveUsers(in, nextLive, true) {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *xrayCore) applyIfChangedLocked() error {
+	nextUsers := applyDenied(c.users, c.denied)
+	if !coreShouldRestart(c.inst != nil, c.inbounds, c.lastIn, nextUsers, c.lastUsers, c.outbounds, c.lastOut, c.routes, c.lastRoutes) &&
+		c.dialStack == c.lastDialStack &&
+		c.matchesBuiltTopologyLocked(nextUsers) {
+		if c.inst == nil && len(c.inbounds) == 0 {
+			c.rememberGood()
+		}
+		return nil
+	}
+	if c.tryDynamicUserSyncLocked(nextUsers) {
+		return nil
+	}
+	return c.restartLocked()
+}
+
+func (c *xrayCore) tryDynamicUserSyncLocked(nextUsers []UserSpec) bool {
+	if c.inst == nil || len(c.inbounds) == 0 {
+		return false
+	}
+	if !inboundSpecsEqual(c.inbounds, c.lastIn) ||
+		!outboundSpecsEqual(c.outbounds, c.lastOut) ||
+		!routeSpecsEqual(c.routes, c.lastRoutes) ||
+		c.dialStack != c.lastDialStack {
+		return false
+	}
+	builtLive := c.builtUsers
+	prevLive := mergeInboundAccountUsers(c.lastUsers, c.lastIn)
+	nextLive := mergeInboundAccountUsers(nextUsers, c.inbounds)
+	seenKeys := make(map[string]struct{}, len(c.inbounds))
+	for _, in := range c.inbounds {
+		specKey := inboundSpecKey(in)
+		if _, dup := seenKeys[specKey]; dup {
+			return false
+		}
+		seenKeys[specKey] = struct{}{}
+		if identityFront(in, builtLive) != identityFront(in, nextLive) ||
+			coreOwnedTLS(in, builtLive) != coreOwnedTLS(in, nextLive) ||
+			policyExitNeeded(in, builtLive, true) != policyExitNeeded(in, nextLive, true) {
+			return false
+		}
+		wasActive := inboundHasActiveUsers(in, builtLive, true)
+		nowActive := inboundHasActiveUsers(in, nextLive, true)
+		if wasActive != nowActive {
+			return false
+		}
+		if !nowActive || identityFront(in, nextLive) {
+			continue
+		}
+		if len(c.lastInboundTags[specKey]) == 0 {
+			return false
+		}
+		for _, u := range usersForInbound(nextLive, in.ID) {
+			if _, _, ok := xrayMemoryUser(in, u); !ok {
+				return false
+			}
+		}
+	}
+	for _, in := range c.inbounds {
+		if !inboundHasActiveUsers(in, nextLive, true) || identityFront(in, nextLive) {
+			continue
+		}
+		specKey := inboundSpecKey(in)
+		prevGranted := usersForInbound(prevLive, in.ID)
+		nextGranted := usersForInbound(nextLive, in.ID)
+		if !syncXrayInboundUsers(c.inst, c.lastInboundTags[specKey], in, prevGranted, nextGranted) {
+			return false
+		}
+	}
+	c.policy.sync(nextLive, c.denied)
+	evictChangedOrDeadUsers(c.policy, prevLive, nextLive)
+	c.rememberGood()
+	return true
+}
+
+func (c *xrayCore) stopLocked() error {
+	for _, front := range c.fronts {
+		front.close()
+	}
+	c.fronts = nil
+	if c.inst == nil {
+		return nil
+	}
+	err := c.inst.Close()
+	c.inst = nil
+	return err
+}
+
+func (c *xrayCore) restartLocked() error {
+	live := liveUsers(c.users, c.denied, c.inbounds)
+	raw, n, fronts, err := c.buildConfig(live, c.inbounds, c.outbounds, c.routes)
+	if err != nil {
+		c.dialStack = c.lastDialStack
+		c.policy.setDialStack(c.dialStack)
+		return err
+	}
+	_ = c.stopLocked()
+	if n == 0 {
+		c.builtUsers = nil
+		c.lastInboundTags = nil
+		c.rememberGood()
+		return nil
+	}
+	inst, err := startXrayInstance(raw, c.policy)
+	if err != nil {
+		c.restoreLastGood()
+		return err
+	}
+	c.inst = inst
+	c.builtUsers = append([]UserSpec(nil), live...)
+	c.policy.sync(live, c.denied)
+	c.policy.setDialStack(c.dialStack)
+	started, err := startPolicyFronts(c.policy, fronts)
+	if err != nil {
+		_ = c.stopLocked()
+		c.restoreLastGood()
+		return err
+	}
+	c.fronts = started
+	c.rememberGood()
+	return nil
+}
+
+func (c *xrayCore) rememberGood() {
+	c.lastUsers = applyDenied(c.users, c.denied)
+	c.lastIn = append([]InboundSpec(nil), c.inbounds...)
+	c.lastOut = append([]OutboundSpec(nil), c.outbounds...)
+	c.lastRoutes = append([]RouteSpec(nil), c.routes...)
+	c.lastDialStack = c.dialStack
+}
+
+func (c *xrayCore) restoreLastGood() {
+	if len(c.lastIn) == 0 && len(c.lastUsers) == 0 {
+		return
+	}
+	live := liveUsers(c.lastUsers, c.denied, c.lastIn)
+	attempted := c.dialStack
+	c.dialStack = c.lastDialStack
+	raw, n, fronts, err := c.buildConfig(live, c.lastIn, c.lastOut, c.lastRoutes)
+	if err != nil || n == 0 {
+		c.dialStack = attempted
+		c.policy.setDialStack(c.dialStack)
+		return
+	}
+	inst, err := startXrayInstance(raw, c.policy)
+	if err != nil {
+		c.dialStack = attempted
+		c.policy.setDialStack(c.dialStack)
+		return
+	}
+	c.inst = inst
+	c.builtUsers = append([]UserSpec(nil), live...)
+	c.policy.sync(live, c.denied)
+	c.policy.setDialStack(c.dialStack)
+	started, ferr := startPolicyFronts(c.policy, fronts)
+	if ferr == nil {
+		c.fronts = started
+	}
+	c.inbounds = append([]InboundSpec(nil), c.lastIn...)
+}
+
+func (c *xrayCore) configJSON() ([]byte, error) {
+	raw, _, _, err := c.buildConfig(liveUsers(c.users, c.denied, c.inbounds), c.inbounds, c.outbounds, c.routes)
+	return raw, err
+}
+
+func reserveLoopbackPort() (int, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	return port, nil
+}
+
+func (c *xrayCore) buildConfig(users []UserSpec, inbounds []InboundSpec, outbounds []OutboundSpec, routes []RouteSpec) ([]byte, int, []frontSpec, error) {
+	var items []map[string]any
+	var fronts []frontSpec
+	var policyTags []string
+	var skipIP []string
+	var meterTags []string
+	var loopUsers []string
+	listenTags := map[string][]string{}
+	builtTags := map[string][]string{}
+	for i, in := range inbounds {
+		specKey := inboundSpecKey(in)
+		tag := in.ID
+		if tag == "" {
+			tag = fmt.Sprintf("nodemgt-xray-%d", i)
+		}
+		proto := strings.ToLower(in.Protocol)
+		if proto == "" {
+			proto = "socks"
+		}
+		granted := usersForInbound(users, in.ID)
+		accounts := make([]map[string]string, 0, len(granted)+1)
+		clients := make([]map[string]string, 0, len(granted)+1)
+		allowsFlow := proto == "vless" && inboundAllowsVLESSFlow(in)
+		for _, u := range granted {
+			accounts = append(accounts, proxyAccounts(u)...)
+			if id := vlessUUID(u); id != "" {
+				client := map[string]string{"id": id, "email": u.ID}
+				if allowsFlow && u.Flow != "" {
+					client["flow"] = u.Flow
+				}
+				clients = append(clients, client)
+			}
+		}
+		liveClients := clients
+		if allowsFlow {
+			if flow := inboundFlow(in); flow != "" {
+				liveClients = applyClientFlow(clients, flow)
+			}
+		}
+		public := coreOwnedTLS(in, users) || udpInbound(proto)
+		isIdentity := !public && identityFront(in, users)
+		var loopUser, loopPass, loopUUID string
+		if isIdentity {
+			var err error
+			switch proto {
+			case "vless":
+				if loopUUID, err = randomLoopbackUUID(); err != nil {
+					return nil, 0, nil, err
+				}
+			case "http", "socks":
+				if loopUser, err = randomHex16(); err != nil {
+					return nil, 0, nil, err
+				}
+				if loopPass, err = randomHex16(); err != nil {
+					return nil, 0, nil, err
+				}
+				loopUsers = append(loopUsers, loopUser)
+			}
+		}
+		var listenHosts []string
+		var listenPort int
+		if public {
+			listenHosts = publicCoreListenHosts(FrontListenHosts(inboundStack(in), in.Listen), "tcp")
+			if len(listenHosts) == 0 {
+				continue
+			}
+			listenPort = in.Port
+		} else {
+			internalPort, err := reserveLoopbackPort()
+			if err != nil {
+				return nil, 0, nil, err
+			}
+			listenHosts = []string{"127.0.0.1"}
+			listenPort = internalPort
+		}
+		item := map[string]any{}
+		if sniff := xraySniffing(in); sniff != nil {
+			item["sniffing"] = sniff
+		}
+		switch proto {
+		case "vless":
+			if len(liveClients) == 0 {
+				continue
+			}
+			coreClients := liveClients
+			if loopUUID != "" {
+				coreClients = append(append([]map[string]string(nil), liveClients...), map[string]string{"id": loopUUID})
+			}
+			item["protocol"] = "vless"
+			item["settings"] = map[string]any{"clients": coreClients, "decryption": "none"}
+		case "vmess":
+			if len(liveClients) == 0 {
+				continue
+			}
+			item["protocol"] = "vmess"
+			item["settings"] = map[string]any{"clients": liveClients}
+		case "trojan":
+			trojanUsers := make([]map[string]string, 0, len(granted))
+			for _, u := range granted {
+				if _, pass, ok := socksIdentity(u); ok {
+					trojanUsers = append(trojanUsers, map[string]string{"password": pass, "email": u.ID})
+				}
+			}
+			if len(trojanUsers) == 0 {
+				continue
+			}
+			item["protocol"] = "trojan"
+			item["settings"] = map[string]any{"clients": trojanUsers}
+		case "shadowsocks":
+			_, ssSettings, ok := ssXrayClients(in, granted)
+			if !ok {
+				continue
+			}
+			item["protocol"] = "shadowsocks"
+			item["settings"] = ssSettings
+		case "http":
+			httpAccounts := make([]map[string]string, 0, len(granted)+1)
+			for _, u := range granted {
+				httpAccounts = append(httpAccounts, proxyAccounts(u)...)
+			}
+			if len(httpAccounts) == 0 && !inboundAllowTransparent(in) {
+				continue
+			}
+			if loopUser != "" {
+				httpAccounts = append(httpAccounts, map[string]string{"user": loopUser, "pass": loopPass})
+			}
+			item["protocol"] = "http"
+			httpSettings := map[string]any{"accounts": httpAccounts}
+			if inboundAllowTransparent(in) {
+				httpSettings["allowTransparent"] = true
+			}
+			item["settings"] = httpSettings
+		case "socks":
+			if len(accounts) == 0 {
+				continue
+			}
+			coreAccounts := accounts
+			if loopUser != "" {
+				coreAccounts = append(append([]map[string]string(nil), accounts...), map[string]string{"user": loopUser, "pass": loopPass})
+			}
+			item["protocol"] = "socks"
+			item["settings"] = map[string]any{"auth": "password", "accounts": coreAccounts, "udp": false}
+		default:
+			continue
+		}
+		if proto == "shadowsocks" {
+			prevCount := len(items)
+			var err error
+			items, meterTags, fronts, err = appendXrayShadowsocks(in, tag, item, users, listenTags, items, meterTags, fronts)
+			if err != nil {
+				return nil, 0, nil, err
+			}
+			for _, added := range items[prevCount:] {
+				if t, _ := added["tag"].(string); t != "" {
+					builtTags[specKey] = append(builtTags[specKey], t)
+				}
+			}
+			continue
+		}
+		for hi, host := range listenHosts {
+			cloned := cloneAnyMap(item)
+			useTag := tag
+			if hi > 0 {
+				useTag = fmt.Sprintf("%s-%d", tag, hi)
+			}
+			cloned["tag"] = useTag
+			cloned["listen"] = host
+			cloned["port"] = listenPort
+			if proto != "shadowsocks" && !identityFront(in, users) {
+				stream := xrayStreamSettings(in)
+				if !public {
+					stream = enableXrayProxyProtocol(stream)
+				}
+				if stream != nil {
+					cloned["streamSettings"] = stream
+				}
+			}
+			items = append(items, cloned)
+			builtTags[specKey] = append(builtTags[specKey], useTag)
+			if in.ID != "" {
+				listenTags[in.ID] = append(listenTags[in.ID], useTag)
+			}
+			if identityFront(in, users) {
+				skipIP = append(skipIP, useTag)
+			} else {
+				meterTags = append(meterTags, useTag)
+			}
+			if policyExitNeeded(in, users, true) {
+				policyTags = append(policyTags, useTag)
+			}
+		}
+		if !public {
+			inFronts := inboundPublicFronts(
+				in,
+				net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", listenPort)),
+				proto,
+				users,
+				true,
+			)
+			if isIdentity {
+				inFronts = withFrontLoopbackAuth(
+					inFronts,
+					loopUser,
+					loopPass,
+					loopUUID,
+					builtLoginMapFromAccounts(accounts, "user", "pass"),
+					builtUUIDSetFromClients(liveClients, "id"),
+				)
+			}
+			fronts = append(fronts, inFronts...)
+		}
+	}
+	obs := xrayOutbounds(outbounds)
+	rules := xrayRouteRules(routes, outbounds, listenTags)
+	if len(policyTags) > 0 {
+		var extra []frontSpec
+		var coreIn []map[string]any
+		var err error
+		obs, rules, extra, coreIn, err = attachPolicyExit(obs, rules, users, policyTags, true, outbounds)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		for _, ci := range coreIn {
+			if t, _ := ci["tag"].(string); t != "" {
+				skipIP = append(skipIP, t)
+			}
+		}
+		loopUsers = append(loopUsers, loopUsersFromCoreIn(coreIn)...)
+		items = append(items, coreIn...)
+		fronts = append(fronts, extra...)
+	}
+	c.lastInboundTags = builtTags
+	c.policy.setLoopUsers(loopUsers)
+	c.policy.setSkipCoreIP(skipIP)
+	c.policy.setMeterCore(meterTags)
+	cfg := map[string]any{
+		"log":   map[string]any{"loglevel": "error"},
+		"stats": map[string]any{},
+		"policy": map[string]any{
+			"levels": map[string]any{
+				"0": map[string]any{"statsUserUplink": true, "statsUserDownlink": true, "statsUserOnline": true},
+			},
+			"system": map[string]any{"statsInboundUplink": true, "statsInboundDownlink": true},
+		},
+		"inbounds":  items,
+		"outbounds": obs,
+	}
+	balancers, observatory := xrayBalancers(outbounds)
+	if len(rules) > 0 || len(balancers) > 0 {
+		routing := map[string]any{"domainStrategy": "AsIs"}
+		if len(rules) > 0 {
+			routing["rules"] = rules
+		}
+		if len(balancers) > 0 {
+			routing["balancers"] = balancers
+		}
+		cfg["routing"] = routing
+	}
+	if observatory != nil {
+		cfg["observatory"] = observatory
+	}
+	applyXrayDialStack(obs, c.dialStack)
+	raw, err := json.Marshal(cfg)
+	return raw, len(items), fronts, err
+}
+
+// appendXrayShadowsocks splits SS so TCP is spliced in front of a loopback
+// inbound (PROXY protocol keeps the client IP) while UDP stays on the core.
+// xray-core SS 2022 CopyConn never closes the public TCP socket, which left
+// inbound connections in CLOSE-WAIT; the splice front half-closes and reaps
+// them. UDP has no CLOSE-WAIT and cannot use PROXY.
+func appendXrayShadowsocks(in InboundSpec, tag string, item map[string]any, users []UserSpec, listenTags map[string][]string, items []map[string]any, meterTags []string, fronts []frontSpec) ([]map[string]any, []string, []frontSpec, error) {
+	record := func(useTag string) {
+		if in.ID != "" {
+			listenTags[in.ID] = append(listenTags[in.ID], useTag)
+		}
+		meterTags = append(meterTags, useTag)
+	}
+	wantTCP := ssWantsTCP(in)
+	if wantTCP {
+		internalPort, err := reserveLoopbackPort()
+		if err != nil {
+			return items, meterTags, fronts, err
+		}
+		cloned := withSSNetwork(item, "tcp")
+		cloned["tag"] = tag
+		cloned["listen"] = "127.0.0.1"
+		cloned["port"] = internalPort
+		cloned["streamSettings"] = enableXrayProxyProtocol(map[string]any{"network": "tcp"})
+		items = append(items, cloned)
+		record(tag)
+		fronts = append(fronts, inboundPublicFronts(
+			in,
+			net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", internalPort)),
+			"shadowsocks",
+			users,
+			true,
+		)...)
+	}
+	if ssWantsUDP(in) {
+		udpTag := tag
+		if wantTCP {
+			udpTag = tag + "-udp"
+		}
+		hosts := publicCoreListenHosts(FrontListenHosts(inboundStack(in), in.Listen), "udp")
+		if len(hosts) == 0 {
+			return items, meterTags, fronts, nil
+		}
+		for hi, host := range hosts {
+			cloned := withSSNetwork(item, "udp")
+			useTag := udpTag
+			if hi > 0 {
+				useTag = fmt.Sprintf("%s-%d", udpTag, hi)
+			}
+			cloned["tag"] = useTag
+			cloned["listen"] = host
+			cloned["port"] = in.Port
+			items = append(items, cloned)
+			record(useTag)
+		}
+	}
+	return items, meterTags, fronts, nil
+}
+
+func withSSNetwork(item map[string]any, network string) map[string]any {
+	cloned := cloneAnyMap(item)
+	settings, _ := cloned["settings"].(map[string]any)
+	if settings == nil {
+		settings = map[string]any{}
+		cloned["settings"] = settings
+	}
+	settings["network"] = network
+	return cloned
+}
+
+func xrayStreamSettings(in InboundSpec) map[string]any {
+	var stream map[string]any
+	if strings.TrimSpace(in.StreamJSON) != "" {
+		_ = json.Unmarshal([]byte(in.StreamJSON), &stream)
+	}
+	if stream == nil {
+		if in.CertPEM == "" || in.KeyPEM == "" {
+			return nil
+		}
+		stream = map[string]any{"network": "tcp", "security": "tls"}
+	}
+	delete(stream, "stack")
+	if sockopt, ok := stream["sockopt"].(map[string]any); ok {
+		delete(sockopt, "v6only")
+		if len(sockopt) == 0 {
+			delete(stream, "sockopt")
+		} else {
+			stream["sockopt"] = sockopt
+		}
+	}
+	if in.CertPEM != "" && in.KeyPEM != "" {
+		tls, _ := stream["tlsSettings"].(map[string]any)
+		if tls == nil {
+			tls = map[string]any{}
+		}
+		tls["certificates"] = []map[string]any{{
+			"certificate": splitPEM(in.CertPEM),
+			"key":         splitPEM(in.KeyPEM),
+		}}
+		stream["tlsSettings"] = tls
+		if _, ok := stream["security"]; !ok || stream["security"] == "" || stream["security"] == "none" {
+			stream["security"] = "tls"
+		}
+	}
+	if len(stream) == 0 {
+		return nil
+	}
+	return stream
+}
+
+func enableXrayProxyProtocol(stream map[string]any) map[string]any {
+	if stream == nil {
+		stream = map[string]any{}
+	}
+	network := strings.ToLower(strings.TrimSpace(fmt.Sprint(stream["network"])))
+	if network == "<nil>" {
+		network = ""
+	}
+	switch network {
+	case "ws", "websocket":
+		ws, _ := stream["wsSettings"].(map[string]any)
+		if ws == nil {
+			ws = map[string]any{}
+		}
+		ws["acceptProxyProtocol"] = true
+		stream["wsSettings"] = ws
+	case "httpupgrade":
+		hu, _ := stream["httpupgradeSettings"].(map[string]any)
+		if hu == nil {
+			hu = map[string]any{}
+		}
+		hu["acceptProxyProtocol"] = true
+		stream["httpupgradeSettings"] = hu
+	case "grpc", "gun", "xhttp", "splithttp":
+		sock, _ := stream["sockopt"].(map[string]any)
+		if sock == nil {
+			sock = map[string]any{}
+		}
+		sock["acceptProxyProtocol"] = true
+		stream["sockopt"] = sock
+	default:
+		if network == "" {
+			stream["network"] = "tcp"
+		}
+		tcp, _ := stream["tcpSettings"].(map[string]any)
+		if tcp == nil {
+			tcp = map[string]any{}
+		}
+		tcp["acceptProxyProtocol"] = true
+		stream["tcpSettings"] = tcp
+	}
+	return stream
+}
+
+func xraySniffing(in InboundSpec) map[string]any {
+	var s struct {
+		Sniffing     bool   `json:"sniffing"`
+		DestOverride string `json:"dest_override"`
+		RouteOnly    bool   `json:"route_only"`
+		Security     string `json:"security"`
+		Flow         string `json:"flow"`
+	}
+	if strings.TrimSpace(in.SettingsJSON) == "" {
+		return nil
+	}
+	_ = json.Unmarshal([]byte(in.SettingsJSON), &s)
+	if !s.Sniffing {
+		return nil
+	}
+	dest := splitCSV(s.DestOverride)
+	if len(dest) == 0 {
+		dest = []string{"http", "tls", "quic"}
+	}
+	routeOnly := s.RouteOnly
+	flow := inboundFlow(in)
+	if flow == "" {
+		flow = s.Flow
+	}
+	if strings.EqualFold(strings.TrimSpace(s.Security), "reality") || strings.Contains(strings.ToLower(flow), "vision") {
+		routeOnly = true
+	}
+	return map[string]any{"enabled": true, "destOverride": dest, "routeOnly": routeOnly}
+}
+
+func inboundFlow(in InboundSpec) string {
+	if in.Flow != "" {
+		return in.Flow
+	}
+	return settingString(in.SettingsJSON, "flow")
+}
+
+func applyClientFlow(clients []map[string]string, flow string) []map[string]string {
+	out := make([]map[string]string, 0, len(clients))
+	for _, client := range clients {
+		next := map[string]string{}
+		for k, v := range client {
+			next[k] = v
+		}
+		if next["flow"] == "" {
+			next["flow"] = flow
+		}
+		out = append(out, next)
+	}
+	return out
+}
+
+func settingString(raw, key string) string {
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(raw), &obj); err != nil {
+		return ""
+	}
+	got, _ := obj[key].(string)
+	return got
+}
+
+func settingBool(raw, key string) *bool {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(raw), &obj); err != nil {
+		return nil
+	}
+	got, ok := obj[key]
+	if !ok || got == nil {
+		return nil
+	}
+	switch t := got.(type) {
+	case bool:
+		v := t
+		return &v
+	case string:
+		s := strings.ToLower(strings.TrimSpace(t))
+		if s == "true" {
+			v := true
+			return &v
+		}
+		if s == "false" {
+			v := false
+			return &v
+		}
+	}
+	return nil
+}
+
+func splitCSV(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func xrayOutbounds(rows []OutboundSpec) []map[string]any {
+	direct := map[string]any{
+		"protocol": "freedom",
+		"tag":      "direct",
+		"settings": map[string]any{"finalRules": []map[string]any{{"action": "allow"}}},
+	}
+	block := map[string]any{
+		"protocol": "blackhole",
+		"tag":      "block",
+		"settings": map[string]any{"response": map[string]any{"type": "http"}},
+	}
+	out := []map[string]any{direct, block}
+	seen := map[string]bool{"direct": true, "block": true}
+	for _, row := range rows {
+		if !row.Enabled {
+			continue
+		}
+		tag := row.Name
+		if tag == "" {
+			tag = row.ID
+		}
+		if tag == "" || seen[tag] {
+			continue
+		}
+		seen[tag] = true
+		item := xrayOutboundItem(row, tag)
+		if item != nil {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func xrayOutboundItem(row OutboundSpec, tag string) map[string]any {
+	var s struct {
+		Address          string `json:"address"`
+		Port             int    `json:"port"`
+		Username         string `json:"username"`
+		Password         string `json:"password"`
+		UUID             string `json:"uuid"`
+		Flow             string `json:"flow"`
+		DomainStrategy   string `json:"domain_strategy"`
+		Transport        string `json:"transport"`
+		Security         string `json:"security"`
+		SNI              string `json:"sni"`
+		Fingerprint      string `json:"fingerprint"`
+		WSPath           string `json:"ws_path"`
+		WSHost           string `json:"ws_host"`
+		GRPCService      string `json:"grpc_service"`
+		SSMethod         string `json:"ss_method"`
+		ViaOutbound      string `json:"via_outbound"`
+		RealityPublicKey string `json:"reality_public_key"`
+		RealityShortID   string `json:"reality_short_id"`
+		SpiderX          string `json:"spider_x"`
+		PinnedCertSHA256 string `json:"pinned_peer_cert_sha256"`
+	}
+	_ = json.Unmarshal([]byte(row.SettingsJSON), &s)
+	proto := strings.ToLower(row.Protocol)
+	if proto == "" {
+		proto = "freedom"
+	}
+	item := map[string]any{"protocol": proto, "tag": tag}
+	switch proto {
+	case "freedom":
+		settings := map[string]any{"finalRules": []map[string]any{{"action": "allow"}}}
+		if s.DomainStrategy != "" {
+			settings["domainStrategy"] = s.DomainStrategy
+		}
+		item["settings"] = settings
+	case "blackhole":
+		item["settings"] = map[string]any{"response": map[string]any{"type": "http"}}
+	case "vless", "vmess":
+		user := map[string]any{"id": s.UUID, "encryption": "none"}
+		if proto == "vmess" {
+			user = map[string]any{"id": s.UUID, "security": "auto"}
+		}
+		if s.Flow != "" {
+			user["flow"] = s.Flow
+		}
+		item["settings"] = map[string]any{"vnext": []map[string]any{{
+			"address": s.Address, "port": s.Port, "users": []map[string]any{user},
+		}}}
+	case "trojan":
+		item["settings"] = map[string]any{"servers": []map[string]any{{
+			"address": s.Address, "port": s.Port, "password": s.Password,
+		}}}
+	case "shadowsocks":
+		method := s.SSMethod
+		if method == "" {
+			method = "2022-blake3-aes-128-gcm"
+		}
+		item["settings"] = map[string]any{"servers": []map[string]any{{
+			"address": s.Address, "port": s.Port, "password": s.Password, "method": method,
+		}}}
+	case "socks", "http":
+		server := map[string]any{"address": s.Address, "port": s.Port}
+		if s.Username != "" {
+			server["users"] = []map[string]any{{"user": s.Username, "pass": s.Password}}
+		}
+		item["settings"] = map[string]any{"servers": []map[string]any{server}}
+	default:
+		return nil
+	}
+	if stream := outboundStream(s.Transport, s.Security, s.SNI, s.Fingerprint, s.WSPath, s.WSHost, s.GRPCService, s.ViaOutbound, s.RealityPublicKey, s.RealityShortID, s.SpiderX, s.PinnedCertSHA256); stream != nil {
+		item["streamSettings"] = stream
+	} else if s.ViaOutbound != "" {
+		item["streamSettings"] = map[string]any{"sockopt": map[string]any{"dialerProxy": s.ViaOutbound}}
+	}
+	return item
+}
+
+func xrayStreamNetwork(transport string) string {
+	switch strings.ToLower(strings.TrimSpace(transport)) {
+	case "tcp", "raw", "ws", "grpc", "httpupgrade", "xhttp", "kcp", "quic", "http":
+		return strings.ToLower(strings.TrimSpace(transport))
+	default:
+		return ""
+	}
+}
+
+func outboundStream(transport, security, sni, fingerprint, wsPath, wsHost, grpcService, via, realityPublicKey, realityShortID, spiderX, pinnedCertSHA256 string) map[string]any {
+	transport = xrayStreamNetwork(transport)
+	if transport == "" && security == "" && via == "" {
+		return nil
+	}
+	if (transport == "" || transport == "tcp") && (security == "" || security == "none") && via == "" {
+		return nil
+	}
+	stream := map[string]any{}
+	if transport != "" {
+		stream["network"] = transport
+	}
+	if security != "" && security != "none" {
+		stream["security"] = security
+	}
+	if security == "tls" || security == "reality" {
+		tls := map[string]any{}
+		if sni != "" {
+			tls["serverName"] = sni
+		}
+		if fingerprint != "" {
+			tls["fingerprint"] = fingerprint
+		}
+		if security == "tls" {
+			if pinnedCertSHA256 != "" {
+				tls["pinnedPeerCertSha256"] = pinnedCertSHA256
+			}
+			stream["tlsSettings"] = tls
+		} else {
+			if realityPublicKey != "" {
+				tls["publicKey"] = realityPublicKey
+			}
+			if realityShortID != "" {
+				tls["shortId"] = realityShortID
+			}
+			if spiderX != "" {
+				tls["spiderX"] = spiderX
+			}
+			stream["realitySettings"] = tls
+		}
+	}
+	if transport == "ws" {
+		path := wsPath
+		if path == "" {
+			path = "/"
+		}
+		ws := map[string]any{"path": path}
+		if wsHost != "" {
+			ws["host"] = wsHost
+		}
+		stream["wsSettings"] = ws
+	}
+	if transport == "grpc" {
+		svc := grpcService
+		if svc == "" {
+			svc = "gun"
+		}
+		stream["grpcSettings"] = map[string]any{"serviceName": svc}
+	}
+	if via != "" {
+		stream["sockopt"] = map[string]any{"dialerProxy": via}
+	}
+	if len(stream) == 0 {
+		return nil
+	}
+	return stream
+}
+
+func xrayRouteRules(routes []RouteSpec, outbounds []OutboundSpec, inboundTags map[string][]string) []map[string]any {
+	byID := map[string]string{}
+	for _, row := range outbounds {
+		if row.ID != "" && row.Name != "" {
+			byID[row.ID] = row.Name
+		}
+	}
+	sorted := append([]RouteSpec(nil), routes...)
+	for i := 0; i < len(sorted); i++ {
+		for j := i + 1; j < len(sorted); j++ {
+			if sorted[j].Priority < sorted[i].Priority {
+				sorted[i], sorted[j] = sorted[j], sorted[i]
+			}
+		}
+	}
+	groups := groupOutboundTags(outbounds)
+	var rules []map[string]any
+	for _, row := range sorted {
+		if !row.Enabled {
+			continue
+		}
+		var s struct {
+			InboundID  string `json:"inbound_id"`
+			OutboundID string `json:"outbound_id"`
+			Domain     string `json:"domain"`
+			IP         string `json:"ip"`
+			Network    string `json:"network"`
+			Protocol   string `json:"protocol"`
+			Port       string `json:"port"`
+			Source     string `json:"source"`
+		}
+		_ = json.Unmarshal([]byte(row.RuleJSON), &s)
+		tag := byID[s.OutboundID]
+		if tag == "" {
+			tag = s.OutboundID
+		}
+		if tag == "" {
+			continue
+		}
+		rule := map[string]any{"type": "field"}
+		if groups[tag] || groups[s.OutboundID] {
+			rule["balancerTag"] = tag
+		} else {
+			rule["outboundTag"] = tag
+		}
+		if tags := inboundAliasTags(s.InboundID, inboundTags); len(tags) > 0 {
+			rule["inboundTag"] = tags
+		}
+		if domains := splitCSV(s.Domain); len(domains) > 0 {
+			rule["domain"] = domains
+		}
+		if ips := splitCSV(s.IP); len(ips) > 0 {
+			rule["ip"] = ips
+		}
+		if s.Network != "" {
+			rule["network"] = s.Network
+		}
+		if protocols := splitCSV(s.Protocol); len(protocols) > 0 {
+			rule["protocol"] = protocols
+		}
+		if s.Port != "" {
+			rule["port"] = s.Port
+		}
+		if sources := splitCSV(s.Source); len(sources) > 0 {
+			rule["source"] = sources
+		}
+		rules = append(rules, rule)
+	}
+	return rules
+}
+
+func groupOutboundTags(rows []OutboundSpec) map[string]bool {
+	out := map[string]bool{}
+	for _, row := range rows {
+		if !chainGroupProtocol(row.Protocol) {
+			continue
+		}
+		tag := outboundTag(row)
+		if tag != "" {
+			out[tag] = true
+		}
+		if row.ID != "" {
+			out[row.ID] = true
+		}
+	}
+	return out
+}
+
+func xrayBalancers(rows []OutboundSpec) ([]map[string]any, map[string]any) {
+	tags := outboundTagIndex(rows)
+	var balancers []map[string]any
+	var selectors []string
+	for _, row := range rows {
+		if !row.Enabled || !chainGroupProtocol(row.Protocol) {
+			continue
+		}
+		spec := parseChainGroup(row)
+		members := resolveMemberTags(spec.Members, tags)
+		if len(members) == 0 {
+			continue
+		}
+		item := map[string]any{
+			"tag":      outboundTag(row),
+			"strategy": map[string]any{"type": "leastPing"},
+		}
+		if spec.Strategy == "failover" || strings.EqualFold(row.Protocol, "failover") {
+			item["selector"] = []string{members[0]}
+			if spec.BackupDirect || len(members) == 1 {
+				item["fallbackTag"] = "direct"
+				selectors = append(selectors, members[0])
+			} else if spec.Fallback {
+				item["selector"] = members
+				item["fallbackTag"] = "direct"
+				item["strategy"] = map[string]any{
+					"type": "leastLoad",
+					"settings": map[string]any{
+						"expected": 1,
+						"costs": []map[string]any{{
+							"match": members[1],
+							"value": 1e12,
+						}},
+					},
+				}
+				selectors = append(selectors, members...)
+			} else {
+				item["fallbackTag"] = members[1]
+				selectors = append(selectors, members[0], members[1])
+			}
+		} else {
+			item["selector"] = members
+			if spec.Fallback {
+				item["fallbackTag"] = "direct"
+			}
+			selectors = append(selectors, members...)
+		}
+		balancers = append(balancers, item)
+	}
+	if len(balancers) == 0 {
+		return nil, nil
+	}
+	return balancers, map[string]any{
+		"subjectSelector": uniqueStrings(selectors),
+		"probeUrl":        chainProbeURL,
+		"probeInterval":   "1m",
+	}
+}

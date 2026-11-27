@@ -1,0 +1,321 @@
+package selfupdate
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/nuomiiiii/lite/utils"
+)
+
+const (
+	updateRootName           = ".lite-update"
+	legacyUpdateRootName     = ".komari-update"
+	candidateName            = "lite-candidate"
+	helperUnitPrefix         = "lite-self-update-"
+	lastResultName           = "last-result.json"
+	defaultHealthTimeout     = 15 * time.Minute
+	defaultStableWindow      = 15 * time.Second
+	activeTransactionTimeout = defaultHealthTimeout + 5*time.Minute
+	// scheduled is written before the helper process starts. If it never
+	// moves on, the helper did not start and a later attempt may proceed.
+	scheduledTransactionGrace = 2 * time.Minute
+)
+
+type HelperConfig struct {
+	JobID               string        `json:"job_id"`
+	CurrentExecutable   string        `json:"current_executable"`
+	CandidateExecutable string        `json:"candidate_executable"`
+	DataDir             string        `json:"data_dir"`
+	Service             string        `json:"service"`
+	HealthURL           string        `json:"health_url"`
+	ExpectedVersion     string        `json:"expected_version"`
+	ExpectedHash        string        `json:"expected_hash"`
+	PreviousVersion     string        `json:"previous_version"`
+	PreviousHash        string        `json:"previous_hash"`
+	UpdateRoot          string        `json:"update_root"`
+	BackupRoot          string        `json:"backup_root"`
+	StartDelay          time.Duration `json:"start_delay"`
+	HealthTimeout       time.Duration `json:"health_timeout"`
+	StableWindow        time.Duration `json:"stable_window"`
+}
+
+type UpdateResult struct {
+	JobID          string    `json:"job_id"`
+	Status         string    `json:"status"`
+	TargetVersion  string    `json:"target_version"`
+	TargetHash     string    `json:"target_hash"`
+	CurrentVersion string    `json:"current_version,omitempty"`
+	CurrentHash    string    `json:"current_hash,omitempty"`
+	Message        string    `json:"message,omitempty"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type candidateVersion struct {
+	Version string `json:"version"`
+	Hash    string `json:"hash"`
+}
+
+var prepareMu sync.Mutex
+
+func PrepareAndLaunch(ctx context.Context, version, versionHash string) (*UpdateResult, error) {
+	prepareMu.Lock()
+	defer prepareMu.Unlock()
+	version = strings.TrimSpace(version)
+	versionHash = strings.TrimSpace(versionHash)
+	if !versionPattern.MatchString(version) || !hashPattern.MatchString(versionHash) {
+		return nil, errors.New("invalid update version or build identifier")
+	}
+	capability := DetectCapability()
+	if !capability.Supported {
+		return nil, fmt.Errorf("self update is unavailable: %s", capability.Reason)
+	}
+	executable, dataDir, err := managedPaths()
+	if err != nil {
+		return nil, err
+	}
+	if previous, err := ReadLastResult(filepath.Dir(executable)); err == nil {
+		reuse, conflictErr := updateTransactionConflict(previous, version, versionHash, time.Now())
+		if conflictErr != nil {
+			return nil, conflictErr
+		}
+		if reuse != nil {
+			return reuse, nil
+		}
+	}
+	healthURL, err := localHealthURL()
+	if err != nil {
+		return nil, err
+	}
+
+	jobID, err := randomID()
+	if err != nil {
+		return nil, err
+	}
+	updateRoot := filepath.Join(filepath.Dir(executable), updateRootName)
+	jobRoot := filepath.Join(updateRoot, "jobs", jobID)
+	if err := os.MkdirAll(jobRoot, 0700); err != nil {
+		return nil, err
+	}
+	launched := false
+	defer func() {
+		if !launched {
+			_ = os.RemoveAll(jobRoot)
+		}
+	}()
+	candidate := filepath.Join(jobRoot, candidateName)
+	client := updateHTTPClient()
+	manifest, err := fetchReleaseManifest(version, client)
+	if err != nil {
+		return nil, err
+	}
+	asset, err := manifest.validate(version, versionHash)
+	if err != nil {
+		return nil, err
+	}
+	if err := downloadAsset(client, releaseURL(version, asset.Name), candidate, *asset); err != nil {
+		return nil, err
+	}
+	if err := verifyCandidate(ctx, candidate, version, versionHash); err != nil {
+		return nil, err
+	}
+
+	backupRoot := filepath.Join(filepath.Dir(executable), "backup", "self-update-"+time.Now().Format("20060102-150405")+"-"+jobID)
+	config := HelperConfig{
+		JobID:               jobID,
+		CurrentExecutable:   executable,
+		CandidateExecutable: candidate,
+		DataDir:             dataDir,
+		Service:             capability.Service,
+		HealthURL:           healthURL,
+		ExpectedVersion:     version,
+		ExpectedHash:        versionHash,
+		PreviousVersion:     utils.CurrentVersion,
+		PreviousHash:        utils.VersionHash,
+		UpdateRoot:          updateRoot,
+		BackupRoot:          backupRoot,
+		StartDelay:          3 * time.Second,
+		HealthTimeout:       defaultHealthTimeout,
+		StableWindow:        defaultStableWindow,
+	}
+	configPath := filepath.Join(jobRoot, "helper.json")
+	if err := atomicWriteJSON(configPath, config, 0600); err != nil {
+		return nil, err
+	}
+
+	result := &UpdateResult{
+		JobID:         jobID,
+		Status:        "scheduled",
+		TargetVersion: version,
+		TargetHash:    versionHash,
+		UpdatedAt:     time.Now().UTC(),
+	}
+	if err := atomicWriteJSON(filepath.Join(updateRoot, lastResultName), result, 0600); err != nil {
+		return nil, err
+	}
+
+	output, err := launchUpdateHelper(ctx, jobID, candidate, configPath, runCombinedOutput)
+	if err != nil {
+		result.Status = "failed"
+		result.Message = strings.TrimSpace(string(output))
+		result.UpdatedAt = time.Now().UTC()
+		_ = atomicWriteJSON(filepath.Join(updateRoot, lastResultName), result, 0600)
+		return nil, fmt.Errorf("failed to schedule update helper: %w: %s", err, output)
+	}
+	launched = true
+	return result, nil
+}
+
+type commandRunner func(context.Context, string, ...string) ([]byte, error)
+
+func runCombinedOutput(ctx context.Context, name string, arguments ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, arguments...).CombinedOutput()
+}
+
+func launchUpdateHelper(ctx context.Context, jobID, candidate, configPath string, run commandRunner) ([]byte, error) {
+	if detectServiceManager() == managerProcd {
+		return scheduleDetachedHelper(ctx, candidate, configPath, run)
+	}
+	return scheduleUpdateHelper(ctx, jobID, candidate, configPath, run)
+}
+
+func scheduleDetachedHelper(ctx context.Context, candidate, configPath string, run commandRunner) ([]byte, error) {
+	if _, err := lookupPath("start-stop-daemon"); err == nil {
+		return run(ctx, "start-stop-daemon", "-S", "-b", "-x", candidate, "--", "_self-update-helper", configPath)
+	}
+	if _, err := lookupPath("setsid"); err == nil {
+		return run(ctx, "sh", "-c", `nohup setsid "$1" _self-update-helper "$2" >/dev/null 2>&1 </dev/null &`, "lite-self-update", candidate, configPath)
+	}
+	return run(ctx, "sh", "-c", `nohup "$1" _self-update-helper "$2" >/dev/null 2>&1 </dev/null &`, "lite-self-update", candidate, configPath)
+}
+
+func scheduleUpdateHelper(ctx context.Context, jobID, candidate, configPath string, run commandRunner) ([]byte, error) {
+	arguments := []string{
+		"--unit=" + helperUnitPrefix + jobID,
+		"--no-block",
+		candidate, "_self-update-helper", configPath,
+	}
+	noBlockEnabled := true
+	for {
+		output, err := run(ctx, "systemd-run", arguments...)
+		if err == nil {
+			return output, nil
+		}
+
+		switch {
+		case noBlockEnabled && noBlockUnsupported(output):
+			noBlockEnabled = false
+			arguments = removeSystemdRunArguments(arguments, func(argument string) bool {
+				return argument == "--no-block"
+			})
+		default:
+			return output, err
+		}
+	}
+}
+
+func noBlockUnsupported(output []byte) bool {
+	message := strings.ToLower(string(output))
+	if !strings.Contains(message, "--no-block") {
+		return false
+	}
+	return strings.Contains(message, "unrecognized option") ||
+		strings.Contains(message, "unknown option") ||
+		strings.Contains(message, "invalid option")
+}
+
+func removeSystemdRunArguments(arguments []string, remove func(string) bool) []string {
+	compatible := make([]string, 0, len(arguments))
+	for _, argument := range arguments {
+		if !remove(argument) {
+			compatible = append(compatible, argument)
+		}
+	}
+	return compatible
+}
+
+func updateTransactionConflict(previous *UpdateResult, version, versionHash string, now time.Time) (*UpdateResult, error) {
+	if previous == nil || !isUpdateInProgress(previous.Status) {
+		return nil, nil
+	}
+	age := now.Sub(previous.UpdatedAt)
+	if age < 0 {
+		age = 0
+	}
+	if previous.Status == "scheduled" && age >= scheduledTransactionGrace {
+		return nil, nil
+	}
+	if age >= activeTransactionTimeout {
+		return nil, nil
+	}
+	if previous.TargetVersion == version && strings.EqualFold(previous.TargetHash, versionHash) {
+		return previous, nil
+	}
+	return nil, errors.New("another self-update transaction is already running")
+}
+
+func isUpdateInProgress(status string) bool {
+	switch status {
+	case "scheduled", "running", "stopped", "backup_complete", "binary_replaced", "rolling_back":
+		return true
+	default:
+		return false
+	}
+}
+
+func verifyCandidate(ctx context.Context, candidatePath, version, versionHash string) error {
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(probeCtx, candidatePath, "version", "--json").Output()
+	if err != nil {
+		return fmt.Errorf("candidate version probe failed: %w", err)
+	}
+	var metadata candidateVersion
+	if err := json.Unmarshal(output, &metadata); err != nil {
+		return fmt.Errorf("candidate returned invalid version metadata: %w", err)
+	}
+	if metadata.Version != version || metadata.Hash != versionHash {
+		return errors.New("candidate version metadata does not match the release manifest")
+	}
+	return nil
+}
+
+func randomID() (string, error) {
+	content := make([]byte, 6)
+	if _, err := rand.Read(content); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(content), nil
+}
+
+func atomicWriteJSON(path string, value any, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	content, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	temporary := path + ".tmp"
+	if err := os.WriteFile(temporary, content, mode); err != nil {
+		return err
+	}
+	return renameReplace(temporary, path)
+}
+
+func renameReplace(source, destination string) error {
+	if runtime.GOOS == "windows" {
+		_ = os.Remove(destination)
+	}
+	return os.Rename(source, destination)
+}

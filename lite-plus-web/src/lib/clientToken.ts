@@ -1,0 +1,123 @@
+export class ClientTokenRequestError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ClientTokenRequestError";
+    this.status = status;
+  }
+}
+
+export function isClientTokenTwoFactorRequired(error: unknown): boolean {
+  return (
+    error instanceof ClientTokenRequestError &&
+    error.status === 401 &&
+    /2fa code is required/i.test(error.message)
+  );
+}
+
+export function isClientTokenTwoFactorInvalid(error: unknown): boolean {
+  return (
+    error instanceof ClientTokenRequestError &&
+    error.status === 401 &&
+    /invalid 2fa code/i.test(error.message)
+  );
+}
+
+export function omitClientTokenFromNode<T extends object>(node: T): T {
+  const copy = { ...node } as T & { token?: unknown };
+  delete copy.token;
+  return copy;
+}
+
+export type ClientTokenAuth = {
+  signal?: AbortSignal;
+  twoFactorCode?: string;
+  ceremony_id?: string;
+  credential?: unknown;
+};
+
+async function readSafeErrorMessage(response: Response): Promise<string> {
+  const text = await response.text();
+  try {
+    const payload = JSON.parse(text) as { message?: unknown };
+    if (typeof payload.message === "string" && payload.message.trim()) {
+      return payload.message;
+    }
+  } catch {
+    // Ignore parse failures so response bodies are not forwarded into UI or logs.
+  }
+  return `HTTP ${response.status}`;
+}
+
+function twoFactorHeaders(twoFactorCode?: string): HeadersInit {
+  const headers: Record<string, string> = {};
+  const code = twoFactorCode?.trim();
+  if (code) {
+    headers["X-2FA-Code"] = code;
+  }
+  return headers;
+}
+
+function passkeyBody(options: ClientTokenAuth, extra: Record<string, unknown> = {}) {
+  if (!options.ceremony_id || options.credential == null) return extra;
+  return {
+    ...extra,
+    ceremony_id: options.ceremony_id,
+    credential: options.credential,
+  };
+}
+
+export async function fetchClientToken(
+  uuid: string,
+  options: ClientTokenAuth = {},
+): Promise<string> {
+  const usingPasskey = Boolean(options.ceremony_id && options.credential);
+  const response = await fetch(
+    `/api/admin/client/${encodeURIComponent(uuid)}/token`,
+    {
+      method: usingPasskey ? "POST" : "GET",
+      cache: "no-store",
+      signal: options.signal,
+      headers: {
+        ...(usingPasskey ? { "Content-Type": "application/json" } : {}),
+        ...twoFactorHeaders(options.twoFactorCode),
+      },
+      body: usingPasskey ? JSON.stringify(passkeyBody(options)) : undefined,
+    },
+  );
+  if (!response.ok) {
+    throw new ClientTokenRequestError(
+      response.status,
+      await readSafeErrorMessage(response),
+    );
+  }
+  const payload = (await response.json()) as { token?: unknown };
+  const token = typeof payload.token === "string" ? payload.token.trim() : "";
+  if (!token) {
+    throw new Error("Token is unavailable");
+  }
+  return token;
+}
+
+export async function rotateClientToken(
+  uuid: string,
+  options: ClientTokenAuth = {},
+): Promise<void> {
+  const response = await fetch("/api/admin/client/token/rotate", {
+    method: "POST",
+    cache: "no-store",
+    signal: options.signal,
+    headers: {
+      "Content-Type": "application/json",
+      ...twoFactorHeaders(options.twoFactorCode),
+    },
+    body: JSON.stringify(passkeyBody(options, { uuid })),
+  });
+  if (!response.ok) {
+    throw new ClientTokenRequestError(
+      response.status,
+      await readSafeErrorMessage(response),
+    );
+  }
+}

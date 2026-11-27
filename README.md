@@ -4,6 +4,8 @@
 
 ## 当前状态
 
+2026-11-27 仓库结构调整：`lite-plus/`、`lite-plus-agent/`、`lite-plus-web/` 已转为普通目录，由 ENB 根 Git 仓库直接跟踪。下文“保留独立 Git”的描述为历史记录，不再代表当前结构。原 Git 元数据已本机备份，上游基线与许可证说明见 `UPSTREAM.md`。
+
 ### EasyTier 虚拟内网管理首版（2026-11-27，未上线）
 
 - 新增 `/admin/virtualnet` 页面与 `admin:virtualnet.*` RPC，EasyTier 运行时节点信息只读，SSH 凭据加密保存，支持指纹核实、连接测试与确认后后台 Compose 部署。

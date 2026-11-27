@@ -1,0 +1,202 @@
+package client
+
+import (
+	"net"
+	"testing"
+	"time"
+
+	"github.com/nuomiiiii/lite/cmd/flags"
+	"github.com/nuomiiiii/lite/database/clients"
+	"github.com/nuomiiiii/lite/database/dbcore"
+	"github.com/nuomiiiii/lite/database/models"
+	"github.com/nuomiiiii/lite/pkg/config"
+	v2 "github.com/nuomiiiii/lite/protocol/v2"
+	"github.com/nuomiiiii/lite/utils/geoip"
+)
+
+type staticGeoIPProvider struct {
+	name string
+	iso  string
+}
+
+func (p staticGeoIPProvider) Name() string {
+	return p.name
+}
+
+func (p staticGeoIPProvider) GetGeoInfo(ip net.IP) (*geoip.GeoInfo, error) {
+	return &geoip.GeoInfo{ISOCode: p.iso, Name: p.iso}, nil
+}
+
+func (p staticGeoIPProvider) UpdateDatabase() error {
+	return nil
+}
+
+func (p staticGeoIPProvider) Close() error {
+	return nil
+}
+
+func TestV2BasicInfoFillsRegionFromGeoIP(t *testing.T) {
+	flags.DatabaseType = "sqlite"
+	flags.DatabaseFile = "file:v2_basic_info_geoip?mode=memory&cache=shared"
+
+	db := dbcore.GetDBInstance()
+	if err := config.Set(config.GeoIpEnabledKey, true); err != nil {
+		t.Fatalf("enable geoip: %v", err)
+	}
+
+	oldProvider := geoip.CurrentProvider
+	geoip.CurrentProvider = staticGeoIPProvider{name: t.Name(), iso: "SG"}
+	t.Cleanup(func() {
+		geoip.CurrentProvider = oldProvider
+	})
+
+	clientUUID := "client-v2-geoip"
+	now := time.Now().UTC()
+	if err := db.Create(&models.Client{
+		UUID:      clientUUID,
+		Token:     "token-v2-geoip",
+		Name:      "client_v2_geoip",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}).Error; err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+
+	resp := handleV2RPC(clientUUID, v2.Request{
+		JSONRPC: v2.Version,
+		Method:  v2.MethodAgentBasicInfo,
+		Params: map[string]interface{}{
+			"info": map[string]interface{}{
+				"ipv4":         "8.8.8.8",
+				"month_rotate": 26,
+			},
+		},
+		ID: "basic-info",
+	}, false)
+	if resp.Error != nil {
+		t.Fatalf("v2 basic info failed: %+v", resp.Error)
+	}
+
+	var got models.Client
+	if err := db.First(&got, "uuid = ?", clientUUID).Error; err != nil {
+		t.Fatalf("load client: %v", err)
+	}
+	want := geoip.GetRegionUnicodeEmoji("SG")
+	if got.Region != want {
+		t.Fatalf("expected GeoIP region to be saved, got %q", got.Region)
+	}
+	if got.TrafficResetDay == nil || *got.TrafficResetDay != 26 {
+		t.Fatalf("expected Agent reset day to be adopted, got %v", got.TrafficResetDay)
+	}
+	var result struct {
+		Config *v2.ConfigParams `json:"config"`
+	}
+	if err := bindV2Params(resp.Result, &result); err != nil {
+		t.Fatalf("bind response config: %v", err)
+	}
+	if result.Config == nil || result.Config.MonthRotate == nil || *result.Config.MonthRotate != 26 {
+		t.Fatalf("expected response reset day 26, got %+v", result.Config)
+	}
+}
+
+func TestV2BasicInfoSynchronizesCurrentAgentRuntimeConfig(t *testing.T) {
+	flags.DatabaseType = "sqlite"
+	flags.DatabaseFile = "file:v2_basic_info_runtime_config?mode=memory&cache=shared"
+	db := dbcore.GetDBInstance()
+
+	clientUUID := "client-v2-runtime-config"
+	if err := db.Create(&models.Client{UUID: clientUUID, Token: "token-v2-runtime-config"}).Error; err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	day, interval := 14, 9.0
+	include, exclude, mounts := "eth0", "lo", "/;/srv"
+	memoryCache, gpu := true, false
+	resp := handleV2RPC(clientUUID, v2.Request{
+		JSONRPC: v2.Version,
+		Method:  v2.MethodAgentBasicInfo,
+		Params: v2.BasicInfoParams{
+			Info:     map[string]interface{}{"version": "2.2.0.0"},
+			Platform: "linux",
+			ConfigState: &v2.ConfigParams{
+				MonthRotate:        &day,
+				Interval:           &interval,
+				IncludeNics:        &include,
+				ExcludeNics:        &exclude,
+				IncludeMountpoints: &mounts,
+				MemoryIncludeCache: &memoryCache,
+				EnableGPU:          &gpu,
+			},
+		},
+		ID: "basic-info-runtime-config",
+	}, false)
+	if resp.Error != nil {
+		t.Fatalf("v2 basic info failed: %+v", resp.Error)
+	}
+	profile, saved, _, err := clients.GetDeploymentProfileWithDelivery(clientUUID)
+	if err != nil {
+		t.Fatalf("load synchronized profile: %v", err)
+	}
+	if !saved || profile.MonthRotate != day || profile.Interval != interval ||
+		profile.IncludeNics != include || profile.ExcludeNics != exclude ||
+		profile.IncludeMountpoints != mounts || !profile.MemoryIncludeCache || profile.EnableGPU {
+		t.Fatalf("unexpected synchronized profile: %+v", profile)
+	}
+}
+
+func TestV2BasicInfoUpdatesReportedAddresses(t *testing.T) {
+	flags.DatabaseType = "sqlite"
+	flags.DatabaseFile = "file:v2_basic_info_addresses?mode=memory&cache=shared"
+	db := dbcore.GetDBInstance()
+
+	clientUUID := "client-v2-addresses"
+	if err := db.Create(&models.Client{
+		UUID:  clientUUID,
+		Token: "token-v2-addresses",
+		IPv4:  "203.0.113.9",
+	}).Error; err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+
+	resp := handleV2RPC(clientUUID, v2.Request{
+		JSONRPC: v2.Version,
+		Method:  v2.MethodAgentBasicInfo,
+		Params: map[string]interface{}{
+			"info": map[string]interface{}{
+				"ipv4": "203.0.113.9",
+				"ipv6": "2001:db8::9",
+			},
+		},
+		ID: "basic-info-v6-appeared",
+	}, false)
+	if resp.Error != nil {
+		t.Fatalf("v2 basic info failed: %+v", resp.Error)
+	}
+	var got models.Client
+	if err := db.First(&got, "uuid = ?", clientUUID).Error; err != nil {
+		t.Fatalf("load client: %v", err)
+	}
+	if got.IPv4 != "203.0.113.9" || got.IPv6 != "2001:db8::9" {
+		t.Fatalf("expected v6 to appear on later report, got ipv4=%q ipv6=%q", got.IPv4, got.IPv6)
+	}
+
+	resp = handleV2RPC(clientUUID, v2.Request{
+		JSONRPC: v2.Version,
+		Method:  v2.MethodAgentBasicInfo,
+		Params: map[string]interface{}{
+			"info": map[string]interface{}{
+				"ipv4": "198.51.100.9",
+				"ipv6": "",
+			},
+		},
+		ID: "basic-info-v6-left",
+	}, false)
+	if resp.Error != nil {
+		t.Fatalf("v2 basic info failed: %+v", resp.Error)
+	}
+	if err := db.First(&got, "uuid = ?", clientUUID).Error; err != nil {
+		t.Fatalf("reload client: %v", err)
+	}
+	if got.IPv4 != "198.51.100.9" || got.IPv6 != "" {
+		t.Fatalf("expected address change to persist, got ipv4=%q ipv6=%q", got.IPv4, got.IPv6)
+	}
+}

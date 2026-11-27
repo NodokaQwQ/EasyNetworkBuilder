@@ -1,0 +1,323 @@
+import React from "react";
+import { toast } from "sonner";
+import { useOptionalAccount } from "@/contexts/AccountContext";
+import { planAdminSettingsFetch } from "@/utils/adminAuth";
+import {
+  notifyAdminSettingsChanged,
+  subscribeAdminSettingsChanged,
+} from "@/utils/adminSettingsSync";
+import { sameOriginApiPath, sameOriginFetchInit } from "@/utils/security";
+
+/**
+ * API utility functions for settings management
+ */
+
+export interface SettingsResponse {
+  sitename: string;
+  description: string;
+  admin_default_page_size: number;
+  reduce_motion: boolean;
+  cors_origin_check_enabled: boolean;
+  auto_order_new_clients_by_region: boolean;
+  allow_remote_management: boolean;
+  allow_mcp: boolean;
+  github_proxy: string;
+  geo_ip_enabled: boolean;
+  geo_ip_provider: string;
+  o_auth_provider: string;
+  o_auth_enabled: boolean;
+  custom_head: string;
+  CreatedAt: string;
+  UpdatedAt: string;
+  [key: string]: any;
+}
+
+const createDefaultSettings = (): SettingsResponse => ({
+  sitename: "",
+  description: "",
+  admin_default_page_size: 20,
+  reduce_motion: false,
+  cors_origin_check_enabled: true,
+  auto_order_new_clients_by_region: false,
+  allow_remote_management: false,
+  allow_mcp: false,
+  github_proxy: "",
+  geo_ip_enabled: false,
+  geo_ip_provider: "",
+  o_auth_provider: "",
+  o_auth_enabled: false,
+  custom_head: "",
+  CreatedAt: "",
+  UpdatedAt: "",
+});
+
+let pendingSettingsRequest: Promise<SettingsResponse> | null = null;
+
+function getSettingsDeduplicated(): Promise<SettingsResponse> {
+  if (pendingSettingsRequest) return pendingSettingsRequest;
+
+  pendingSettingsRequest = getSettings().finally(() => {
+    pendingSettingsRequest = null;
+  });
+  return pendingSettingsRequest;
+}
+
+/**
+ * Fetch settings from the API
+ * @returns Promise containing the settings data
+ */
+export async function getSettings(): Promise<SettingsResponse> {
+  try {
+    const response = await fetch(
+      sameOriginApiPath("/api/admin/settings"),
+      sameOriginFetchInit(),
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const settingsPayload = data["data"];
+
+    if (
+      typeof settingsPayload !== "object" ||
+      settingsPayload === null ||
+      Array.isArray(settingsPayload)
+    ) {
+      throw new Error("Invalid settings response payload");
+    }
+
+    // Remove database metadata fields that are not needed for UI
+    const settings = Object.fromEntries(
+      Object.entries(settingsPayload).filter(
+        ([key]) => !["CreatedAt", "UpdatedAt", "id"].includes(key),
+      ),
+    );
+
+    return settings as SettingsResponse;
+  } catch (error) {
+    const status = error instanceof Error ? error.message : "";
+    if (!status.includes("401") && !status.includes("403")) {
+      console.error("Failed to fetch settings:", error);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Update settings via the API
+ * @param settings - The settings object to update
+ * @returns Promise containing the response
+ */
+export async function updateSettings(
+  settings: Partial<SettingsResponse>
+): Promise<void> {
+  const response = await fetch(
+    sameOriginApiPath("/api/admin/settings"),
+    sameOriginFetchInit({
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(settings),
+    }),
+  );
+
+  if (!response.ok) {
+    let message = `HTTP error! status: ${response.status}`;
+
+    try {
+      const errorData = await response.json();
+      if (errorData?.message) {
+        message = String(errorData.message);
+      }
+    } catch {
+      // Keep the fallback HTTP status message.
+    }
+
+    console.error("Failed to update settings:", message);
+    throw new Error(message);
+  }
+  notifyAdminSettingsChanged();
+}
+export async function updateSettingsWithToast(
+  settings: Partial<SettingsResponse>,
+  t: (key: string) => string
+): Promise<void> {
+  try {
+    await updateSettings(settings);
+    toast.success(t("settings.settings_saved"));
+  } catch (error) {
+    toast.error(t("settings.settings_save_failed") + ": " + error);
+    throw error;
+  }
+}
+
+/**
+ * Update a single setting field
+ * @param key - The setting key to update
+ * @param value - The new value for the setting
+ * @param currentSettings - The current settings object (to merge with)
+ * @returns Promise containing the response
+ */
+export async function updateSingleSetting<K extends keyof SettingsResponse>(
+  key: K,
+  value: SettingsResponse[K],
+  currentSettings: SettingsResponse
+): Promise<void> {
+  const updatedSettings = { ...currentSettings, [key]: value };
+  return updateSettings(updatedSettings);
+}
+
+/**
+ * Hook for managing settings state and API calls
+ */
+function useSettingsController() {
+  const accountState = useOptionalAccount();
+  const [settings, setSettings] = React.useState<SettingsResponse>(
+    createDefaultSettings,
+  );
+
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+  const hasAccountContext = accountState !== undefined;
+  const accountLoading = accountState?.loading ?? false;
+  const loggedIn = Boolean(accountState?.account?.logged_in);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const plan = planAdminSettingsFetch({
+      hasAccountContext,
+      accountLoading,
+      loggedIn,
+    });
+
+    if (plan === "reset") {
+      setSettings(createDefaultSettings());
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
+    const fetchSettings = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getSettingsDeduplicated();
+        if (cancelled) return;
+        setSettings(data);
+      } catch (err) {
+        if (cancelled) return;
+        setSettings(createDefaultSettings());
+        setError(
+          err instanceof Error ? err.message : "Failed to fetch settings"
+        );
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void fetchSettings();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accountLoading, hasAccountContext, loggedIn]);
+
+  // Update a single setting
+  const updateSetting = React.useCallback(async <K extends keyof SettingsResponse>(
+    key: K,
+    value: SettingsResponse[K]
+  ) => {
+    try {
+      await updateSingleSetting(key, value, settings);
+      setSettings((prev) => ({ ...prev, [key]: value }));
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : `Failed to update ${String(key)}`
+      );
+      throw err;
+    }
+  }, [settings]);
+
+  // Update multiple settings
+  const updateMultipleSettings = React.useCallback(async (
+    newSettings: Partial<SettingsResponse>
+  ) => {
+    try {
+      const updatedSettings = { ...settings, ...newSettings };
+      await updateSettings(updatedSettings);
+      setSettings(updatedSettings);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to update settings"
+      );
+      throw err;
+    }
+  }, [settings]);
+
+  const refetch = React.useCallback(async () => {
+    const data = await getSettings();
+    setSettings(data);
+    setError(null);
+  }, []);
+
+  React.useEffect(() => subscribeAdminSettingsChanged(() => {
+    void refetch().catch(() => undefined);
+  }), [refetch]);
+
+  return React.useMemo(() => ({
+    settings,
+    loading,
+    error,
+    setSettings,
+    updateSetting,
+    updateMultipleSettings,
+    refetch,
+  }), [
+    settings,
+    loading,
+    error,
+    updateSetting,
+    updateMultipleSettings,
+    refetch,
+  ]);
+}
+
+type SettingsContextValue = ReturnType<typeof useSettingsController>;
+
+const SettingsContext = React.createContext<SettingsContextValue | null>(null);
+
+export function useReduceMotionPreference(): boolean {
+  const [reduceMotion, setReduceMotion] = React.useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return false;
+    }
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  });
+
+  React.useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const sync = () => setReduceMotion(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+
+  return reduceMotion;
+}
+
+export function SettingsProvider({ children }: { children: React.ReactNode }) {
+  const value = useSettingsController();
+  return React.createElement(SettingsContext.Provider, { value }, children);
+}
+
+export function useSettings(): SettingsContextValue {
+  const context = React.useContext(SettingsContext);
+  if (!context) {
+    throw new Error("useSettings must be used within SettingsProvider");
+  }
+  return context;
+}

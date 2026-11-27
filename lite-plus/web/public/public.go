@@ -1,0 +1,1085 @@
+package public
+
+import (
+	"crypto/sha256"
+	"embed"
+	"encoding/json"
+	"fmt"
+	"html"
+	"io/fs"
+	"log"
+	"mime"
+	"net/http"
+	"os"
+	"path"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/nuomiiiii/lite/pkg/config"
+	"github.com/nuomiiiii/lite/pkg/thememanifest"
+)
+
+var legacyDefaultFaviconSHA256 = [32]byte{
+	0xbd, 0x28, 0xc1, 0xec, 0x58, 0x09, 0x26, 0xbc,
+	0x3f, 0x5e, 0x9c, 0xb2, 0x72, 0x19, 0x76, 0xd9,
+	0xeb, 0xad, 0xee, 0xfe, 0x22, 0x1b, 0xae, 0x77,
+	0x29, 0x4b, 0xf3, 0x38, 0x85, 0xc7, 0x1a, 0x69,
+}
+
+//go:embed systemUI bundledThemes
+var PublicFS embed.FS
+
+// 常量定义
+const (
+	DataDir            = "./data"
+	ThemesDir          = "theme"
+	FaviconFile        = "favicon.ico"
+	DefaultTheme       = "lite-theme"
+	LegacyPublicTheme  = "nezha"
+	LegacyDefaultTheme = "default"
+	LegacyLiteTheme    = "lite-theme-default"
+	LanguageCookieName = "language"
+
+	// 主题内部结构定义
+	DistDir   = "dist"       // 静态资源存放目录
+	IndexFile = "index.html" // 相对于 DistDir
+)
+
+const themeBundleMigrationKey = "theme_bundle_migration_v1"
+
+const currentThemeBundleMigration = 12
+
+const adminApplicationTitle = "Lite-Plus Monitor"
+
+const themeChangeReloadScript = `<script>(()=>{window.addEventListener("storage",(event)=>{if(event.key==="lite-active-theme-changed"||event.key==="komari-active-theme-changed"){window.location.reload();}});})();</script>`
+
+const documentTitleSyncMarker = "data-lite-title-sync"
+
+const publicThemeColorSyncMarker = "data-lite-theme-color-sync"
+
+type webAppManifest struct {
+	ID              string               `json:"id"`
+	Name            string               `json:"name"`
+	ShortName       string               `json:"short_name"`
+	Description     string               `json:"description"`
+	StartURL        string               `json:"start_url"`
+	Scope           string               `json:"scope"`
+	Display         string               `json:"display"`
+	BackgroundColor string               `json:"background_color"`
+	ThemeColor      string               `json:"theme_color"`
+	Orientation     string               `json:"orientation"`
+	Icons           []webAppManifestIcon `json:"icons"`
+}
+
+type webAppManifestIcon struct {
+	Src     string `json:"src"`
+	Sizes   string `json:"sizes"`
+	Type    string `json:"type"`
+	Purpose string `json:"purpose"`
+}
+
+var (
+	documentTitlePattern         = regexp.MustCompile(`(?is)<title(?:\s[^>]*)?>.*?</title\s*>`)
+	appleApplicationTitlePattern = regexp.MustCompile(`(?is)<meta\s+[^>]*name\s*=\s*["']apple-mobile-web-app-title["'][^>]*>`)
+	applicationIconPattern       = regexp.MustCompile(`(?is)<link\s+[^>]*rel\s*=\s*["'](?:shortcut\s+)?icon["'][^>]*>`)
+	appleTouchIconPattern        = regexp.MustCompile(`(?is)<link\s+[^>]*rel\s*=\s*["']apple-touch-icon["'][^>]*>`)
+	viewportMetaPattern          = regexp.MustCompile(`(?is)<meta\s+[^>]*name\s*=\s*["']viewport["'][^>]*>`)
+	appleStatusBarPattern        = regexp.MustCompile(`(?is)<meta\s+[^>]*name\s*=\s*["']apple-mobile-web-app-status-bar-style["'][^>]*>`)
+	headClosePattern             = regexp.MustCompile(`(?i)</head\s*>`)
+	bodyClosePattern             = regexp.MustCompile(`(?i)</body\s*>`)
+	themeVersionPattern          = regexp.MustCompile(`^(\d+)(?:\.(\d+))?(?:\.(\d+))?`)
+)
+
+const systemServiceWorkerCleanupMarker = "data-lite-sw-cleanup"
+
+const systemServiceWorkerCleanupScript = `<script ` + systemServiceWorkerCleanupMarker + `>(()=>{try{if(navigator.serviceWorker){navigator.serviceWorker.getRegistrations().then((rs)=>rs.forEach((r)=>r.unregister()));}if(window.caches){caches.keys().then((keys)=>keys.forEach((k)=>caches.delete(k)));}}catch(e){}})();</script>`
+
+func injectSystemServiceWorkerCleanup(htmlStr string) string {
+	if strings.Contains(htmlStr, systemServiceWorkerCleanupMarker) {
+		return htmlStr
+	}
+	if location := headClosePattern.FindStringIndex(htmlStr); location != nil {
+		return htmlStr[:location[0]] + systemServiceWorkerCleanupScript + htmlStr[location[0]:]
+	}
+	if location := bodyClosePattern.FindStringIndex(htmlStr); location != nil {
+		return htmlStr[:location[0]] + systemServiceWorkerCleanupScript + htmlStr[location[0]:]
+	}
+	return htmlStr + systemServiceWorkerCleanupScript
+}
+
+func injectThemeChangeReload(html string) string {
+	if strings.Contains(html, themeChangeReloadScript) {
+		return html
+	}
+	if strings.Contains(html, "</body>") {
+		return strings.Replace(html, "</body>", themeChangeReloadScript+"</body>", 1)
+	}
+	return html + themeChangeReloadScript
+}
+
+func injectCustomHTML(htmlStr, customHead, customBody string) string {
+	if location := bodyClosePattern.FindStringIndex(htmlStr); location != nil {
+		htmlStr = htmlStr[:location[0]] + customBody + htmlStr[location[0]:]
+	} else {
+		htmlStr += customBody
+	}
+	if location := headClosePattern.FindStringIndex(htmlStr); location != nil {
+		return htmlStr[:location[0]] + customHead + htmlStr[location[0]:]
+	}
+	return customHead + htmlStr
+}
+
+func renderDocumentTitle(htmlStr, title string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = config.DefaultSitename
+	}
+
+	titleTag := "<title>" + html.EscapeString(title) + "</title>"
+	if location := documentTitlePattern.FindStringIndex(htmlStr); location != nil {
+		htmlStr = htmlStr[:location[0]] + titleTag + htmlStr[location[1]:]
+	} else if location := headClosePattern.FindStringIndex(htmlStr); location != nil {
+		htmlStr = htmlStr[:location[0]] + titleTag + htmlStr[location[0]:]
+	} else {
+		htmlStr = titleTag + htmlStr
+	}
+
+	return htmlStr
+}
+
+func renderPublicDocumentTitle(htmlStr, title string) string {
+	htmlStr = renderDocumentTitle(htmlStr, title)
+	if strings.Contains(htmlStr, documentTitleSyncMarker) {
+		return htmlStr
+	}
+
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = config.DefaultSitename
+	}
+	encodedTitle, _ := json.Marshal(title)
+	script := `<script ` + documentTitleSyncMarker + `>(()=>{const expectedTitle=` + string(encodedTitle) + `;const syncTitle=()=>{if(document.title!==expectedTitle){document.title=expectedTitle;}};syncTitle();if(document.head){new MutationObserver(syncTitle).observe(document.head,{childList:true,subtree:true,characterData:true});}})();</script>`
+	if location := bodyClosePattern.FindStringIndex(htmlStr); location != nil {
+		return htmlStr[:location[0]] + script + htmlStr[location[0]:]
+	}
+	return htmlStr + script
+}
+
+func publicThemeColorSyncScript() string {
+	// First paint keeps the existing tag. Class/data-theme changes replace it so
+	// iOS 18 can pick up a live hex theme-color. Do not rebuild on pageshow or
+	// visibility — that spends the one replace iOS 18 honors before the user
+	// toggles appearance. iOS 26 ignores theme-color.
+	return `<script ` + publicThemeColorSyncMarker + `>(()=>{try{const light="#FFFFFF";const dark="#161C24";let applying=false;const isDark=()=>{const root=document.documentElement;const body=document.body;return root.classList.contains("dark")||root.getAttribute("data-theme")==="dark"||!!(body&&(body.classList.contains("dark")||body.getAttribute("data-theme")==="dark"));};const color=()=>isDark()?dark:light;const apply=(replaceTag)=>{if(applying||!document.head)return;const hex=color();const current=document.querySelector('meta[name="theme-color"]');if(current&&(current.getAttribute("content")||"").toLowerCase()===hex.toLowerCase())return;applying=true;if(!replaceTag&&current){current.setAttribute("content",hex);applying=false;return;}document.querySelectorAll('meta[name="theme-color"]').forEach((el)=>el.remove());const meta=document.createElement("meta");meta.setAttribute("name","theme-color");meta.setAttribute("content",hex);document.head.appendChild(meta);applying=false;};const watch=(node)=>{if(!node)return;new MutationObserver(()=>apply(1)).observe(node,{attributes:true,attributeFilter:["class","data-theme"]});};apply(0);watch(document.documentElement);if(document.body)watch(document.body);else document.addEventListener("DOMContentLoaded",()=>{apply(0);watch(document.body);},{once:true});}catch(e){}})();</script>`
+}
+
+func injectPublicThemeColorSync(htmlStr string) string {
+	if strings.Contains(htmlStr, publicThemeColorSyncMarker) {
+		return htmlStr
+	}
+	script := publicThemeColorSyncScript()
+	if location := headClosePattern.FindStringIndex(htmlStr); location != nil {
+		return htmlStr[:location[0]] + script + htmlStr[location[0]:]
+	}
+	if location := bodyClosePattern.FindStringIndex(htmlStr); location != nil {
+		return htmlStr[:location[0]] + script + htmlStr[location[0]:]
+	}
+	return htmlStr + script
+}
+
+const (
+	mobileViewportTag = `<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />`
+	appleStatusBarTag = `<meta name="apple-mobile-web-app-status-bar-style" content="default" />`
+)
+
+func replaceOrInsertHeadTag(htmlStr, tag string, pattern *regexp.Regexp) string {
+	if pattern.MatchString(htmlStr) {
+		return pattern.ReplaceAllString(htmlStr, tag)
+	}
+	if location := headClosePattern.FindStringIndex(htmlStr); location != nil {
+		return htmlStr[:location[0]] + tag + htmlStr[location[0]:]
+	}
+	return tag + htmlStr
+}
+
+func renderMobileChromeMeta(htmlStr, appleStatusBar string) string {
+	htmlStr = replaceOrInsertHeadTag(htmlStr, mobileViewportTag, viewportMetaPattern)
+	return replaceOrInsertHeadTag(htmlStr, appleStatusBar, appleStatusBarPattern)
+}
+
+func renderApplicationIdentityWithTitle(htmlStr, title string, synchronizeTitle bool) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = config.DefaultSitename
+	}
+
+	// Opaque status bar so iOS 18 can follow live hex theme-color on public
+	// pages. Translucent bars ignore the change until the next navigation.
+	// iOS 26 ignores theme-color; the bundled glass header is left as-is.
+	htmlStr = renderMobileChromeMeta(htmlStr, appleStatusBarTag)
+	if synchronizeTitle {
+		htmlStr = renderPublicDocumentTitle(htmlStr, title)
+	} else {
+		htmlStr = renderDocumentTitle(htmlStr, title)
+	}
+	appleTitle := `<meta name="apple-mobile-web-app-title" content="` + html.EscapeString(title) + `" />`
+	if appleApplicationTitlePattern.MatchString(htmlStr) {
+		htmlStr = appleApplicationTitlePattern.ReplaceAllString(htmlStr, appleTitle)
+	} else if location := headClosePattern.FindStringIndex(htmlStr); location != nil {
+		htmlStr = htmlStr[:location[0]] + appleTitle + htmlStr[location[0]:]
+	}
+
+	// Remove every theme-provided icon declaration before adding the canonical
+	// root paths. This also covers legacy `rel="shortcut icon"` declarations,
+	// which otherwise resolve below deep SPA routes such as /admin/settings.
+	htmlStr = applicationIconPattern.ReplaceAllString(htmlStr, "")
+	htmlStr = appleTouchIconPattern.ReplaceAllString(htmlStr, "")
+	icons := `<link rel="icon" href="/favicon.ico" /><link rel="apple-touch-icon" href="/favicon.ico" />`
+	if location := headClosePattern.FindStringIndex(htmlStr); location != nil {
+		htmlStr = htmlStr[:location[0]] + icons + htmlStr[location[0]:]
+	}
+	if synchronizeTitle {
+		// Public themes often write theme-color as hsl() or only on first paint.
+		// iOS 18 follows a hex theme-color tag that is replaced on appearance changes.
+		htmlStr = injectPublicThemeColorSync(htmlStr)
+	}
+	return htmlStr
+}
+
+func renderApplicationIdentity(htmlStr, title string) string {
+	return renderApplicationIdentityWithTitle(htmlStr, title, true)
+}
+
+func renderSystemApplicationIdentity(htmlStr, title string) string {
+	return injectSystemServiceWorkerCleanup(renderApplicationIdentityWithTitle(htmlStr, title, false))
+}
+
+func renderWebAppManifest(siteName, description string) webAppManifest {
+	siteName = strings.TrimSpace(siteName)
+	if siteName == "" {
+		siteName = config.DefaultSitename
+	}
+	description = strings.TrimSpace(description)
+	if description == "" {
+		description = config.DefaultSiteDescription
+	}
+
+	return webAppManifest{
+		ID:              "/",
+		Name:            siteName,
+		ShortName:       siteName,
+		Description:     description,
+		StartURL:        "/",
+		Scope:           "/",
+		Display:         "standalone",
+		BackgroundColor: "#ffffff",
+		ThemeColor:      "#2563eb",
+		Orientation:     "portrait-primary",
+		Icons: []webAppManifestIcon{{
+			Src:     "/favicon.ico",
+			Sizes:   "any",
+			Type:    "image/x-icon",
+			Purpose: "any",
+		}},
+	}
+}
+
+func injectSiteDescription(html, description string) string {
+	for _, placeholder := range []string{
+		config.DefaultSiteDescription,
+		"A simple server monitor tool.",
+	} {
+		html = strings.ReplaceAll(html, placeholder, description)
+	}
+	return html
+}
+
+func init() {
+	_ = os.MkdirAll("./data/theme", 0755)
+	if _, err := removeFaviconIfHashMatches(
+		filepath.Join(DataDir, FaviconFile),
+		legacyDefaultFaviconSHA256,
+	); err != nil {
+		log.Printf("Failed to migrate legacy default favicon: %v", err)
+	}
+}
+
+func removeFaviconIfHashMatches(filePath string, expectedHash [32]byte) (bool, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	if sha256.Sum256(data) != expectedHash {
+		return false, nil
+	}
+	if err := os.Remove(filePath); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func normalizeHTMLLanguage(language string) string {
+	language = strings.TrimSpace(strings.ReplaceAll(language, "_", "-"))
+	if len(language) < 2 || len(language) > 32 {
+		return ""
+	}
+
+	for _, r := range language {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' {
+			continue
+		}
+		return ""
+	}
+
+	return language
+}
+
+func replaceHTMLLanguage(htmlStr, language string) string {
+	language = normalizeHTMLLanguage(language)
+	if language == "" {
+		return htmlStr
+	}
+
+	replacements := []struct {
+		old string
+		new string
+	}{
+		{`<html lang="en">`, `<html lang="` + language + `">`},
+		{`<html lang='en'>`, `<html lang='` + language + `'>`},
+		{`<html>`, `<html lang="` + language + `">`},
+	}
+
+	for _, replacement := range replacements {
+		if strings.Contains(htmlStr, replacement.old) {
+			return strings.Replace(htmlStr, replacement.old, replacement.new, 1)
+		}
+	}
+
+	return htmlStr
+}
+
+// isSafePath 验证路径是否在指定的基础目录内，防止路径穿透攻击
+func isSafePath(basePath, targetPath string) bool {
+	// 获取基础目录的绝对路径
+	absBase, err := filepath.Abs(basePath)
+	if err != nil {
+		return false
+	}
+
+	// 清理目标路径，移除 ../ 等
+	cleanTarget := filepath.Clean(targetPath)
+
+	// 拼接完整路径
+	fullPath := filepath.Join(absBase, cleanTarget)
+
+	// 获取绝对路径
+	absTarget, err := filepath.Abs(fullPath)
+	if err != nil {
+		return false
+	}
+
+	// 检查目标路径是否以基础路径开头
+	// 使用 filepath.Rel 更可靠地检查路径关系
+	rel, err := filepath.Rel(absBase, absTarget)
+	if err != nil {
+		return false
+	}
+
+	// 如果相对路径以 .. 开头，说明目标在基础目录之外
+	return !strings.HasPrefix(rel, "..") && rel != ".."
+}
+
+func embeddedFileContent(root, relativePath string) ([]byte, string, bool) {
+	cleanPath := path.Clean(strings.TrimPrefix(filepath.ToSlash(relativePath), "/"))
+	if cleanPath == "." || cleanPath == ".." || strings.HasPrefix(cleanPath, "../") {
+		return nil, "", false
+	}
+	content, err := fs.ReadFile(PublicFS, path.Join(root, cleanPath))
+	if err != nil {
+		return nil, "", false
+	}
+	return content, contentTypeForPath(cleanPath), true
+}
+
+func contentTypeForPath(filePath string) string {
+	if strings.EqualFold(filepath.Ext(filePath), ".ico") {
+		return "image/x-icon"
+	}
+	return mime.TypeByExtension(filepath.Ext(filePath))
+}
+
+func validThemeID(themeID string) bool {
+	return themeID != "" && !strings.Contains(themeID, "..") &&
+		!strings.ContainsAny(themeID, `/\\`)
+}
+
+func localThemeFileContent(themeID, relativePath string) ([]byte, string, bool) {
+	if !validThemeID(themeID) {
+		return nil, "", false
+	}
+	cleanPath := filepath.Clean(strings.TrimPrefix(relativePath, "/"))
+	themeBasePath := filepath.Join(DataDir, ThemesDir, themeID)
+	if !isSafePath(themeBasePath, cleanPath) {
+		return nil, "", false
+	}
+	localPath := filepath.Join(themeBasePath, cleanPath)
+	if info, err := os.Stat(localPath); err == nil && !info.IsDir() {
+		content, err := os.ReadFile(localPath)
+		if err == nil {
+			return content, contentTypeForPath(localPath), true
+		}
+	}
+	return nil, "", false
+}
+
+func IsLocalThemeUsable(themeID string) bool {
+	if !validThemeID(themeID) {
+		return false
+	}
+	base := filepath.Join(DataDir, ThemesDir, themeID)
+	if _, ok := thememanifest.FindInDir(base); !ok {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(base, DistDir, IndexFile))
+	return err == nil && !info.IsDir()
+}
+
+func installEmbeddedTheme(root, themeID string) error {
+	return installEmbeddedThemeWithReplace(root, themeID, false)
+}
+
+func installEmbeddedThemeWithReplace(root, themeID string, replace bool) error {
+	if !replace && IsLocalThemeUsable(themeID) {
+		return nil
+	}
+	themesDir := filepath.Join(DataDir, ThemesDir)
+	if err := os.MkdirAll(themesDir, 0o755); err != nil {
+		return err
+	}
+	stageDir, err := os.MkdirTemp(themesDir, "."+themeID+"-stage-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stageDir)
+	if err := fs.WalkDir(PublicFS, root, func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative := strings.TrimPrefix(name, root+"/")
+		if relative == name || relative == "" {
+			return nil
+		}
+		target := filepath.Join(stageDir, filepath.FromSlash(relative))
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		content, err := fs.ReadFile(PublicFS, name)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, content, 0o644)
+	}); err != nil {
+		return err
+	}
+
+	finalDir := filepath.Join(themesDir, themeID)
+	backupDir := finalDir + ".previous"
+	_ = os.RemoveAll(backupDir)
+	if _, err := os.Stat(finalDir); err == nil {
+		if err := os.Rename(finalDir, backupDir); err != nil {
+			return err
+		}
+	}
+	if err := os.Rename(stageDir, finalDir); err != nil {
+		_ = os.Rename(backupDir, finalDir)
+		return err
+	}
+	_ = os.RemoveAll(backupDir)
+	return nil
+}
+
+func themeManifestVersion(content []byte) string {
+	var meta struct {
+		Version string `json:"version"`
+	}
+	if json.Unmarshal(content, &meta) != nil {
+		return ""
+	}
+	return strings.TrimSpace(meta.Version)
+}
+
+func parseThemeVersion(value string) ([3]int, bool) {
+	value = strings.TrimSpace(value)
+	if value != "" && (value[0] == 'v' || value[0] == 'V') {
+		value = value[1:]
+	}
+	match := themeVersionPattern.FindStringSubmatch(value)
+	if match == nil {
+		return [3]int{}, false
+	}
+	part := func(index int) int {
+		if index >= len(match) || match[index] == "" {
+			return 0
+		}
+		n := 0
+		fmt.Sscanf(match[index], "%d", &n)
+		return n
+	}
+	return [3]int{part(1), part(2), part(3)}, true
+}
+
+func themeVersionNewer(candidate, installed string) bool {
+	next, nextOK := parseThemeVersion(candidate)
+	current, currentOK := parseThemeVersion(installed)
+	if !nextOK || !currentOK {
+		return candidate != installed
+	}
+	for i := range next {
+		if next[i] != current[i] {
+			return next[i] > current[i]
+		}
+	}
+	return false
+}
+
+func localThemeVersion(themeID string) string {
+	manifestPath, ok := thememanifest.FindInDir(filepath.Join(DataDir, ThemesDir, themeID))
+	if !ok {
+		return ""
+	}
+	content, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return ""
+	}
+	return themeManifestVersion(content)
+}
+
+func embeddedThemeVersion(root string) string {
+	for _, name := range thememanifest.Names() {
+		content, err := fs.ReadFile(PublicFS, path.Join(root, name))
+		if err != nil {
+			continue
+		}
+		if version := themeManifestVersion(content); version != "" {
+			return version
+		}
+	}
+	return ""
+}
+
+func refreshBundledLiteThemeIfNewer() error {
+	if !IsLocalThemeUsable(DefaultTheme) {
+		return nil
+	}
+	embedded := embeddedThemeVersion("bundledThemes/Lite-theme")
+	installed := localThemeVersion(DefaultTheme)
+	if embedded == "" || !themeVersionNewer(embedded, installed) {
+		return nil
+	}
+	if err := installEmbeddedThemeWithReplace("bundledThemes/Lite-theme", DefaultTheme, true); err != nil {
+		return fmt.Errorf("refresh bundled Lite-Theme: %w", err)
+	}
+	return nil
+}
+
+func localThemeFallback() string {
+	if IsLocalThemeUsable(DefaultTheme) {
+		return DefaultTheme
+	}
+	entries, err := os.ReadDir(filepath.Join(DataDir, ThemesDir))
+	if err != nil {
+		return ""
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") && IsLocalThemeUsable(entry.Name()) {
+			return entry.Name()
+		}
+	}
+	return ""
+}
+
+// EnsureBundledThemes performs the one-time transition from the former
+// inseparable default frontend to managed public themes.
+func EnsureBundledThemes() error {
+	migrated, err := config.GetAs[int](themeBundleMigrationKey, 0)
+	if err != nil {
+		return err
+	}
+	currentTheme, err := config.GetAs[string](config.ThemeKey, DefaultTheme)
+	if err != nil {
+		return err
+	}
+	if currentTheme == "" {
+		currentTheme = DefaultTheme
+	}
+	if currentTheme == LegacyDefaultTheme || currentTheme == LegacyLiteTheme {
+		currentTheme = DefaultTheme
+	}
+	if migrated < 1 {
+		if err := installEmbeddedTheme("bundledThemes/Lite-theme", DefaultTheme); err != nil {
+			return fmt.Errorf("install bundled Lite-Theme: %w", err)
+		}
+		currentTheme = DefaultTheme
+	}
+	// Migrate the former built-in public themes to Lite-Theme once. A user who
+	// selected an unrelated custom theme keeps that choice.
+	if migrated >= 1 && migrated < currentThemeBundleMigration {
+		switchToLiteDefault := currentTheme == LegacyPublicTheme || currentTheme == LegacyDefaultTheme || currentTheme == LegacyLiteTheme || currentTheme == DefaultTheme
+		if switchToLiteDefault || IsLocalThemeUsable(DefaultTheme) {
+			if err := installEmbeddedThemeWithReplace("bundledThemes/Lite-theme", DefaultTheme, true); err != nil {
+				return fmt.Errorf("install bundled Lite-Theme: %w", err)
+			}
+		}
+		if currentTheme == LegacyPublicTheme || currentTheme == LegacyDefaultTheme || currentTheme == LegacyLiteTheme {
+			currentTheme = DefaultTheme
+		}
+	}
+	if err := refreshBundledLiteThemeIfNewer(); err != nil {
+		return err
+	}
+	if !IsLocalThemeUsable(currentTheme) {
+		currentTheme = localThemeFallback()
+		if currentTheme == "" {
+			if err := installEmbeddedTheme("bundledThemes/Lite-theme", DefaultTheme); err != nil {
+				return fmt.Errorf("restore bundled Lite-Theme: %w", err)
+			}
+			currentTheme = DefaultTheme
+		}
+	}
+	return config.SetMany(map[string]any{
+		config.ThemeKey:         currentTheme,
+		themeBundleMigrationKey: currentThemeBundleMigration,
+	})
+}
+
+const renderedIndexCacheMaxEntries = 64
+
+type renderedIndexCacheKey struct {
+	mode        string
+	source      string
+	language    string
+	sitename    string
+	description string
+	customHead  string
+	customBody  string
+}
+
+var (
+	renderedIndexMu    sync.RWMutex
+	renderedIndexCache = make(map[renderedIndexCacheKey][]byte, renderedIndexCacheMaxEntries)
+)
+
+func indexTemplateSourceIdentity(privateApplication bool, themeID, targetFile string) (string, bool) {
+	if privateApplication {
+		return "embedded:systemUI", true
+	}
+	if IsLocalThemeUsable(themeID) {
+		localPath := filepath.Join(DataDir, ThemesDir, themeID, filepath.FromSlash(targetFile))
+		info, err := os.Stat(localPath)
+		if err != nil || info.IsDir() {
+			return "", false
+		}
+		absPath, err := filepath.Abs(localPath)
+		if err != nil {
+			absPath = localPath
+		}
+		return fmt.Sprintf("local:%s:%d:%d", absPath, info.ModTime().UnixNano(), info.Size()), true
+	}
+	return "embedded:bundledThemes/Lite-theme", true
+}
+
+// Static 注册静态资源和 SPA 路由处理
+func Static(r *gin.RouterGroup, noRoute func(handlers ...gin.HandlerFunc)) {
+	getConfig := func() map[string]any {
+		cfg, _ := config.GetMany(map[string]any{
+			config.DescriptionKey: config.DefaultSiteDescription,
+			config.CustomHeadKey:  "",
+			config.CustomBodyKey:  "",
+			config.SitenameKey:    config.DefaultSitename,
+			config.ThemeKey:       DefaultTheme,
+		})
+		return cfg
+	}
+
+	getPublicFileContent := func(themeID, relativePath string) ([]byte, string, bool) {
+		if IsLocalThemeUsable(themeID) {
+			return localThemeFileContent(themeID, relativePath)
+		}
+		return embeddedFileContent("bundledThemes/Lite-theme", relativePath)
+	}
+
+	serveWebAppManifest := func(c *gin.Context) {
+		cfg := getConfig()
+		setNoStoreHeaders(c)
+		c.JSON(http.StatusOK, renderWebAppManifest(
+			cfg[config.SitenameKey].(string),
+			cfg[config.DescriptionKey].(string),
+		))
+	}
+
+	// 核心逻辑：渲染 Index.html
+	serveIndex := func(c *gin.Context) {
+		reqPath := c.Request.URL.Path
+		privateApplication := isPrivateApplicationPath(reqPath)
+		// index.html contains live site metadata and must never be served stale.
+		if privateApplication {
+			applyPrivilegedPageHeaders(c)
+		} else {
+			setNoStoreHeaders(c)
+		}
+		cfg := getConfig()
+
+		themeID, _ := cfg[config.ThemeKey].(string)
+		sitename, _ := cfg[config.SitenameKey].(string)
+		description, _ := cfg[config.DescriptionKey].(string)
+		customHead, _ := cfg[config.CustomHeadKey].(string)
+		customBody, _ := cfg[config.CustomBodyKey].(string)
+
+		mode := "public"
+		if privateApplication {
+			if isAdminApplicationPath(reqPath) {
+				mode = "admin"
+			} else {
+				mode = "private"
+			}
+		}
+
+		normalizedLang := ""
+		if rawLang, err := c.Cookie(LanguageCookieName); err == nil {
+			normalizedLang = normalizeHTMLLanguage(rawLang)
+		}
+
+		targetFile := path.Join(DistDir, IndexFile)
+		sourceKey, sourceOK := indexTemplateSourceIdentity(privateApplication, themeID, targetFile)
+		var cacheKey renderedIndexCacheKey
+		if sourceOK {
+			cacheKey = renderedIndexCacheKey{
+				mode:        mode,
+				source:      sourceKey,
+				language:    normalizedLang,
+				sitename:    sitename,
+				description: description,
+			}
+			if !privateApplication {
+				cacheKey.customHead = customHead
+				cacheKey.customBody = customBody
+			}
+			renderedIndexMu.RLock()
+			cachedBytes, hit := renderedIndexCache[cacheKey]
+			renderedIndexMu.RUnlock()
+			if hit {
+				c.Data(http.StatusOK, "text/html; charset=utf-8", cachedBytes)
+				return
+			}
+		}
+
+		var content []byte
+		var exists bool
+		if privateApplication {
+			content, _, exists = embeddedFileContent("systemUI", targetFile)
+		} else {
+			content, _, exists = getPublicFileContent(themeID, targetFile)
+		}
+
+		if !exists {
+			c.String(http.StatusNotFound, "Application index is unavailable.")
+			return
+		}
+
+		htmlStr := string(content)
+		if normalizedLang != "" {
+			htmlStr = replaceHTMLLanguage(htmlStr, normalizedLang)
+		}
+		if privateApplication {
+			// React owns route-specific titles after the system UI starts. Keeping
+			// the public-theme title observer out of private applications prevents
+			// it from fighting the admin title on every DOM mutation.
+			title := sitename
+			if mode == "admin" {
+				title = adminApplicationTitle
+			}
+			htmlStr = renderSystemApplicationIdentity(htmlStr, title)
+		} else {
+			htmlStr = renderApplicationIdentity(htmlStr, sitename)
+		}
+
+		var finalBytes []byte
+		// Custom Head/Body content belongs to the public site only. Keeping the
+		// private applications on the built-in document prevents public CSS and
+		// scripts from changing the admin or terminal interfaces.
+		if privateApplication {
+			finalBytes = []byte(htmlStr)
+		} else {
+			htmlStr = injectCustomHTML(htmlStr, customHead, customBody)
+			rendered := injectSiteDescription(htmlStr, description)
+			finalBytes = []byte(injectThemeChangeReload(rendered))
+		}
+
+		if sourceOK {
+			renderedIndexMu.Lock()
+			if len(renderedIndexCache) >= renderedIndexCacheMaxEntries {
+				clear(renderedIndexCache)
+			}
+			renderedIndexCache[cacheKey] = finalBytes
+			renderedIndexMu.Unlock()
+		}
+
+		c.Data(http.StatusOK, "text/html; charset=utf-8", finalBytes)
+	}
+
+	// ================= 路由定义 =================
+
+	r.GET("/favicon.ico", func(c *gin.Context) {
+		setNoStoreHeaders(c)
+
+		localFavicon := filepath.Join(DataDir, FaviconFile)
+		if _, err := os.Stat(localFavicon); err == nil {
+			c.Header("Content-Type", contentTypeForPath(localFavicon))
+			c.File(localFavicon)
+			return
+		}
+
+		cfg := getConfig()
+		themeFaviconPath := path.Join(DistDir, FaviconFile)
+		content, mimeType, exists := getPublicFileContent(cfg[config.ThemeKey].(string), themeFaviconPath)
+		if exists {
+			c.Data(http.StatusOK, mimeType, content)
+			return
+		}
+
+		content, mimeType, exists = embeddedFileContent("systemUI", themeFaviconPath)
+		if exists {
+			c.Data(http.StatusOK, mimeType, content)
+			return
+		}
+
+		c.Status(http.StatusNotFound)
+	})
+
+	r.GET("/manifest.json", serveWebAppManifest)
+
+	// System application assets are immutable and independent from public themes.
+	r.GET("/system-assets/*path", func(c *gin.Context) {
+		if c.Param("path") == "/manifest.json" {
+			serveWebAppManifest(c)
+			return
+		}
+		filePath := path.Join(DistDir, c.Param("path"))
+		content, mimeType, exists := embeddedFileContent("systemUI", filePath)
+		if !exists {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		setStaticCacheHeaders(c, c.Request.URL.Path)
+		applySystemScriptWorkerPolicy(c, c.Request.URL.Path, mimeType)
+		c.Data(http.StatusOK, mimeType, content)
+	})
+
+	// 2. Static theme files are served only from installed, manageable themes.
+	// 允许访问 /themes/MyTheme/Lite-theme.json 和 /themes/MyTheme/dist/assets/a.js
+	r.GET("/themes/:id/*path", func(c *gin.Context) {
+		themeID := c.Param("id")
+		// c.Param("path") 包含了开头的 /，getFileContent 会处理
+		filePath := c.Param("path")
+		serveThemeFile(c, themeID, filePath)
+	})
+
+	// 3. SPA 路由 (noRoute)
+	noRoute(func(c *gin.Context) {
+		if c.Request.Method != http.MethodGet {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		//
+		func() {
+			tempKey := c.Query("temp_key")
+			if tempKey == "" {
+				return
+			}
+
+			tempKeyExpireTime, err := config.GetAs[int64]("tempory_share_token_expire_at", 0)
+			if err != nil {
+				return
+			}
+			allowTempKey, err := config.GetAs[string]("tempory_share_token", "")
+			if err != nil {
+				return
+			}
+
+			if allowTempKey == "" || tempKey != allowTempKey {
+				return
+			}
+			now := time.Now().Unix()
+			if tempKeyExpireTime < now {
+				return
+			}
+			expireSeconds := int(tempKeyExpireTime - now)
+			if expireSeconds > 0 {
+				c.SetCookie(
+					"temp_key",    // key
+					tempKey,       // value
+					expireSeconds, // maxAge（秒）
+					"/",           // path
+					"",            // domain
+					false,         // secure
+					false,         // httpOnly
+				)
+			}
+		}()
+		reqPath := c.Request.URL.Path
+		if isLegacyAdminDashboardPath(reqPath) || isVendoredLegacyAdminAppDocument(reqPath) {
+			redirectLegacyAdminDashboard(c)
+			return
+		}
+		cfg := getConfig()
+		if isRootServiceWorkerPath(reqPath) {
+			setNoStoreHeaders(c)
+			c.Status(http.StatusNotFound)
+			return
+		}
+		// index.html is a live document, not a static asset. It must pass
+		// through serveIndex so site metadata and custom Head/Body content
+		// are applied even when a browser requests the file explicitly.
+		if reqPath == "/index.html" {
+			serveIndex(c)
+			return
+		}
+
+		distPath := path.Join(DistDir, reqPath)
+
+		var content []byte
+		var mimeType string
+		var exists bool
+		if !isPrivateApplicationPath(reqPath) {
+			content, mimeType, exists = getPublicFileContent(cfg[config.ThemeKey].(string), distPath)
+		}
+		if exists {
+			applyThemeScriptWorkerPolicy(c, reqPath, mimeType)
+			setStaticCacheHeaders(c, reqPath)
+			c.Data(http.StatusOK, mimeType, content)
+			return
+		}
+
+		if ext := filepath.Ext(reqPath); ext != "" && ext != ".html" {
+			c.Status(http.StatusNotFound)
+			return
+		}
+
+		// 路由 (如 /dashboard, /settings) -> 返回 index.html
+		serveIndex(c)
+	})
+}
+
+func setNoStoreHeaders(c *gin.Context) {
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+}
+
+func applyPrivilegedPageHeaders(c *gin.Context) {
+	c.Header("Cache-Control", "no-store, private")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+	c.Header("Content-Security-Policy", "frame-ancestors 'none'")
+	c.Header("X-Frame-Options", "DENY")
+}
+
+func isPrivateApplicationPath(requestPath string) bool {
+	for _, prefix := range []string{"/admin-app", "/admin", "/terminal", "/install", "/manage"} {
+		if requestPath == prefix || strings.HasPrefix(requestPath, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func isAdminApplicationPath(requestPath string) bool {
+	return requestPath == "/admin" || strings.HasPrefix(requestPath, "/admin/")
+}
+
+func isLegacyAdminDashboardPath(requestPath string) bool {
+	cleaned := path.Clean("/" + strings.TrimPrefix(requestPath, "/"))
+	return cleaned == "/admin/dashboard"
+}
+
+func isVendoredLegacyAdminAppPath(requestPath string) bool {
+	cleaned := path.Clean("/" + strings.TrimPrefix(requestPath, "/"))
+	return cleaned == "/admin-app" || strings.HasPrefix(cleaned, "/admin-app/")
+}
+
+func isVendoredLegacyAdminAppDocument(requestPath string) bool {
+	if !isVendoredLegacyAdminAppPath(requestPath) {
+		return false
+	}
+	ext := strings.ToLower(filepath.Ext(requestPath))
+	return ext == "" || ext == ".html" || ext == ".htm"
+}
+
+func redirectLegacyAdminDashboard(c *gin.Context) {
+	target := "/admin"
+	if raw := c.Request.URL.RawQuery; raw != "" {
+		target += "?" + raw
+	}
+	applyPrivilegedPageHeaders(c)
+	c.Header("Clear-Site-Data", `"cache"`)
+	c.Redirect(http.StatusFound, target)
+}
+
+const themeServiceWorkerAllowed = "/__lite_theme_sw/"
+
+func isRootServiceWorkerPath(requestPath string) bool {
+	switch strings.ToLower(path.Clean("/" + strings.TrimPrefix(requestPath, "/"))) {
+	case "/sw.js", "/service-worker.js", "/registersw.js":
+		return true
+	default:
+		return false
+	}
+}
+
+func isJavaScriptPath(requestPath, mimeType string) bool {
+	if strings.Contains(strings.ToLower(mimeType), "javascript") {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(requestPath)) {
+	case ".js", ".mjs", ".cjs":
+		return true
+	default:
+		return false
+	}
+}
+
+func applyThemeScriptWorkerPolicy(c *gin.Context, requestPath, mimeType string) {
+	if isJavaScriptPath(requestPath, mimeType) {
+		c.Header("Service-Worker-Allowed", themeServiceWorkerAllowed)
+	}
+}
+
+func applySystemScriptWorkerPolicy(c *gin.Context, requestPath, mimeType string) {
+	if isJavaScriptPath(requestPath, mimeType) {
+		c.Header("Service-Worker-Allowed", "/system-assets/")
+	}
+}
+
+func setStaticCacheHeaders(c *gin.Context, requestPath string) {
+	name := strings.ToLower(path.Base(requestPath))
+	switch name {
+	case "index.html", "sw.js", "service-worker.js", "registersw.js", "manifest.json", "manifest.webmanifest":
+		setNoStoreHeaders(c)
+		return
+	}
+	if (strings.HasPrefix(requestPath, "/assets/") || strings.HasPrefix(requestPath, "/system-assets/assets/")) &&
+		strings.Contains(strings.TrimSuffix(name, filepath.Ext(name)), "-") {
+		c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	}
+}

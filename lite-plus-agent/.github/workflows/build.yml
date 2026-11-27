@@ -1,0 +1,61 @@
+name: Build on Main
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        exclude:
+          - goos: windows
+            goarch: arm
+          - goos: darwin
+            goarch: 386
+          - goos: darwin
+            goarch: arm
+        include:
+          - goos: linux
+            goarch: loong64
+        goos: [windows, linux, darwin, freebsd]
+        goarch: [amd64, arm64, 386, arm]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+          check-latest: false
+
+      - name: Confirm Go 1.27.3
+        run: |
+          set -euo pipefail
+          go version
+          test "$(go env GOVERSION)" = "go1.27.3"
+          echo "GOTOOLCHAIN=local" >> "$GITHUB_ENV"
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION="0.0.0+${GITHUB_SHA::7}"
+          BINARY_NAME=Lite-Plus-agent-${{ matrix.goos }}-${{ matrix.goarch }}
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            BINARY_NAME=${BINARY_NAME}.exe
+          fi
+          go build -tags with_quic,with_utls -trimpath -ldflags="-s -w -X github.com/nuomiiiii/lite-agent/update.CurrentVersion=${VERSION} -X github.com/nuomiiiii/lite-agent/update.Repo=${{ github.repository }}" -o $BINARY_NAME
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lite-Plus-agent-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: Lite-Plus-agent-${{ matrix.goos }}-${{ matrix.goarch }}*

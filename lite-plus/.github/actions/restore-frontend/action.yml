@@ -1,0 +1,28 @@
+name: Restore system UI
+description: Download and unpack a previously built system UI and bundled public theme artifact.
+
+inputs:
+  artifact-name:
+    description: System UI artifact name.
+    default: lite-frontend
+
+runs:
+  using: composite
+  steps:
+    - name: Download frontend artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ runner.temp }}/frontend-artifact
+
+    - name: Extract frontend artifact
+      shell: bash
+      run: |
+        set -euxo pipefail
+        rm -rf web/public/systemUI web/public/bundledThemes/Lite-theme web/public/rescueTheme
+        mkdir -p web/public
+        tar -xzf "$RUNNER_TEMP/frontend-artifact/${{ inputs.artifact-name }}.tar.gz" -C web/public
+        grep -F '/system-assets/' web/public/systemUI/dist/index.html
+        test -f web/public/bundledThemes/Lite-theme/Lite-theme.json
+        test -f web/public/bundledThemes/Lite-theme/dist/index.html
+        test ! -e web/public/rescueTheme

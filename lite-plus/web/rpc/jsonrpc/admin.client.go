@@ -1,0 +1,266 @@
+package jsonrpc
+
+import (
+	"context"
+	"strings"
+	"time"
+
+	"github.com/nuomiiiii/lite/database/auditlog"
+	"github.com/nuomiiiii/lite/database/clients"
+	"github.com/nuomiiiii/lite/database/metricstore"
+	d_notification "github.com/nuomiiiii/lite/database/notification"
+	"github.com/nuomiiiii/lite/database/records"
+	"github.com/nuomiiiii/lite/pkg/rpc"
+	v2 "github.com/nuomiiiii/lite/protocol/v2"
+	logger "github.com/nuomiiiii/lite/utils/log"
+	"github.com/nuomiiiii/lite/utils/notifier"
+	agent_runtime "github.com/nuomiiiii/lite/web/agent"
+	remote_api "github.com/nuomiiiii/lite/web/api/remote"
+	"github.com/nuomiiiii/lite/web/firewall"
+)
+
+// admin.client.go
+// client 资源的 RPC2 方法（admin 命名空间）。承载原 web/api/admin/client.go 的业务逻辑，
+// 包含审计日志与运行时副作用。传统 REST handler 经 CallFromGin 转调这些方法。
+
+func init() {
+	RegisterWithGroupAndMeta("addClient", rpc.RoleAdmin, adminAddClient, &rpc.MethodMeta{
+		Name:    "admin:addClient",
+		Summary: "Create a new client",
+		Params: []rpc.ParamMeta{
+			{Name: "name", Type: "string", Required: false, Description: "Optional client name"},
+		},
+		Returns: "{ uuid: string, token: string }",
+	})
+	RegisterWithGroupAndMeta("editClient", rpc.RoleAdmin, adminEditClient, &rpc.MethodMeta{
+		Name:    "admin:editClient",
+		Summary: "Edit a client (partial update)",
+		Params: []rpc.ParamMeta{
+			{Name: "uuid", Type: "string", Required: true, Description: "Client UUID"},
+		},
+		Returns: "null",
+	})
+	RegisterWithGroupAndMeta("removeClient", rpc.RoleAdmin, adminRemoveClient, &rpc.MethodMeta{
+		Name:    "admin:removeClient",
+		Summary: "Delete a client",
+		Params: []rpc.ParamMeta{
+			{Name: "uuid", Type: "string", Required: true, Description: "Client UUID"},
+		},
+		Returns: "null",
+	})
+	RegisterWithGroupAndMeta("getClient", rpc.RoleAdmin, adminGetClient, &rpc.MethodMeta{
+		Name:    "admin:getClient",
+		Summary: "Get a client by UUID",
+		Params: []rpc.ParamMeta{
+			{Name: "uuid", Type: "string", Required: true, Description: "Client UUID"},
+		},
+		Returns: "Client",
+	})
+	RegisterWithGroupAndMeta("listClients", rpc.RoleAdmin, adminListClients, &rpc.MethodMeta{
+		Name:    "admin:listClients",
+		Summary: "List all clients (basic info)",
+		Returns: "Client[]",
+	})
+	RegisterWithGroupAndMeta("getClientToken", rpc.RoleAdmin, adminGetClientToken, &rpc.MethodMeta{
+		Name:    "admin:getClientToken",
+		Summary: "Get a client's token by UUID",
+		Params: []rpc.ParamMeta{
+			{Name: "uuid", Type: "string", Required: true, Description: "Client UUID"},
+		},
+		Returns: "{ token: string }",
+	})
+	rpc.MarkSensitive("admin:getClientToken")
+	RegisterWithGroupAndMeta("rotateClientToken", rpc.RoleAdmin, adminRotateClientToken, &rpc.MethodMeta{
+		Name:    "admin:rotateClientToken",
+		Summary: "Rotate a client token with a transition period",
+		Params: []rpc.ParamMeta{
+			{Name: "uuid", Type: "string", Required: true, Description: "Client UUID"},
+		},
+		Returns: "{ token: string, previous_token_expires_at: string }",
+	})
+	rpc.MarkSensitive("admin:rotateClientToken")
+	RegisterWithGroupAndMeta("clearRecords", rpc.RoleAdmin, adminClearRecords, &rpc.MethodMeta{
+		Name:    "admin:clearRecords",
+		Summary: "Delete all load records",
+		Returns: "null",
+	})
+}
+
+var (
+	lookupAdminClient = clients.GetClientByUUID
+	listAdminClients  = clients.GetAllClientBasicInfo
+)
+
+// auditActor 从上下文提取审计用的 actor UUID 与来源 IP。
+func auditActor(ctx context.Context) (uuid, ip string) {
+	if meta := rpc.MetaFromContext(ctx); meta != nil {
+		uuid = meta.UserUUID
+		ip = meta.RemoteIP
+	}
+	return uuid, ip
+}
+
+func adminAddClient(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.JsonRpcError) {
+	var params struct {
+		Name string `json:"name"`
+	}
+	req.BindParams(&params)
+
+	var (
+		uuid, token string
+		err         error
+	)
+	if params.Name == "" {
+		uuid, token, err = clients.CreateClient()
+	} else {
+		uuid, token, err = clients.CreateClientWithName(params.Name)
+	}
+	if err != nil {
+		return nil, rpc.MakeError(rpc.InternalError, err.Error(), nil)
+	}
+	if err := d_notification.AddDefaultOnClientUUID(uuid); err != nil {
+		logger.ErrorArgs("clients", "Failed to apply default-on load notifications to new client:", err)
+	}
+	name := strings.TrimSpace(params.Name)
+	if name == "" {
+		name = uuid
+	}
+	actor, ip := auditActor(ctx)
+	auditlog.Event(ip, actor, "info", "audit.client_create", map[string]string{"name": name})
+	return map[string]any{"uuid": uuid, "token": token}, nil
+}
+
+func adminEditClient(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.JsonRpcError) {
+	var update map[string]interface{}
+	if err := req.BindParams(&update); err != nil || update == nil {
+		return nil, rpc.MakeError(rpc.InvalidParams, "Invalid params", nil)
+	}
+	uuid, _ := update["uuid"].(string)
+	if uuid == "" {
+		return nil, rpc.MakeError(rpc.InvalidParams, "Invalid or missing UUID", nil)
+	}
+	dispatch, err := clients.SaveClientForDispatch(update)
+	if err != nil {
+		return nil, rpc.MakeError(rpc.InternalError, err.Error(), nil)
+	}
+	_, dayChanged := update["traffic_reset_day"]
+	_, timeChanged := update["traffic_reset_time"]
+	_, tzChanged := update["traffic_reset_timezone"]
+	if dayChanged || timeChanged || tzChanged {
+		if dispatch.RuntimeChanged {
+			_, sent, _ := agent_runtime.DispatchV2Config(uuid, dispatch.Config)
+			if sent {
+				if _, markErr := clients.MarkDeploymentConfigSent(uuid, dispatch.Delivery.Revision); markErr != nil {
+					return nil, rpc.MakeError(rpc.InternalError, "Failed to update deployment delivery state: "+markErr.Error(), nil)
+				}
+			}
+		} else if !dispatch.HasProfile {
+			if clientInfo, err := clients.GetClientByUUID(uuid); err == nil && clientInfo.TrafficResetDay != nil {
+				agent_runtime.DispatchV2Event(uuid, v2.MethodAgentConfig, clients.AgentMonthRotateConfig(clientInfo))
+			}
+		}
+	}
+	actor, ip := auditActor(ctx)
+	auditlog.Event(ip, actor, "info", "audit.client_edit", map[string]string{"name": clients.DisplayName(uuid)})
+	return nil, nil
+}
+
+func adminRemoveClient(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.JsonRpcError) {
+	var params struct {
+		UUID string `json:"uuid"`
+	}
+	req.BindParams(&params)
+	if params.UUID == "" {
+		return nil, rpc.MakeError(rpc.InvalidParams, "Invalid or missing UUID", nil)
+	}
+	clientName := clients.DisplayName(params.UUID)
+	metricstore.BlockEntityWrites(params.UUID)
+	firewall.ClearNode(params.UUID)
+	remote_api.CloseClientSessions(params.UUID)
+	agent_runtime.DeleteConnectedClients(params.UUID)
+	notifier.ForgetClient(params.UUID)
+	if err := clients.DeleteClient(params.UUID); err != nil {
+		return nil, rpc.MakeError(rpc.InternalError, "Failed to delete client: "+err.Error(), nil)
+	}
+	remote_api.CloseClientSessions(params.UUID)
+	agent_runtime.DeleteConnectedClients(params.UUID)
+	if err := d_notification.ReloadLoadNotificationSchedule(); err != nil {
+		return nil, rpc.MakeError(rpc.InternalError, "Client deleted but failed to reload load notification schedule: "+err.Error(), nil)
+	}
+	notifier.ForgetClient(params.UUID)
+	actor, ip := auditActor(ctx)
+	auditlog.Event(ip, actor, "warn", "audit.client_delete", map[string]string{"name": clientName})
+	return nil, nil
+}
+
+func adminGetClient(_ context.Context, req *rpc.JsonRpcRequest) (any, *rpc.JsonRpcError) {
+	var params struct {
+		UUID string `json:"uuid"`
+	}
+	req.BindParams(&params)
+	if params.UUID == "" {
+		return nil, rpc.MakeError(rpc.InvalidParams, "Invalid or missing UUID", nil)
+	}
+	result, err := lookupAdminClient(params.UUID)
+	if err != nil {
+		return nil, rpc.MakeError(rpc.InternalError, err.Error(), nil)
+	}
+	return clientWithoutToken(result), nil
+}
+
+func adminListClients(_ context.Context, _ *rpc.JsonRpcRequest) (any, *rpc.JsonRpcError) {
+	cls, err := listAdminClients()
+	if err != nil {
+		return nil, rpc.MakeError(rpc.InternalError, err.Error(), nil)
+	}
+	return clientsWithoutTokens(cls), nil
+}
+
+func adminGetClientToken(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.JsonRpcError) {
+	if err := denyAPIKey(ctx); err != nil {
+		return nil, err
+	}
+	var params struct {
+		UUID string `json:"uuid"`
+	}
+	req.BindParams(&params)
+	if params.UUID == "" {
+		return nil, rpc.MakeError(rpc.InvalidParams, "Invalid or missing UUID", nil)
+	}
+	token, err := clients.GetClientTokenByUUID(params.UUID)
+	if err != nil {
+		return nil, rpc.MakeError(rpc.InternalError, err.Error(), nil)
+	}
+	actor, ip := auditActor(ctx)
+	auditlog.Event(ip, actor, "info", "audit.client_token_view", map[string]string{"name": clients.DisplayName(params.UUID)})
+	return map[string]any{"token": token}, nil
+}
+
+func adminRotateClientToken(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.JsonRpcError) {
+	if err := denyAPIKey(ctx); err != nil {
+		return nil, err
+	}
+	var params struct {
+		UUID string `json:"uuid"`
+	}
+	req.BindParams(&params)
+	if params.UUID == "" {
+		return nil, rpc.MakeError(rpc.InvalidParams, "Invalid or missing UUID", nil)
+	}
+	token, expiresAt, err := clients.RotateClientToken(params.UUID, 24*time.Hour)
+	if err != nil {
+		return nil, rpc.MakeError(rpc.InternalError, err.Error(), nil)
+	}
+	actor, ip := auditActor(ctx)
+	auditlog.Event(ip, actor, "warn", "audit.client_token_rotate", map[string]string{"name": clients.DisplayName(params.UUID)})
+	return map[string]any{"token": token, "previous_token_expires_at": expiresAt}, nil
+}
+
+func adminClearRecords(ctx context.Context, _ *rpc.JsonRpcRequest) (any, *rpc.JsonRpcError) {
+	if err := records.DeleteAll(); err != nil {
+		return nil, rpc.MakeError(rpc.InternalError, "Failed to delete Record"+err.Error(), nil)
+	}
+	actor, ip := auditActor(ctx)
+	auditlog.Event(ip, actor, "warn", "audit.records_clear", nil)
+	return nil, nil
+}

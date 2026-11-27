@@ -1,0 +1,76 @@
+package admin
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/nuomiiiii/lite/database/accounts"
+	"github.com/nuomiiiii/lite/utils"
+	"github.com/nuomiiiii/lite/web/api"
+	"github.com/nuomiiiii/lite/web/passkey"
+)
+
+// oauth.go
+// 外部账号绑定/解绑：绑定走 302 重定向，保留为 REST handler（不走 RPC 桥）。
+// OIDC provider 配置的 get/set 已迁移为 RPC2 方法（见 web/rpc/jsonrpc/admin.provider.go）。
+
+func BindingExternalAccount(c *gin.Context) {
+	if strings.EqualFold(strings.TrimSpace(c.GetHeader("Sec-Fetch-Site")), "cross-site") {
+		api.RespondError(c, http.StatusForbidden, "Cross-site navigation is not allowed")
+		return
+	}
+	session, _ := c.Cookie("session_token")
+	user, err := accounts.GetUserBySession(session)
+	if err != nil {
+		api.RespondError(c, 500, "No user found: "+err.Error())
+		return
+	}
+	secure := utils.GetScheme(c) == "https"
+	c.SetCookie("binding_external_account", user.UUID, 3600, "/", "", secure, true)
+	c.Redirect(302, "/api/oauth")
+}
+
+func ConfirmPasskeyExternalAccount(c *gin.Context) {
+	if strings.EqualFold(strings.TrimSpace(c.GetHeader("Sec-Fetch-Site")), "cross-site") {
+		api.RespondError(c, http.StatusForbidden, "Cross-site navigation is not allowed")
+		return
+	}
+	session, _ := c.Cookie("session_token")
+	user, err := accounts.GetUserBySession(session)
+	if err != nil {
+		api.RespondError(c, 500, "No user found: "+err.Error())
+		return
+	}
+	if user.SSOID == "" {
+		api.RespondError(c, 400, "No bound SSO account")
+		return
+	}
+	secure := utils.GetScheme(c) == "https"
+	c.SetCookie("passkey_confirm_account", user.UUID, 3600, "/", "", secure, true)
+	c.Redirect(302, "/api/oauth")
+}
+
+func UnbindExternalAccount(c *gin.Context) {
+	session, _ := c.Cookie("session_token")
+	user, err := accounts.GetUserBySession(session)
+	if err != nil {
+		api.RespondError(c, 500, "No user found: "+err.Error())
+		return
+	}
+	avail, err := passkey.CurrentSignInAvailability(user.UUID)
+	if err != nil {
+		api.RespondError(c, http.StatusInternalServerError, "Failed to read sign-in methods: "+err.Error())
+		return
+	}
+	avail.SSOBound = false
+	if avail.Remaining() == 0 {
+		api.RespondError(c, http.StatusConflict, passkey.ErrLastLoginMethod.Error())
+		return
+	}
+	if err := accounts.UnbindExternalAccount(user.UUID); err != nil {
+		api.RespondError(c, 500, "Failed to unbind external account: "+err.Error())
+		return
+	}
+	api.RespondSuccess(c, nil)
+}

@@ -1,0 +1,1393 @@
+package clients
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
+	"strings"
+	"sync"
+	"time"
+
+	logger "github.com/nuomiiiii/lite/utils/log"
+
+	"github.com/nuomiiiii/lite/database/billing"
+	"github.com/nuomiiiii/lite/database/dbcore"
+	"github.com/nuomiiiii/lite/database/metricstore"
+	"github.com/nuomiiiii/lite/database/models"
+	"github.com/nuomiiiii/lite/database/notificationdefaults"
+	"github.com/nuomiiiii/lite/database/tasks"
+	"github.com/nuomiiiii/lite/database/trafficledger"
+	nodemgtstore "github.com/nuomiiiii/lite/nodemgt/store"
+	"github.com/nuomiiiii/lite/pkg/config"
+	"github.com/nuomiiiii/lite/pkg/expiry"
+	"github.com/nuomiiiii/lite/pkg/trafficreset"
+	v2 "github.com/nuomiiiii/lite/protocol/v2"
+	"github.com/nuomiiiii/lite/utils"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
+
+var ErrExpiryAlreadyChanged = errors.New("expired_at has already changed")
+
+func DeleteClient(clientUuid string) error {
+	metricstore.BlockEntityWrites(clientUuid)
+	deleted := false
+	defer func() {
+		if !deleted {
+			metricstore.UnblockEntityWrites(clientUuid)
+		}
+	}()
+
+	db := dbcore.GetDBInstance()
+	pingTasksChanged, err := deleteClient(db, clientUuid)
+	if err != nil {
+		return err
+	}
+	deleted = true
+	if err := metricstore.ProcessPendingCleanupJobs(context.Background(), db); err != nil {
+		logger.Errorf("metricstore", "Client %s was deleted; metric cleanup remains queued: %v", clientUuid, err)
+	}
+	trafficledger.InvalidateCalibratedCycleCache()
+	invalidateClientListCache()
+	if pingTasksChanged {
+		if err := tasks.ReloadPingSchedule(); err != nil {
+			return err
+		}
+	}
+	return tasks.ReloadReturnRouteSchedule()
+}
+
+func deleteClient(db *gorm.DB, clientUuid string) (bool, error) {
+	pingTasksChanged := false
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var clientCount int64
+		if err := tx.Model(&models.Client{}).Where("uuid = ?", clientUuid).Count(&clientCount).Error; err != nil {
+			return fmt.Errorf("find client: %w", err)
+		}
+		if clientCount == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		if err := metricstore.EnqueueEntityCleanup(tx, clientUuid); err != nil {
+			return fmt.Errorf("queue client metric cleanup: %w", err)
+		}
+		if err := nodemgtstore.New(tx).DeleteNode(clientUuid); err != nil {
+			return fmt.Errorf("delete nodemgt node: %w", err)
+		}
+		if tx.Migrator().HasTable("return_route_tasks") {
+			var routeTaskIDs []uint
+			if err := tx.Model(&models.ReturnRouteTask{}).Where("client = ?", clientUuid).Pluck("id", &routeTaskIDs).Error; err != nil {
+				return fmt.Errorf("find client return route tasks: %w", err)
+			}
+			if len(routeTaskIDs) > 0 {
+				if err := tx.Where("task_id IN ?", routeTaskIDs).Delete(&models.ReturnRouteEvent{}).Error; err != nil {
+					return fmt.Errorf("delete client return route events: %w", err)
+				}
+				if err := tx.Where("task_id IN ?", routeTaskIDs).Delete(&models.ReturnRouteStatus{}).Error; err != nil {
+					return fmt.Errorf("delete client return route states: %w", err)
+				}
+				if err := tx.Where("task_id IN ?", routeTaskIDs).Delete(&models.ReturnRouteProbeSample{}).Error; err != nil {
+					return fmt.Errorf("delete client return route samples: %w", err)
+				}
+				if err := tx.Where("id IN ?", routeTaskIDs).Delete(&models.ReturnRouteTask{}).Error; err != nil {
+					return fmt.Errorf("delete client return route tasks: %w", err)
+				}
+			}
+			if err := tx.Where("client = ?", clientUuid).Delete(&models.ReturnRouteReachabilityStatus{}).Error; err != nil {
+				return fmt.Errorf("delete client return route reachability: %w", err)
+			}
+		}
+
+		for label, model := range map[string]any{
+			"load notification states":        &models.LoadNotificationState{},
+			"offline notifications":           &models.OfflineNotification{},
+			"traffic report notifications":    &models.TrafficReportNotification{},
+			"traffic daily ledger":            &models.TrafficDailyLedger{},
+			"traffic cycle first days":        &models.TrafficCycleFirstDay{},
+			"traffic calibration adjustments": &models.TrafficCalibrationAdjustment{},
+			"ping loss notifications":         &models.PingLossNotification{},
+			"task results":                    &models.TaskResult{},
+			"deployment profile":              &models.ClientDeploymentProfile{},
+			"firewall intent":                 &models.ClientFirewallIntent{},
+			"protection config":               &models.ClientProtectionConfig{},
+			"protection group member":         &models.ProtectionGroupMember{},
+			"protection group leave":          &models.ProtectionGroupLeave{},
+			"protection upgrade ops":          &models.ProtectionUpgradeOp{},
+		} {
+			if !tx.Migrator().HasTable(model) {
+				continue
+			}
+			if err := tx.Where("client = ?", clientUuid).Delete(model).Error; err != nil {
+				return fmt.Errorf("delete client %s: %w", label, err)
+			}
+		}
+
+		if tx.Migrator().HasTable(&models.ProtectionBan{}) {
+			if err := tx.Where("source_node = ?", clientUuid).Delete(&models.ProtectionBan{}).Error; err != nil {
+				return fmt.Errorf("delete client protection bans: %w", err)
+			}
+		}
+
+		if err := deleteLegacyClientRows(tx, clientUuid); err != nil {
+			return err
+		}
+		if err := billing.CloseOpenPriceVersions(tx, clientUuid, time.Now()); err != nil {
+			return fmt.Errorf("close client billing versions: %w", err)
+		}
+
+		var pingTasks []models.PingTask
+		if err := tx.Select("id", "clients").Find(&pingTasks).Error; err != nil {
+			return fmt.Errorf("find client ping tasks: %w", err)
+		}
+		for _, task := range pingTasks {
+			clients := make(models.StringArray, 0, len(task.Clients))
+			changed := false
+			for _, assignedClient := range task.Clients {
+				if assignedClient == clientUuid {
+					changed = true
+					continue
+				}
+				clients = append(clients, assignedClient)
+			}
+			if !changed {
+				continue
+			}
+			if err := tx.Model(&models.PingTask{}).Where("id = ?", task.Id).Update("clients", clients).Error; err != nil {
+				return fmt.Errorf("remove client from ping task %d: %w", task.Id, err)
+			}
+			pingTasksChanged = true
+		}
+
+		var loadNotifications []models.LoadNotification
+		if err := tx.Select("id", "clients").Find(&loadNotifications).Error; err != nil {
+			return fmt.Errorf("find client load notifications: %w", err)
+		}
+		for _, notification := range loadNotifications {
+			remaining, changed := removeClientUUID(notification.Clients, clientUuid)
+			if !changed {
+				continue
+			}
+			if len(remaining) == 0 {
+				if err := tx.Delete(&models.LoadNotification{}, notification.Id).Error; err != nil {
+					return fmt.Errorf("delete empty load notification %d: %w", notification.Id, err)
+				}
+				continue
+			}
+			if err := tx.Model(&models.LoadNotification{}).Where("id = ?", notification.Id).Update("clients", remaining).Error; err != nil {
+				return fmt.Errorf("remove client from load notification %d: %w", notification.Id, err)
+			}
+		}
+
+		var commandTasks []models.Task
+		if err := tx.Select("task_id", "clients").Find(&commandTasks).Error; err != nil {
+			return fmt.Errorf("find client command tasks: %w", err)
+		}
+		for _, task := range commandTasks {
+			remaining, changed := removeClientUUID(task.Clients, clientUuid)
+			if !changed {
+				continue
+			}
+			if len(remaining) == 0 {
+				if err := tx.Where("task_id = ?", task.TaskId).Delete(&models.TaskResult{}).Error; err != nil {
+					return fmt.Errorf("delete command task %s results: %w", task.TaskId, err)
+				}
+				if err := tx.Where("task_id = ?", task.TaskId).Delete(&models.Task{}).Error; err != nil {
+					return fmt.Errorf("delete empty command task %s: %w", task.TaskId, err)
+				}
+				continue
+			}
+			if err := tx.Model(&models.Task{}).Where("task_id = ?", task.TaskId).Update("clients", remaining).Error; err != nil {
+				return fmt.Errorf("remove client from command task %s: %w", task.TaskId, err)
+			}
+		}
+
+		if err := tx.Delete(&models.Client{}, "uuid = ?", clientUuid).Error; err != nil {
+			return fmt.Errorf("delete client: %w", err)
+		}
+		return nil
+	})
+	if err == nil {
+		invalidateClientListCache()
+	}
+	return pingTasksChanged, err
+}
+
+func removeClientUUID(clients models.StringArray, clientUUID string) (models.StringArray, bool) {
+	remaining := make(models.StringArray, 0, len(clients))
+	changed := false
+	for _, assignedClient := range clients {
+		if assignedClient == clientUUID {
+			changed = true
+			continue
+		}
+		remaining = append(remaining, assignedClient)
+	}
+	return remaining, changed
+}
+
+func deleteLegacyClientRows(tx *gorm.DB, clientUUID string) error {
+	for _, table := range []string{"records", "records_long_term", "gpu_records", "ping_records"} {
+		if !tx.Migrator().HasTable(table) {
+			continue
+		}
+		if err := tx.Exec("DELETE FROM "+table+" WHERE client = ?", clientUUID).Error; err != nil {
+			return fmt.Errorf("delete client rows from legacy table %s: %w", table, err)
+		}
+	}
+	return nil
+}
+
+func SaveClientInfo(update map[string]interface{}) error {
+	err := saveClientInfoWithAutoOrder(dbcore.GetDBInstance(), update, autoOrderNewClientsEnabled())
+	if err == nil {
+		invalidateClientListCache()
+	}
+	return err
+}
+
+func autoOrderNewClientsEnabled() bool {
+	enabled, err := config.GetAs[bool](config.AutoOrderNewClientsKey, false)
+	if err != nil {
+		return false
+	}
+	return enabled
+}
+
+func saveClientInfoWithAutoOrder(db *gorm.DB, update map[string]interface{}, autoOrder bool) error {
+	clientUUID, ok := update["uuid"].(string)
+	if !ok || clientUUID == "" {
+		return fmt.Errorf("invalid client UUID")
+	}
+
+	// 确保更新的字段不为空
+	if len(update) == 0 {
+		return fmt.Errorf("no fields to update")
+	}
+
+	delete(update, "remote_control_protected")
+	update["updated_at"] = time.Now().UTC()
+
+	toFloat64 := func(value interface{}) (float64, bool) {
+		switch typed := value.(type) {
+		case float64:
+			return typed, true
+		case float32:
+			return float64(typed), true
+		case int:
+			return float64(typed), true
+		case int8:
+			return float64(typed), true
+		case int16:
+			return float64(typed), true
+		case int32:
+			return float64(typed), true
+		case int64:
+			return float64(typed), true
+		case uint:
+			return float64(typed), true
+		case uint8:
+			return float64(typed), true
+		case uint16:
+			return float64(typed), true
+		case uint32:
+			return float64(typed), true
+		case uint64:
+			return float64(typed), true
+		case json.Number:
+			parsed, err := typed.Float64()
+			if err != nil {
+				return 0, false
+			}
+			return parsed, true
+		default:
+			return 0, false
+		}
+	}
+
+	checkOptionalInt := func(name, key string, maxValue float64) error {
+		value, exists := update[key]
+		if !exists || value == nil {
+			return nil
+		}
+
+		numericValue, ok := toFloat64(value)
+		if !ok {
+			return fmt.Errorf("%s must be a valid number", name)
+		}
+		if numericValue < 0 || numericValue > maxValue {
+			return fmt.Errorf("%s must be a valid non-negative number: %v", name, value)
+		}
+		return nil
+	}
+
+	verify := func(update map[string]interface{}) error {
+		if err := checkOptionalInt("Cpu.Cores", "cpu_cores", math.MaxInt-1); err != nil {
+			return err
+		}
+		if err := checkOptionalInt("Cpu.PhysicalCores", "cpu_physical_cores", math.MaxInt-1); err != nil {
+			return err
+		}
+		if err := checkOptionalInt("Ram.Total", "mem_total", math.MaxInt64-1); err != nil {
+			return err
+		}
+		if err := checkOptionalInt("Swap.Total", "swap_total", math.MaxInt64-1); err != nil {
+			return err
+		}
+		if err := checkOptionalInt("Disk.Total", "disk_total", math.MaxInt64-1); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if err := verify(update); err != nil {
+		return err
+	}
+	if value, exists := update["remote_protocol"]; exists {
+		if numericValue, ok := toFloat64(value); ok {
+			update["remote_protocol"] = int(numericValue)
+		}
+	}
+	if value, exists := update["mcp_full_version"]; exists {
+		if numericValue, ok := toFloat64(value); ok {
+			update["mcp_full_version"] = int(numericValue)
+		}
+	}
+
+	detectedRegion, _ := update["region"].(string)
+	detectedRegion = strings.TrimSpace(detectedRegion)
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		var current models.Client
+		if err := tx.Select("uuid", "region", "region_override").Where("uuid = ?", clientUUID).First(&current).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Model(&models.Client{}).Where("uuid = ?", clientUUID).Updates(update).Error; err != nil {
+			return err
+		}
+
+		// Region is empty until the Agent's first successful basic-info report.
+		// Reorder only on that transition so later reports never fight manual order.
+		if !autoOrder || current.Region != "" || detectedRegion == "" {
+			return nil
+		}
+		effectiveRegion := detectedRegion
+		if current.RegionOverride != "" {
+			effectiveRegion = current.RegionOverride
+		}
+		return placeClientAfterRegionPeers(tx, clientUUID, effectiveRegion)
+	})
+}
+
+type clientOrderState struct {
+	UUID           string
+	Region         string
+	RegionOverride string
+	Group          string
+	Weight         int
+	CreatedAt      time.Time
+}
+
+func (client clientOrderState) effectiveRegion() string {
+	if client.RegionOverride != "" {
+		return client.RegionOverride
+	}
+	return client.Region
+}
+
+func placeClientAfterRegionPeers(tx *gorm.DB, clientUUID, region string) error {
+	var ordered []clientOrderState
+	if err := tx.Model(&models.Client{}).
+		Order("weight ASC").Order("created_at ASC").Order("uuid ASC").
+		Find(&ordered).Error; err != nil {
+		return err
+	}
+	reordered, changed, err := orderClientAfterRegionPeers(ordered, clientUUID, region)
+	if err != nil || !changed {
+		return err
+	}
+	for weight := range reordered {
+		if reordered[weight].Weight == weight {
+			continue
+		}
+		if err := tx.Model(&models.Client{}).
+			Where("uuid = ?", reordered[weight].UUID).
+			Update("weight", weight).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func orderClientAfterRegionPeers(ordered []clientOrderState, clientUUID, region string) ([]clientOrderState, bool, error) {
+	clientIndex := -1
+	for index := range ordered {
+		if ordered[index].UUID == clientUUID {
+			clientIndex = index
+			break
+		}
+	}
+	if clientIndex < 0 {
+		return nil, false, gorm.ErrRecordNotFound
+	}
+
+	moving := ordered[clientIndex]
+	withoutClient := append([]clientOrderState{}, ordered[:clientIndex]...)
+	withoutClient = append(withoutClient, ordered[clientIndex+1:]...)
+	insertAt := -1
+	for index := range withoutClient {
+		if withoutClient[index].Group == moving.Group && withoutClient[index].effectiveRegion() == region {
+			insertAt = index + 1
+		}
+	}
+	if insertAt < 0 {
+		return ordered, false, nil
+	}
+
+	reordered := make([]clientOrderState, 0, len(ordered))
+	reordered = append(reordered, withoutClient[:insertAt]...)
+	reordered = append(reordered, moving)
+	reordered = append(reordered, withoutClient[insertAt:]...)
+	changed := false
+	for weight := range reordered {
+		if reordered[weight].UUID != ordered[weight].UUID || reordered[weight].Weight != weight {
+			changed = true
+		}
+	}
+	return reordered, changed, nil
+}
+
+// UpdateClientOrder applies an administrator-provided order atomically.
+func UpdateClientOrder(order map[string]int) error {
+	err := dbcore.GetDBInstance().Transaction(func(tx *gorm.DB) error {
+		for clientUUID, weight := range order {
+			if err := tx.Model(&models.Client{}).Where("uuid = ?", clientUUID).Update("weight", weight).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err == nil {
+		invalidateClientListCache()
+	}
+	return err
+}
+
+// CreateClient 创建新客户端
+func CreateClient() (clientUUID, token string, err error) {
+	db := dbcore.GetDBInstance()
+	token = utils.GenerateToken()
+	clientUUID = uuid.New().String()
+
+	client := newClient(clientUUID, token, "client_"+clientUUID[0:8], time.Now().UTC())
+
+	err = db.Create(&client).Error
+	if err != nil {
+		return "", "", err
+	}
+	if err := tasks.AddDefaultOnClientUUID(clientUUID); err != nil {
+		logger.ErrorArgs("clients", "Failed to apply default-on ping tasks to new client:", err)
+	}
+	if err := notificationdefaults.ApplyDefaultsToNewClient(clientUUID); err != nil {
+		logger.ErrorArgs("clients", "Failed to apply notification defaults to new client:", err)
+	}
+	if err := tasks.ApplyReturnRouteTemplatesToNewClient(clientUUID); err != nil {
+		logger.ErrorArgs("clients", "Failed to apply return-route templates to new client:", err)
+	}
+	invalidateClientListCache()
+	return clientUUID, token, nil
+}
+
+func CreateClientWithName(name string) (clientUUID, token string, err error) {
+	if name == "" {
+		return CreateClient()
+	}
+	db := dbcore.GetDBInstance()
+	token = utils.GenerateToken()
+	clientUUID = uuid.New().String()
+	client := newClient(clientUUID, token, name, time.Now().UTC())
+
+	err = db.Create(&client).Error
+	if err != nil {
+		return "", "", err
+	}
+	if err := tasks.AddDefaultOnClientUUID(clientUUID); err != nil {
+		logger.ErrorArgs("clients", "Failed to apply default-on ping tasks to new client:", err)
+	}
+	if err := notificationdefaults.ApplyDefaultsToNewClient(clientUUID); err != nil {
+		logger.ErrorArgs("clients", "Failed to apply notification defaults to new client:", err)
+	}
+	if err := tasks.ApplyReturnRouteTemplatesToNewClient(clientUUID); err != nil {
+		logger.ErrorArgs("clients", "Failed to apply return-route templates to new client:", err)
+	}
+	invalidateClientListCache()
+	return clientUUID, token, nil
+}
+
+func newClient(clientUUID, token, name string, now time.Time) models.Client {
+	return models.Client{
+		UUID:             clientUUID,
+		Token:            token,
+		Name:             name,
+		TrafficLimitType: "sum",
+		ExpiryTimezone:   expiry.DefaultTimezone,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+}
+
+/*
+// GetAllClients 获取所有客户端配置
+
+	func getAllClients() (clients []models.Client, err error) {
+		db := dbcore.GetDBInstance()
+		err = db.Find(&clients).Error
+		if err != nil {
+			return nil, err
+		}
+		return clients, nil
+	}
+*/
+func GetClientByUUID(uuid string) (client models.Client, err error) {
+	db := dbcore.GetDBInstance()
+	err = db.Where("uuid = ?", uuid).First(&client).Error
+	if err != nil {
+		return models.Client{}, err
+	}
+	applyClientDisplayFields(&client, time.Now().UTC())
+	return client, nil
+}
+
+// DisplayName is the server name shown in the admin UI.
+// A server without a name is identified by its UUID.
+func DisplayName(uuid string) string {
+	uuid = strings.TrimSpace(uuid)
+	if uuid == "" {
+		return ""
+	}
+	var client models.Client
+	err := dbcore.GetDBInstance().Select("name").Where("uuid = ?", uuid).Take(&client).Error
+	if err != nil || strings.TrimSpace(client.Name) == "" {
+		return uuid
+	}
+	return strings.TrimSpace(client.Name)
+}
+
+const uuidQueryChunkSize = 400
+
+func GetClientsByUUIDs(uuids []string) (map[string]models.Client, error) {
+	return getClientsByUUIDs(dbcore.GetDBInstance(), uuids)
+}
+
+func getClientsByUUIDs(db *gorm.DB, uuids []string) (map[string]models.Client, error) {
+	out := make(map[string]models.Client, len(uuids))
+	if len(uuids) == 0 {
+		return out, nil
+	}
+	seen := make(map[string]struct{}, len(uuids))
+	unique := make([]string, 0, len(uuids))
+	for _, uuid := range uuids {
+		if uuid == "" {
+			continue
+		}
+		if _, ok := seen[uuid]; ok {
+			continue
+		}
+		seen[uuid] = struct{}{}
+		unique = append(unique, uuid)
+	}
+	for i := 0; i < len(unique); i += uuidQueryChunkSize {
+		end := i + uuidQueryChunkSize
+		if end > len(unique) {
+			end = len(unique)
+		}
+		var rows []models.Client
+		err := db.Select(
+			"uuid",
+			"remote_protocol",
+			"remote_control_enabled",
+			"mcp_full",
+			"mcp_full_version",
+		).
+			Where("uuid IN ?", unique[i:end]).
+			Find(&rows).Error
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			out[row.UUID] = row
+		}
+	}
+	return out, nil
+}
+
+func GetClientTokenByUUID(uuid string) (token string, err error) {
+	db := dbcore.GetDBInstance()
+	var client models.Client
+	err = db.Where("uuid = ?", uuid).First(&client).Error
+	if err != nil {
+		return "", err
+	}
+	return client.Token, nil
+}
+
+func RotateClientToken(uuid string, gracePeriod time.Duration) (token string, previousExpiresAt time.Time, err error) {
+	return rotateClientToken(dbcore.GetDBInstance(), uuid, gracePeriod)
+}
+
+func rotateClientToken(db *gorm.DB, uuid string, gracePeriod time.Duration) (token string, previousExpiresAt time.Time, err error) {
+	if gracePeriod <= 0 {
+		return "", time.Time{}, fmt.Errorf("token grace period must be positive")
+	}
+	err = db.Transaction(func(tx *gorm.DB) error {
+		var client models.Client
+		if err := tx.Where("uuid = ?", uuid).First(&client).Error; err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		if client.PreviousToken != "" && client.PreviousTokenExpiresAt != nil && client.PreviousTokenExpiresAt.After(now) {
+			return fmt.Errorf("Token 重置仍在过渡期内，请先使用新 Token 重新部署 Agent；新 Token 首次成功连接后才能再次重置")
+		}
+		token = utils.GenerateToken()
+		previousExpiresAt = now.Add(gracePeriod)
+		return tx.Model(&models.Client{}).Where("uuid = ?", uuid).Updates(map[string]interface{}{
+			"token":                     token,
+			"previous_token":            client.Token,
+			"previous_token_expires_at": previousExpiresAt,
+			"updated_at":                now,
+		}).Error
+	})
+	if err == nil {
+		invalidateClientListCache()
+	}
+	return token, previousExpiresAt, err
+}
+
+func GetAllClientBasicInfo() (clients []models.Client, err error) {
+	clientListGate.Lock()
+	defer clientListGate.Unlock()
+	db := dbcore.GetDBInstance()
+	now := time.Now()
+	if cached, ok := basicInfoCache.get(db, now, clientListCacheTTL); ok {
+		return cached, nil
+	}
+	gen := basicInfoCache.generation(db)
+	clients, err = getClientBasicInfo(db)
+	if err != nil {
+		return nil, err
+	}
+	basicInfoCache.set(db, gen, now, clients)
+	return cloneClientList(clients), nil
+}
+
+var clientListGate sync.Mutex
+
+func GetClientBasicInfoByUUIDs(uuids []string) (clients []models.Client, err error) {
+	if len(uuids) == 0 {
+		return []models.Client{}, nil
+	}
+	return getClientBasicInfo(dbcore.GetDBInstance().Where("uuid IN ?", uuids))
+}
+
+func getClientBasicInfo(query *gorm.DB) (clients []models.Client, err error) {
+	err = query.Order("weight ASC").Order("created_at ASC").Order("uuid ASC").Find(&clients).Error
+	if err != nil {
+		return nil, err
+	}
+	baseDB := query.Session(&gorm.Session{NewDB: true})
+	now := time.Now().UTC()
+	for index := range clients {
+		applyClientDisplayFields(&clients[index], now)
+	}
+	if err := applyClientDeploymentStatuses(baseDB, clients); err != nil {
+		return nil, err
+	}
+	return clients, nil
+}
+
+func applyClientDeploymentStatuses(db *gorm.DB, clientList []models.Client) error {
+	if len(clientList) == 0 {
+		return nil
+	}
+	clientUUIDs := make([]string, 0, len(clientList))
+	for i := range clientList {
+		clientUUIDs = append(clientUUIDs, clientList[i].UUID)
+	}
+	var rows []struct {
+		Client         string
+		DeliveryStatus string
+	}
+	if err := db.Model(&models.ClientDeploymentProfile{}).
+		Select("client", "delivery_status").
+		Where("client IN ?", clientUUIDs).
+		Find(&rows).Error; err != nil {
+		return err
+	}
+	statusByClient := make(map[string]string, len(rows))
+	for _, row := range rows {
+		status := row.DeliveryStatus
+		if status == "" {
+			status = DeploymentDeliverySaved
+		}
+		switch status {
+		case DeploymentDeliverySaved, DeploymentDeliverySent, DeploymentDeliveryApplied, DeploymentDeliveryFailed:
+			statusByClient[row.Client] = status
+		}
+	}
+	for i := range clientList {
+		clientList[i].DeploymentStatus = statusByClient[clientList[i].UUID]
+	}
+	return nil
+}
+
+func SaveClientForDispatch(updates map[string]interface{}) (ClientDispatch, error) {
+	return saveClientWithDispatch(dbcore.GetDBInstance(), updates, billing.PriceSourceClientEdit)
+}
+
+func SaveClientWithSource(updates map[string]interface{}, source string) error {
+	return saveClientWithSource(dbcore.GetDBInstance(), updates, source)
+}
+
+func saveClientWithSource(db *gorm.DB, updates map[string]interface{}, source string) error {
+	_, err := saveClientWithDispatch(db, updates, source)
+	return err
+}
+
+func saveClientWithDispatch(db *gorm.DB, updates map[string]interface{}, source string) (ClientDispatch, error) {
+	return saveClientWithDispatchAt(db, updates, source, time.Now().UTC())
+}
+
+func saveClientWithDispatchAt(db *gorm.DB, updates map[string]interface{}, source string, now time.Time) (ClientDispatch, error) {
+	if source == "" {
+		source = billing.PriceSourceClientEdit
+	}
+	now = now.UTC()
+	cloned := make(map[string]interface{}, len(updates))
+	for key, value := range updates {
+		cloned[key] = value
+	}
+	var dispatch ClientDispatch
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var err error
+		dispatch, err = saveClientTransaction(tx, cloned, source, now)
+		return err
+	})
+	if err != nil {
+		return ClientDispatch{}, err
+	}
+	trafficledger.InvalidateCalibratedCycleCache()
+	invalidateClientListCache()
+	return dispatch, nil
+}
+
+func saveClientTransaction(db *gorm.DB, updates map[string]interface{}, source string, now time.Time) (ClientDispatch, error) {
+	clientUUID, ok := updates["uuid"].(string)
+	if !ok || clientUUID == "" {
+		return ClientDispatch{}, fmt.Errorf("invalid client UUID")
+	}
+
+	// 确保更新的字段不为空
+	if len(updates) == 0 {
+		return ClientDispatch{}, fmt.Errorf("no fields to update")
+	}
+
+	var existing models.Client
+	if err := db.Select("uuid", "name", "region", "group", "price", "billing_cycle", "currency", "expired_at", "expiry_timezone", "region_override", "traffic_limit", "traffic_limit_type", "traffic_reset_day", "traffic_reset_time", "traffic_reset_timezone", "traffic_reset_allowance", "traffic_reset_cycle").
+		Where("uuid = ?", clientUUID).First(&existing).Error; err != nil {
+		return ClientDispatch{}, err
+	}
+
+	if v, exists := updates["traffic_limit"]; exists {
+		if val, isFloat := v.(float64); isFloat {
+			numeric, ok := toInt64(val)
+			if !ok || numeric < 0 {
+				return ClientDispatch{}, fmt.Errorf("traffic_limit must be a valid non-negative int64 value, got %v", val)
+			}
+			updates["traffic_limit"] = numeric
+		}
+	}
+	if value, exists := updates["traffic_limit_type"]; exists {
+		typeName, ok := value.(string)
+		if !ok {
+			return ClientDispatch{}, fmt.Errorf("traffic_limit_type must be a string")
+		}
+		normalized, err := normalizeTrafficType(typeName)
+		if err != nil {
+			return ClientDispatch{}, err
+		}
+		updates["traffic_limit_type"] = normalized
+	}
+	if value, exists := updates["region_override"]; exists {
+		override, ok := value.(string)
+		if !ok {
+			return ClientDispatch{}, fmt.Errorf("region_override must be a string")
+		}
+		normalized, err := normalizeRegionOverride(override)
+		if err != nil {
+			return ClientDispatch{}, err
+		}
+		updates["region_override"] = normalized
+	}
+	if value, exists := updates["bandwidth"]; exists {
+		raw, ok := value.(string)
+		if !ok {
+			return ClientDispatch{}, fmt.Errorf("bandwidth must be a string")
+		}
+		updates["bandwidth"] = normalizeBandwidth(raw)
+	}
+	resetDay := existing.TrafficResetDay
+	if value, exists := updates["traffic_reset_day"]; exists {
+		normalized, err := normalizeTrafficResetDay(value)
+		if err != nil {
+			return ClientDispatch{}, err
+		}
+		if normalized == nil {
+			updates["traffic_reset_day"] = nil
+			resetDay = nil
+		} else {
+			updates["traffic_reset_day"] = *normalized
+			resetDay = normalized
+		}
+	}
+	resetTime := existing.TrafficResetTime
+	if value, exists := updates["traffic_reset_time"]; exists {
+		raw, ok := value.(string)
+		if !ok {
+			return ClientDispatch{}, fmt.Errorf("traffic_reset_time must be a string")
+		}
+		normalized, err := trafficreset.NormalizeClock(raw)
+		if err != nil {
+			return ClientDispatch{}, err
+		}
+		resetTime = normalized
+		updates["traffic_reset_time"] = normalized
+	}
+	resetTimezone := existing.TrafficResetTimezone
+	if value, exists := updates["traffic_reset_timezone"]; exists {
+		raw, ok := value.(string)
+		if !ok {
+			return ClientDispatch{}, fmt.Errorf("traffic_reset_timezone must be a string")
+		}
+		normalized, err := trafficreset.NormalizeTimezone(raw)
+		if err != nil {
+			return ClientDispatch{}, err
+		}
+		resetTimezone = normalized
+		updates["traffic_reset_timezone"] = normalized
+	}
+	resetAllowance := existing.TrafficResetAllowance
+	if value, exists := updates["traffic_reset_allowance"]; exists {
+		numeric, ok := toInt64(value)
+		if !ok || numeric < 0 {
+			return ClientDispatch{}, fmt.Errorf("traffic_reset_allowance must be a valid non-negative integer")
+		}
+		resetAllowance = numeric
+		updates["traffic_reset_allowance"] = numeric
+	}
+	if _, allowanceChanged := updates["traffic_reset_allowance"]; allowanceChanged {
+		if resetAllowance > 0 {
+			cycle := currentTrafficCycleAt(resetDay, resetTime, resetTimezone, now)
+			if cycle == "" {
+				return ClientDispatch{}, fmt.Errorf("set a traffic reset day from 1 to 31 before adding reset traffic")
+			}
+			limit := existing.TrafficLimit
+			if value, ok := updates["traffic_limit"]; ok {
+				limit, _ = toInt64(value)
+			}
+			if limit > math.MaxInt64-resetAllowance {
+				return ClientDispatch{}, fmt.Errorf("traffic limit plus reset traffic is too large")
+			}
+			updates["traffic_reset_cycle"] = cycle
+		} else {
+			updates["traffic_reset_cycle"] = ""
+		}
+	} else if _, resetDayChanged := updates["traffic_reset_day"]; resetDayChanged {
+		cycle := currentTrafficCycleAt(resetDay, resetTime, resetTimezone, now)
+		if resetAllowance <= 0 || cycle == "" {
+			updates["traffic_reset_allowance"] = 0
+			updates["traffic_reset_cycle"] = ""
+		} else {
+			updates["traffic_reset_cycle"] = cycle
+		}
+	} else if _, timeChanged := updates["traffic_reset_time"]; timeChanged {
+		cycle := currentTrafficCycleAt(resetDay, resetTime, resetTimezone, now)
+		if resetAllowance <= 0 || cycle == "" {
+			updates["traffic_reset_allowance"] = 0
+			updates["traffic_reset_cycle"] = ""
+		} else {
+			updates["traffic_reset_cycle"] = cycle
+		}
+	} else if _, tzChanged := updates["traffic_reset_timezone"]; tzChanged {
+		cycle := currentTrafficCycleAt(resetDay, resetTime, resetTimezone, now)
+		if resetAllowance <= 0 || cycle == "" {
+			updates["traffic_reset_allowance"] = 0
+			updates["traffic_reset_cycle"] = ""
+		} else {
+			updates["traffic_reset_cycle"] = cycle
+		}
+	}
+	if value, exists := updates["currency"]; exists {
+		currency, ok := value.(string)
+		if !ok {
+			return ClientDispatch{}, fmt.Errorf("currency must be a string")
+		}
+		currency = strings.TrimSpace(currency)
+		if strings.EqualFold(currency, "CAD") || strings.EqualFold(currency, "CA$") || strings.EqualFold(currency, "C$") {
+			currency = "CAD"
+		}
+		if strings.EqualFold(currency, "HKD") || strings.EqualFold(currency, "HK$") {
+			currency = "HKD"
+		}
+		updates["currency"] = currency
+	}
+	_, hasExpiredAt := updates["expired_at"]
+	localRaw, hasLocal := updates["expiry_local_datetime"]
+	renewExpiry, hasRenew := boolFromUpdate(updates["renew_expiry"])
+	if hasRenew {
+		delete(updates, "renew_expiry")
+	}
+	if hasExpiredAt && hasLocal {
+		return ClientDispatch{}, fmt.Errorf("expired_at and expiry_local_datetime cannot be set together")
+	}
+	if renewExpiry && (hasExpiredAt || hasLocal) {
+		return ClientDispatch{}, fmt.Errorf("renew_expiry cannot be combined with expired_at or expiry_local_datetime")
+	}
+	if _, hasCycle := updates["billing_cycle"]; renewExpiry && hasCycle {
+		return ClientDispatch{}, fmt.Errorf("renew_expiry cannot be combined with billing_cycle")
+	}
+	if _, hasTimezone := updates["expiry_timezone"]; renewExpiry && hasTimezone {
+		return ClientDispatch{}, fmt.Errorf("renew_expiry cannot be combined with expiry_timezone")
+	}
+	if hasLocal {
+		delete(updates, "expiry_local_datetime")
+	}
+	timezone := existing.ExpiryTimezone
+	if value, exists := updates["expiry_timezone"]; exists {
+		raw, ok := value.(string)
+		if !ok {
+			return ClientDispatch{}, fmt.Errorf("expiry_timezone must be a string")
+		}
+		normalized, err := expiry.NormalizeTimezone(raw)
+		if err != nil {
+			return ClientDispatch{}, err
+		}
+		timezone = normalized
+		updates["expiry_timezone"] = normalized
+	} else if strings.TrimSpace(timezone) == "" {
+		timezone = expiry.DefaultTimezone
+		if hasLocal {
+			updates["expiry_timezone"] = timezone
+		}
+	}
+	if hasLocal {
+		local, ok := localRaw.(string)
+		if !ok {
+			return ClientDispatch{}, fmt.Errorf("expiry local datetime must be YYYY-MM-DDTHH:mm:ss")
+		}
+		stamp, err := expiry.ParseLocalDateTime(local, timezone)
+		if err != nil {
+			return ClientDispatch{}, err
+		}
+		updates["expired_at"] = stamp
+	} else if renewExpiry {
+		if expiry.IsLongTerm(existing.ExpiredAt) {
+			return ClientDispatch{}, fmt.Errorf("long-term expiry cannot be renewed early")
+		}
+		if existing.BillingCycle <= 0 {
+			return ClientDispatch{}, fmt.Errorf("billing cycle must be positive")
+		}
+		next, err := expiry.NextDue(*existing.ExpiredAt, timezone, existing.BillingCycle, now)
+		if err != nil {
+			return ClientDispatch{}, err
+		}
+		updates["expired_at"] = next
+		if _, hasPresetMatch := updates["_match_expired_at"]; !hasPresetMatch {
+			updates["_match_expired_at"] = existing.ExpiredAt.UTC()
+		}
+	} else if value, exists := updates["expired_at"]; exists {
+		if value == nil {
+			updates["expired_at"] = nil
+		} else if typed, ok := value.(*time.Time); ok && typed == nil {
+			updates["expired_at"] = nil
+		} else {
+			stamp, err := parseExpiryInstant(value, "expired_at")
+			if err != nil {
+				return ClientDispatch{}, err
+			}
+			updates["expired_at"] = stamp
+		}
+	}
+	matchExpiredAt, hasMatch := updates["_match_expired_at"]
+	if hasMatch {
+		delete(updates, "_match_expired_at")
+		parsed, err := parseExpiryInstant(matchExpiredAt, "_match_expired_at")
+		if err != nil {
+			return ClientDispatch{}, err
+		}
+		matchExpiredAt = parsed
+	}
+
+	updates["updated_at"] = now
+
+	if db.Migrator().HasTable(&models.BillingPriceVersion{}) {
+		if err := billing.CapturePriceVersion(db, existing, updates, source, now); err != nil {
+			return ClientDispatch{}, err
+		}
+	}
+	query := db.Model(&models.Client{}).Where("uuid = ?", clientUUID)
+	if hasMatch {
+		query = query.Where("expired_at = ?", matchExpiredAt)
+	}
+	result := query.Updates(updates)
+	if result.Error != nil {
+		return ClientDispatch{}, result.Error
+	}
+	if hasMatch && result.RowsAffected == 0 {
+		return ClientDispatch{}, ErrExpiryAlreadyChanged
+	}
+
+	_, dayChanged := updates["traffic_reset_day"]
+	_, timeChanged := updates["traffic_reset_time"]
+	_, tzChanged := updates["traffic_reset_timezone"]
+	if !dayChanged && !timeChanged && !tzChanged {
+		return ClientDispatch{}, nil
+	}
+	updated := existing
+	updated.TrafficResetDay = resetDay
+	updated.TrafficResetTime = resetTime
+	updated.TrafficResetTimezone = resetTimezone
+	dispatch, err := syncDeploymentResetClock(db, clientUUID, existing, updated)
+	if err != nil {
+		return ClientDispatch{}, err
+	}
+	return dispatch, nil
+}
+
+func parseExpiryInstant(value interface{}, field string) (time.Time, error) {
+	switch typed := value.(type) {
+	case time.Time:
+		return typed.UTC(), nil
+	case *time.Time:
+		if typed == nil {
+			return time.Time{}, fmt.Errorf("%s must be an RFC3339 timestamp with a timezone", field)
+		}
+		return typed.UTC(), nil
+	case string:
+		stamp, err := time.Parse(time.RFC3339Nano, typed)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("%s must be an RFC3339 timestamp with a timezone: %w", field, err)
+		}
+		return stamp.UTC(), nil
+	default:
+		return time.Time{}, fmt.Errorf("%s must be an RFC3339 timestamp with a timezone", field)
+	}
+}
+
+func toInt64(value interface{}) (int64, bool) {
+	switch typed := value.(type) {
+	case int:
+		return int64(typed), true
+	case int32:
+		return int64(typed), true
+	case int64:
+		return typed, true
+	case uint:
+		if uint64(typed) > math.MaxInt64 {
+			return 0, false
+		}
+		return int64(typed), true
+	case uint64:
+		if typed > math.MaxInt64 {
+			return 0, false
+		}
+		return int64(typed), true
+	case float64:
+		if math.IsNaN(typed) || math.IsInf(typed, 0) || math.Trunc(typed) != typed || typed < math.MinInt64 || typed >= math.Exp2(63) {
+			return 0, false
+		}
+		return int64(typed), true
+	case json.Number:
+		parsed, err := typed.Int64()
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func normalizeBandwidth(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	fields := strings.Fields(value)
+	number, unit, glued := splitGluedBandwidth(fields[0])
+	if glued {
+		fields = append([]string{number, unit}, fields[1:]...)
+	}
+	return strings.Join(fields, " ")
+}
+
+func splitGluedBandwidth(value string) (number, unit string, ok bool) {
+	index := 0
+	length := len(value)
+	for index < length && value[index] >= '0' && value[index] <= '9' {
+		index++
+	}
+	if index > 0 && index < length && value[index] == '.' {
+		fraction := index + 1
+		for fraction < length && value[fraction] >= '0' && value[fraction] <= '9' {
+			fraction++
+		}
+		if fraction > index+1 {
+			index = fraction
+		}
+	}
+	if index == 0 || index == length {
+		return "", "", false
+	}
+	return value[:index], value[index:], true
+}
+
+func normalizeRegionOverride(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	if len(value) == 2 {
+		upper := strings.ToUpper(value)
+		if upper[0] >= 'A' && upper[0] <= 'Z' && upper[1] >= 'A' && upper[1] <= 'Z' {
+			return string(rune(0x1F1E6+int(upper[0]-'A'))) + string(rune(0x1F1E6+int(upper[1]-'A'))), nil
+		}
+	}
+	runes := []rune(value)
+	if len(runes) == 2 && runes[0] >= 0x1F1E6 && runes[0] <= 0x1F1FF && runes[1] >= 0x1F1E6 && runes[1] <= 0x1F1FF {
+		return value, nil
+	}
+	return "", fmt.Errorf("region_override must be a two-letter country code or country flag")
+}
+
+func boolFromUpdate(value interface{}) (bool, bool) {
+	if value == nil {
+		return false, false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true", "1":
+			return true, true
+		case "false", "0", "":
+			return false, true
+		default:
+			return false, true
+		}
+	case float64:
+		return typed != 0, true
+	case int:
+		return typed != 0, true
+	case json.Number:
+		parsed, err := typed.Float64()
+		if err != nil {
+			return false, true
+		}
+		return parsed != 0, true
+	default:
+		return false, true
+	}
+}
+
+func normalizeTrafficResetDay(value interface{}) (*int, error) {
+	if value == nil {
+		return nil, nil
+	}
+	numericValue, ok := value.(float64)
+	if !ok {
+		switch typed := value.(type) {
+		case int:
+			numericValue = float64(typed)
+		case int32:
+			numericValue = float64(typed)
+		case int64:
+			numericValue = float64(typed)
+		case json.Number:
+			parsed, err := typed.Float64()
+			if err != nil {
+				return nil, fmt.Errorf("traffic_reset_day must be an integer from 0 to 31")
+			}
+			numericValue = parsed
+		default:
+			return nil, fmt.Errorf("traffic_reset_day must be an integer from 0 to 31")
+		}
+	}
+	if math.Trunc(numericValue) != numericValue || numericValue < 0 || numericValue > 31 {
+		return nil, fmt.Errorf("traffic_reset_day must be an integer from 0 to 31")
+	}
+	day := int(numericValue)
+	return &day, nil
+}
+
+func AgentMonthRotateConfig(client models.Client) v2.ConfigParams {
+	day := 0
+	if client.TrafficResetDay != nil {
+		day = *client.TrafficResetDay
+	}
+	clock, err := trafficreset.NormalizeClock(client.TrafficResetTime)
+	if err != nil {
+		clock = trafficreset.DefaultTime
+	}
+	timezone, err := trafficreset.NormalizeTimezone(client.TrafficResetTimezone)
+	if err != nil {
+		timezone = trafficreset.DefaultTimezone
+	}
+	return v2.ConfigParams{
+		MonthRotate:         &day,
+		MonthRotateTime:     &clock,
+		MonthRotateTimezone: &timezone,
+	}
+}
+
+func ApplyResetClock(config *v2.ConfigParams, client models.Client) {
+	if config == nil {
+		return
+	}
+	reset := AgentMonthRotateConfig(client)
+	config.MonthRotate = reset.MonthRotate
+	config.MonthRotateTime = reset.MonthRotateTime
+	config.MonthRotateTimezone = reset.MonthRotateTimezone
+}
+
+// AdoptTrafficResetDay records an Agent's existing setting only while the node
+// has not yet been explicitly managed by Lite.
+func AdoptTrafficResetDay(clientUUID string, value interface{}) error {
+	day, err := normalizeTrafficResetDay(value)
+	if err != nil {
+		return err
+	}
+	if day == nil {
+		return nil
+	}
+	db := dbcore.GetDBInstance()
+	err = db.Model(&models.Client{}).
+		Where("uuid = ? AND traffic_reset_day IS NULL", clientUUID).
+		Update("traffic_reset_day", *day).Error
+	if err == nil {
+		invalidateClientListCache()
+	}
+	return err
+}
+
+var (
+	mcpCapabilityMu   sync.Mutex
+	mcpCapabilitySeen = map[string][2]int{}
+)
+
+// SetMCPCapability stores Agent-advertised MCP support. Pull is frequent, so
+// unchanged values are not written again.
+func SetMCPCapability(uuid string, full bool, version int) {
+	uuid = strings.TrimSpace(uuid)
+	if uuid == "" {
+		return
+	}
+	if !full {
+		version = 0
+	}
+	flag := 0
+	if full {
+		flag = 1
+	}
+	next := [2]int{flag, version}
+	mcpCapabilityMu.Lock()
+	prev, exists := mcpCapabilitySeen[uuid]
+	if exists && prev == next {
+		mcpCapabilityMu.Unlock()
+		return
+	}
+	mcpCapabilitySeen[uuid] = next
+	mcpCapabilityMu.Unlock()
+
+	if err := dbcore.GetDBInstance().Model(&models.Client{}).Where("uuid = ?", uuid).Updates(map[string]any{
+		"mcp_full":         full,
+		"mcp_full_version": version,
+	}).Error; err != nil {
+		logger.Errorf("mcp", "failed to record MCP capability for %s: %v", uuid, err)
+		return
+	}
+	invalidateClientListCache()
+}
+
+var (
+	firewallCapabilityMu   sync.Mutex
+	firewallCapabilitySeen = map[string][2]int{}
+)
+
+func SetFirewallCapability(uuid string, supported bool, version int) {
+	uuid = strings.TrimSpace(uuid)
+	if uuid == "" {
+		return
+	}
+	if !supported {
+		version = 0
+	}
+	flag := 0
+	if supported {
+		flag = 1
+	}
+	next := [2]int{flag, version}
+	firewallCapabilityMu.Lock()
+	prev, exists := firewallCapabilitySeen[uuid]
+	if exists && prev == next {
+		firewallCapabilityMu.Unlock()
+		return
+	}
+	firewallCapabilitySeen[uuid] = next
+	firewallCapabilityMu.Unlock()
+
+	if err := dbcore.GetDBInstance().Model(&models.Client{}).Where("uuid = ?", uuid).Updates(map[string]any{
+		"firewall":         supported,
+		"firewall_version": version,
+	}).Error; err != nil {
+		logger.Errorf("firewall", "failed to record firewall capability for %s: %v", uuid, err)
+		return
+	}
+	invalidateClientListCache()
+}
+
+var (
+	protectionCapabilityMu   sync.Mutex
+	protectionCapabilitySeen = map[string][2]int{}
+)
+
+func SetProtectionCapability(uuid string, supported bool, version int) {
+	uuid = strings.TrimSpace(uuid)
+	if uuid == "" {
+		return
+	}
+	if !supported {
+		version = 0
+	}
+	flag := 0
+	if supported {
+		flag = 1
+	}
+	next := [2]int{flag, version}
+	protectionCapabilityMu.Lock()
+	prev, exists := protectionCapabilitySeen[uuid]
+	if exists && prev == next {
+		protectionCapabilityMu.Unlock()
+		return
+	}
+	protectionCapabilitySeen[uuid] = next
+	protectionCapabilityMu.Unlock()
+
+	if err := dbcore.GetDBInstance().Model(&models.Client{}).Where("uuid = ?", uuid).Updates(map[string]any{
+		"service_protection":         supported,
+		"service_protection_version": version,
+	}).Error; err != nil {
+		logger.Errorf("protection", "failed to record protection capability for %s: %v", uuid, err)
+		return
+	}
+	invalidateClientListCache()
+}
