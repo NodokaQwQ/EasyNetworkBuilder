@@ -1,0 +1,11 @@
+.git
+**/node_modules
+lite-plus-web/dist
+lite-plus/web/public/systemUI/dist
+**/.env
+**/.env.*
+**/*.key
+**/*.log
+go-backend
+lite-plus-agent
+lib

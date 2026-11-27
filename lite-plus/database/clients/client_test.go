@@ -12,6 +12,7 @@ import (
 	"github.com/nuomiiiii/lite/database/models"
 	nodemgtmodels "github.com/nuomiiiii/lite/nodemgt/models"
 	"github.com/nuomiiiii/lite/pkg/expiry"
+	"github.com/nuomiiiii/lite/virtualnet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -391,6 +392,20 @@ func TestDeleteClientRollsBackRelatedRowsWhenClientDeleteFails(t *testing.T) {
 	assertRowCount(t, db, &models.MetricCleanupJob{}, "entity_id = ?", 0, "client-a")
 }
 
+func TestDeleteClientReleasesVirtualNetworkAssociation(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Client{}, &models.PingTask{}, &models.LoadNotification{}, &models.Task{}, &models.TaskResult{}, &models.MetricCleanupJob{}, &virtualnet.Profile{}, &virtualnet.Job{}))
+	require.NoError(t, db.Create(&models.Client{UUID: "client-a", Token: "token-a"}).Error)
+	require.NoError(t, db.Create(&virtualnet.Profile{PeerID: "peer", NodeUUID: "client-a", PrivateKey: "sealed"}).Error)
+	_, err = deleteClient(db, "client-a")
+	require.NoError(t, err)
+	var p virtualnet.Profile
+	require.NoError(t, db.First(&p, "peer_id = ?", "peer").Error)
+	assert.Empty(t, p.NodeUUID)
+	assert.Equal(t, "sealed", p.PrivateKey)
+}
+
 func TestNormalizeTrafficResetDay(t *testing.T) {
 	for _, value := range []interface{}{float64(0), float64(1), float64(31), 26, json.Number("15")} {
 		day, err := normalizeTrafficResetDay(value)
@@ -436,10 +451,10 @@ func TestSaveClientPersistsTrafficResetClockAndTimezone(t *testing.T) {
 	require.NoError(t, db.Create(&models.Client{UUID: "node-a", Token: "token-a", Name: "A"}).Error)
 
 	require.NoError(t, saveClient(db, map[string]interface{}{
-		"uuid":                    "node-a",
-		"traffic_reset_day":       float64(15),
-		"traffic_reset_time":      "12:38:12",
-		"traffic_reset_timezone":  "UTC",
+		"uuid":                   "node-a",
+		"traffic_reset_day":      float64(15),
+		"traffic_reset_time":     "12:38:12",
+		"traffic_reset_timezone": "UTC",
 	}))
 
 	var client models.Client
@@ -612,9 +627,9 @@ func TestSaveClientParsesExpiryLocalDateTimeInNamedZone(t *testing.T) {
 	}).Error)
 
 	require.NoError(t, saveClient(db, map[string]interface{}{
-		"uuid":                   "n1",
-		"expiry_timezone":        "America/New_York",
-		"expiry_local_datetime":  "2026-10-01T09:30:45",
+		"uuid":                  "n1",
+		"expiry_timezone":       "America/New_York",
+		"expiry_local_datetime": "2026-10-01T09:30:45",
 	}))
 	var client models.Client
 	require.NoError(t, db.Where("uuid = ?", "n1").First(&client).Error)
@@ -633,8 +648,8 @@ func TestSaveClientParsesExpiryLocalDateTimeInNamedZone(t *testing.T) {
 	require.Error(t, err)
 
 	require.NoError(t, saveClient(db, map[string]interface{}{
-		"uuid":       "n1",
-		"expired_at": want.Add(time.Hour).UTC(),
+		"uuid":              "n1",
+		"expired_at":        want.Add(time.Hour).UTC(),
 		"_match_expired_at": want.UTC(),
 	}))
 	require.NoError(t, db.Where("uuid = ?", "n1").First(&client).Error)

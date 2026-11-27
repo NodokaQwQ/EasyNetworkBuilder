@@ -1066,7 +1066,7 @@ func doInitialize() error {
 	if err := nodemgtstore.New(instance).Migrate(); err != nil {
 		return fmt.Errorf("failed to create nodemgt tables: %w", err)
 	}
-	if err := instance.AutoMigrate(&virtualnet.Profile{}, &virtualnet.Job{}); err != nil {
+	if err := instance.AutoMigrate(&virtualnet.Profile{}, &virtualnet.Job{}, &virtualnet.Settings{}); err != nil {
 		return fmt.Errorf("failed to create virtual network tables: %w", err)
 	}
 	if err := instance.Model(&virtualnet.Job{}).Where("status = ?", "running").Updates(map[string]any{"status": "interrupted", "error": "Head restarted; inspect remote installation before retrying"}).Error; err != nil {

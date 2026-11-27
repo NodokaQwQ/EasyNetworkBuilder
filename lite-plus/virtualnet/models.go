@@ -1,6 +1,7 @@
 package virtualnet
 
 import (
+	"encoding/base64"
 	"errors"
 	"regexp"
 	"strings"
@@ -11,22 +12,60 @@ import (
 )
 
 type Profile struct {
-	PeerID       string    `json:"peer_id" gorm:"primaryKey;type:varchar(64)"`
-	Address      string    `json:"address"`
-	Port         int       `json:"port"`
-	Username     string    `json:"username"`
-	Fingerprint  string    `json:"fingerprint"`
-	AuthType     string    `json:"auth_type"`
-	Password     string    `json:"-"`
-	PrivateKey   string    `json:"-" gorm:"type:longtext"`
-	Passphrase   string    `json:"-"`
-	Sudo         bool      `json:"sudo"`
-	SudoPassword string    `json:"-"`
-	NodeUUID     string    `json:"node_uuid"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	PeerID         string    `json:"peer_id" gorm:"primaryKey;type:varchar(64)"`
+	Address        string    `json:"address"`
+	Port           int       `json:"port"`
+	Username       string    `json:"username"`
+	Fingerprint    string    `json:"fingerprint"`
+	AuthType       string    `json:"auth_type"`
+	Password       string    `json:"-"`
+	PrivateKey     string    `json:"-" gorm:"type:longtext"`
+	Passphrase     string    `json:"-"`
+	Sudo           bool      `json:"sudo"`
+	SudoPassword   string    `json:"-"`
+	NodeUUID       string    `json:"node_uuid"`
+	Paused         bool      `json:"paused"`
+	HasCredentials bool      `json:"has_credentials" gorm:"-"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 func (Profile) TableName() string { return "enb_virtualnet_profiles" }
+
+func (p Profile) CredentialsPresent() bool {
+	return (p.AuthType == "password" && p.Password != "") || (p.AuthType == "key" && p.PrivateKey != "")
+}
+
+// A panel deletion is not an uninstall. Release stale panel associations while
+// retaining SSH credentials and history; remote Preflight still refuses overwrite.
+// Never release an in-flight registration, including the short pre-association gap.
+func ReconcileNodeAssociations(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&Profile{}) || !db.Migrator().HasTable("clients") {
+		return nil
+	}
+	q := db.Model(&Profile{}).Where("node_uuid <> ''").Where("NOT EXISTS (SELECT 1 FROM clients WHERE clients.uuid = enb_virtualnet_profiles.node_uuid)")
+	if db.Migrator().HasTable(&Job{}) {
+		q = q.Where("NOT EXISTS (SELECT 1 FROM enb_virtualnet_jobs WHERE enb_virtualnet_jobs.peer_id = enb_virtualnet_profiles.peer_id AND enb_virtualnet_jobs.status = ?)", "running")
+	}
+	return q.Update("node_uuid", "").Error
+}
+
+// ForgetCredentials retains the deployment association, even for failed installs.
+// Removing SSH access must never make an already managed peer eligible for reinstall.
+func ForgetCredentials(db *gorm.DB, peerID string) error {
+	return db.Model(&Profile{}).Where("peer_id = ?", peerID).Updates(map[string]any{
+		"password": "", "private_key": "", "passphrase": "", "sudo_password": "", "auth_type": "", "sudo": false,
+	}).Error
+}
+
+func UpdateJob(db *gorm.DB, id, nodeID, status, stage, message string) error {
+	result := db.Model(&Job{}).Where("id = ?", id).Updates(map[string]any{
+		"status": status, "stage": stage, "error": message, "node_uuid": nodeID,
+	})
+	if result.Error != nil || result.RowsAffected != 1 {
+		return errors.New("could not persist deployment status; inspect remote installation before retrying")
+	}
+	return nil
+}
 
 type Job struct {
 	ID        string    `json:"id" gorm:"primaryKey;type:varchar(36)"`
@@ -58,7 +97,9 @@ type ProfileInput struct {
 var unixUser = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]{0,63}$`)
 
 func SaveProfile(db *gorm.DB, in ProfileInput) error {
-	if !unixUser.MatchString(in.Username) || in.Port < 1 || in.Port > 65535 || !strings.HasPrefix(in.Fingerprint, "SHA256:") {
+	in.Username = strings.TrimSpace(in.Username)
+	in.Fingerprint = strings.TrimSpace(in.Fingerprint)
+	if !unixUser.MatchString(in.Username) || in.Port < 1 || in.Port > 65535 || !validFingerprint(in.Fingerprint) {
 		return errors.New("valid username, port and verified SHA256 host fingerprint required")
 	}
 	if in.AuthType != "password" && in.AuthType != "key" {
@@ -73,11 +114,12 @@ func SaveProfile(db *gorm.DB, in ProfileInput) error {
 		return err
 	}
 	nodeUUID := old.NodeUUID
+	paused := old.Paused
 	// Never silently reuse credentials for a different peer endpoint or host key.
 	if old.Address != in.Address || old.Port != in.Port || old.Username != in.Username || old.Fingerprint != in.Fingerprint || old.AuthType != in.AuthType {
 		old = Profile{}
 	}
-	p := Profile{PeerID: in.PeerID, Address: in.Address, Port: in.Port, Username: in.Username, Fingerprint: in.Fingerprint, AuthType: in.AuthType, Sudo: in.Sudo, NodeUUID: nodeUUID}
+	p := Profile{PeerID: in.PeerID, Address: in.Address, Port: in.Port, Username: in.Username, Fingerprint: in.Fingerprint, AuthType: in.AuthType, Sudo: in.Sudo, NodeUUID: nodeUUID, Paused: paused}
 	for _, f := range []struct {
 		input, previous string
 		dst             *string
@@ -112,4 +154,12 @@ func SaveProfile(db *gorm.DB, in ProfileInput) error {
 		p.SudoPassword = ""
 	}
 	return db.Save(&p).Error
+}
+
+func validFingerprint(value string) bool {
+	if !strings.HasPrefix(value, "SHA256:") {
+		return false
+	}
+	digest, err := base64.RawStdEncoding.DecodeString(strings.TrimPrefix(value, "SHA256:"))
+	return err == nil && len(digest) == 32
 }

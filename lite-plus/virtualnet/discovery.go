@@ -11,7 +11,6 @@ import (
 	"io"
 	"net"
 	"net/netip"
-	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -28,6 +27,14 @@ type Peer struct {
 	Local     bool   `json:"local"`
 	Hops      int    `json:"hops"`
 	LatencyMS int    `json:"latency_ms"`
+}
+
+func (p Peer) NodeName() string {
+	name := strings.TrimSpace(p.Hostname)
+	if name == "" {
+		return "EasyTier-" + p.ID
+	}
+	return string([]rune(name)[:min(len([]rune(name)), 100)])
 }
 
 type Discovery struct {
@@ -86,6 +93,9 @@ func Discover(ctx context.Context) (Discovery, error) {
 
 // Decode only an allowlist. In particular node_info.config and network secrets never leave this function.
 func ParseRoutes(raw []byte) ([]Peer, error) {
+	if len(raw) > 4<<20 {
+		return nil, errors.New("EasyTier CLI output limit exceeded")
+	}
 	var doc struct {
 		Node struct {
 			PeerID   json.Number     `json:"peer_id"`
@@ -95,7 +105,7 @@ func ParseRoutes(raw []byte) ([]Peer, error) {
 			Version  string          `json:"version"`
 		} `json:"node_info"`
 		Routes []struct {
-			Route struct {
+			Route *struct {
 				PeerID   json.Number     `json:"peer_id"`
 				Hostname string          `json:"hostname"`
 				IPv4     json.RawMessage `json:"ipv4_addr"`
@@ -106,7 +116,7 @@ func ParseRoutes(raw []byte) ([]Peer, error) {
 			} `json:"route"`
 		} `json:"peer_routes"`
 	}
-	if err := json.Unmarshal(raw, &doc); err != nil || doc.Node.PeerID == "" {
+	if err := json.Unmarshal(raw, &doc); err != nil || !validPeerID(doc.Node.PeerID) || doc.Routes == nil {
 		return nil, errors.New("unsupported EasyTier CLI JSON; select exactly one instance and use a compatible CLI")
 	}
 	ip4 := parseIP(json.RawMessage(strconv.Quote(doc.Node.IPv4)))
@@ -114,6 +124,9 @@ func ParseRoutes(raw []byte) ([]Peer, error) {
 	seen := map[string]bool{doc.Node.PeerID.String(): true}
 	for _, pair := range doc.Routes {
 		r := pair.Route
+		if r == nil || !validPeerID(r.PeerID) {
+			return nil, errors.New("unsupported EasyTier route entry")
+		}
 		id := r.PeerID.String()
 		if id == "" || seen[id] {
 			continue
@@ -125,6 +138,11 @@ func ParseRoutes(raw []byte) ([]Peer, error) {
 		return nil, errors.New("EasyTier peer limit exceeded")
 	}
 	return peers, nil
+}
+
+func validPeerID(id json.Number) bool {
+	_, err := strconv.ParseUint(id.String(), 10, 32)
+	return err == nil
 }
 
 func parseIP(raw json.RawMessage) string {
@@ -177,21 +195,14 @@ func FindPeer(ctx context.Context, id, address string) (Peer, error) {
 		return Peer{}, errors.New("invalid virtual address")
 	}
 	for _, p := range d.Peers {
+		if p.Local && (p.IPv4 == a.String() || p.IPv6 == a.String()) {
+			return Peer{}, errors.New("local virtual address is not a deployment target")
+		}
+	}
+	for _, p := range d.Peers {
 		if p.ID == id && !p.Local && (p.IPv4 == a.String() || p.IPv6 == a.String()) {
 			return p, nil
 		}
 	}
 	return Peer{}, fmt.Errorf("target is not a current remote EasyTier peer")
-}
-
-func Endpoint() (string, error) {
-	s := strings.TrimRight(os.Getenv("ENB_NODE_CONTROL_URL"), "/")
-	if !strings.HasPrefix(s, "https://") {
-		return "", errors.New("configure an HTTPS ENB_NODE_CONTROL_URL reachable through the virtual network")
-	}
-	u, err := url.Parse(s)
-	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return "", errors.New("invalid HTTPS node control URL")
-	}
-	return s, nil
 }

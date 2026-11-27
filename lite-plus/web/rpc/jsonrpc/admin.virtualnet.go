@@ -11,6 +11,7 @@ import (
 	"github.com/nuomiiiii/lite/database/clients"
 	"github.com/nuomiiiii/lite/database/dbcore"
 	"github.com/nuomiiiii/lite/pkg/rpc"
+	logger "github.com/nuomiiiii/lite/utils/log"
 	"github.com/nuomiiiii/lite/virtualnet"
 	agent_runtime "github.com/nuomiiiii/lite/web/agent"
 )
@@ -25,7 +26,42 @@ func init() {
 	reg("virtualnet.delete", virtualnetDelete, "Delete saved SSH credentials (does not remove remote Node)")
 	reg("virtualnet.test", virtualnetTest, "Verify pinned SSH identity and Docker Compose privileges")
 	reg("virtualnet.deploy", virtualnetDeploy, "Explicitly provision a new Node via SSH and Docker Compose")
+	reg("virtualnet.inspect", virtualnetInspection, "Inspect managed installation before explicit deployment confirmation")
+	reg("virtualnet.pause", virtualnetPause, "Withdraw managed Compose while retaining installation data and panel association")
+	reg("virtualnet.resume", virtualnetResume, "Pull and start retained Node Compose without replacing its data")
 	reg("virtualnet.jobs", virtualnetJobs, "List sanitized provisioning status")
+	reg("virtualnet.settings", virtualnetSettings, "Read Node deployment control endpoint settings")
+	reg("virtualnet.settings.save", virtualnetSettingsSave, "Save Node deployment settings; does not modify EasyTier or existing Nodes")
+}
+
+func virtualnetSettings(ctx context.Context, _ *rpc.JsonRpcRequest) (any, *rpc.JsonRpcError) {
+	if e := denyAPIKey(ctx); e != nil {
+		return nil, e
+	}
+	s, err := virtualnet.LoadSettings(dbcore.GetDBInstance())
+	if err != nil {
+		return nil, virtualnetError(err)
+	}
+	return s, nil
+}
+
+func virtualnetSettingsSave(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.JsonRpcError) {
+	if e := denyAPIKey(ctx); e != nil {
+		return nil, e
+	}
+	if !virtualnetDeployment.TryLock() {
+		return nil, virtualnetError(errors.New("a deployment is in progress"))
+	}
+	defer virtualnetDeployment.Unlock()
+	var s virtualnet.Settings
+	if err := req.BindParams(&s); err != nil {
+		return nil, virtualnetError(errors.New("invalid request"))
+	}
+	if err := virtualnet.SaveSettings(dbcore.GetDBInstance(), s); err != nil {
+		return nil, virtualnetError(err)
+	}
+	virtualnetAudit(ctx, "save Node deployment settings", "control endpoint")
+	return map[string]bool{"saved": true}, nil
 }
 
 func virtualnetError(err error) *rpc.JsonRpcError {
@@ -51,8 +87,14 @@ func virtualnetProfiles(ctx context.Context, _ *rpc.JsonRpcRequest) (any, *rpc.J
 		return nil, e
 	}
 	var rows []virtualnet.Profile
+	if err := virtualnet.ReconcileNodeAssociations(dbcore.GetDBInstance()); err != nil {
+		return nil, virtualnetError(errors.New("could not refresh Node associations"))
+	}
 	if e := dbcore.GetDBInstance().Find(&rows).Error; e != nil {
 		return nil, virtualnetError(errors.New("profile query failed"))
+	}
+	for i := range rows {
+		rows[i].HasCredentials = rows[i].CredentialsPresent()
 	}
 	return rows, nil
 }
@@ -105,6 +147,9 @@ func loadVirtualnetProfile(ctx context.Context, req *rpc.JsonRpcRequest) (virtua
 	if e := dbcore.GetDBInstance().First(&p, "peer_id = ?", q.PeerID).Error; e != nil {
 		return p, errors.New("SSH profile not found")
 	}
+	if !p.CredentialsPresent() {
+		return p, errors.New("configure SSH credentials first")
+	}
 	_, e := virtualnet.FindPeer(ctx, p.PeerID, p.Address)
 	return p, e
 }
@@ -122,7 +167,7 @@ func virtualnetDelete(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.J
 		return nil, virtualnetError(errors.New("a deployment is in progress"))
 	}
 	defer virtualnetDeployment.Unlock()
-	if e := dbcore.GetDBInstance().Delete(&virtualnet.Profile{}, "peer_id = ?", q.PeerID).Error; e != nil {
+	if e := virtualnet.ForgetCredentials(dbcore.GetDBInstance(), q.PeerID); e != nil {
 		return nil, virtualnetError(errors.New("delete failed"))
 	}
 	virtualnetAudit(ctx, "delete SSH credentials", q.PeerID)
@@ -159,6 +204,13 @@ func virtualnetDeploy(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.J
 	if e := denyAPIKey(ctx); e != nil {
 		return nil, e
 	}
+	var options struct {
+		ConfirmationToken  string `json:"confirmation_token"`
+		OverwriteConfirmed bool   `json:"overwrite_confirmed"`
+	}
+	if e := req.BindParams(&options); e != nil {
+		return nil, virtualnetError(errors.New("invalid request"))
+	}
 	if !virtualnetDeployment.TryLock() {
 		return nil, virtualnetError(errors.New("a deployment is already running"))
 	}
@@ -167,14 +219,23 @@ func virtualnetDeploy(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.J
 		virtualnetDeployment.Unlock()
 		return nil, virtualnetError(e)
 	}
-	endpoint, e := virtualnet.Endpoint()
+	peer, e := virtualnet.FindPeer(ctx, p.PeerID, p.Address)
 	if e != nil {
 		virtualnetDeployment.Unlock()
 		return nil, virtualnetError(e)
 	}
-	if p.NodeUUID != "" {
+	settings, e := virtualnet.LoadSettings(dbcore.GetDBInstance())
+	if e != nil {
 		virtualnetDeployment.Unlock()
-		return nil, virtualnetError(errors.New("this peer already has a managed Node; automatic replacement is disabled"))
+		return nil, virtualnetError(e)
+	}
+	if _, e := settings.Endpoint(); e != nil {
+		virtualnetDeployment.Unlock()
+		return nil, virtualnetError(e)
+	}
+	if e := consumeVirtualnetConfirmation(ctx, options.ConfirmationToken, p, settings, options.OverwriteConfirmed); e != nil {
+		virtualnetDeployment.Unlock()
+		return nil, virtualnetError(e)
 	}
 	db := dbcore.GetDBInstance()
 	job := virtualnet.Job{ID: uuid.NewString(), PeerID: p.PeerID, Status: "running", Stage: "preflight"}
@@ -182,19 +243,38 @@ func virtualnetDeploy(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.J
 		virtualnetDeployment.Unlock()
 		return nil, virtualnetError(errors.New("could not create deployment job"))
 	}
-	virtualnetAudit(ctx, "deploy Node", p.PeerID)
+	if options.OverwriteConfirmed {
+		virtualnetAudit(ctx, "force overwrite managed Node", p.PeerID)
+	} else {
+		virtualnetAudit(ctx, "deploy Node", p.PeerID)
+	}
 	go func() {
 		defer virtualnetDeployment.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		update := func(status, stage, message string) {
-			db.Model(&virtualnet.Job{}).Where("id = ?", job.ID).Updates(map[string]any{"status": status, "stage": stage, "error": message, "node_uuid": p.NodeUUID})
+		update := func(status, stage, message string) bool {
+			if e := virtualnet.UpdateJob(db, job.ID, p.NodeUUID, status, stage, message); e != nil {
+				logger.Errorf("virtualnet", "Deployment %s: status persistence failed at %s; execution stopped, inspect remote installation", job.ID, stage)
+				return false
+			}
+			return true
 		}
-		if e := virtualnet.Preflight(ctx, p); e != nil {
+		installation, e := virtualnet.InspectInstallation(ctx, p)
+		if e != nil {
 			update("failed", "preflight", e.Error())
 			return
 		}
-		id, token, e := clients.CreateClientWithName("EasyTier-" + p.PeerID)
+		if installation.Existing() && !options.OverwriteConfirmed {
+			update("failed", "preflight", "installation changed; inspect and confirm overwrite again")
+			return
+		}
+		var id, token string
+		if p.NodeUUID != "" {
+			id = p.NodeUUID
+			token, e = clients.GetClientTokenByUUID(id)
+		} else {
+			id, token, e = clients.CreateClientWithName(peer.NodeName())
+		}
 		if e != nil {
 			update("failed", "registration", "could not register Node")
 			return
@@ -206,17 +286,26 @@ func virtualnetDeploy(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.J
 			update("failed", "registration", "could not save Node association")
 			return
 		}
-		compose, e := virtualnet.Compose(token, endpoint)
+		compose, e := virtualnet.Compose(token, settings)
 		if e != nil {
 			update("failed", "compose", e.Error())
 			return
 		}
-		update("running", "compose", "")
-		if e := virtualnet.Deploy(ctx, p, compose); e != nil {
-			update("failed", "compose", e.Error()+"; partial installation is preserved; inspect /opt/enb/node before retrying")
+		if !update("running", "compose", "") {
 			return
 		}
-		update("running", "awaiting_agent", "")
+		previousConnection, _ := agent_runtime.ActiveConnectionID(id)
+		if e := virtualnet.Deploy(ctx, p, compose, options.OverwriteConfirmed); e != nil {
+			update("failed", "compose", e.Error()+"; partial installation is preserved; inspect enb/node in the SSH login user's home before retrying")
+			return
+		}
+		if e := db.Model(&virtualnet.Profile{}).Where("peer_id = ?", p.PeerID).Update("paused", false).Error; e != nil {
+			update("failed", "compose", "container started but deployment state could not be saved")
+			return
+		}
+		if !update("running", "awaiting_agent", "") {
+			return
+		}
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -225,7 +314,8 @@ func virtualnetDeploy(ctx context.Context, req *rpc.JsonRpcRequest) (any, *rpc.J
 				update("failed", "awaiting_agent", "container started but agent did not connect; verify virtual control URL and TLS")
 				return
 			case <-ticker.C:
-				if agent_runtime.IsAgentOnline(id) {
+				connection, online := agent_runtime.ActiveConnectionID(id)
+				if online && (previousConnection == 0 || connection != previousConnection) {
 					update("succeeded", "online", "")
 					return
 				}

@@ -25,6 +25,7 @@ import (
 	"github.com/nuomiiiii/lite/pkg/trafficreset"
 	v2 "github.com/nuomiiiii/lite/protocol/v2"
 	"github.com/nuomiiiii/lite/utils"
+	"github.com/nuomiiiii/lite/virtualnet"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -205,6 +206,9 @@ func deleteClient(db *gorm.DB, clientUuid string) (bool, error) {
 
 		if err := tx.Delete(&models.Client{}, "uuid = ?", clientUuid).Error; err != nil {
 			return fmt.Errorf("delete client: %w", err)
+		}
+		if err := virtualnet.ReconcileNodeAssociations(tx); err != nil {
+			return fmt.Errorf("release deleted client's virtual network association: %w", err)
 		}
 		return nil
 	})

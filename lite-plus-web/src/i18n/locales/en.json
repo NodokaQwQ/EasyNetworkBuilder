@@ -1,6 +1,39 @@
 {
   "virtualnet": {
-    "title": "Virtual network", "refresh": "Refresh", "readonly": "EasyTier configuration is read-only. Node installation requires confirmation and does not alter networking, existing proxies or firewalls.", "instance": "Instance", "default_instance": "Default instance", "device": "Device", "addresses": "Virtual addresses", "route": "Route", "version": "Version", "ssh": "SSH profile", "actions": "Actions", "local": "Local Head", "not_configured": "Not configured", "configure": "Configure SSH", "test": "Test connection", "deploy": "Deploy Node", "forget": "Delete credentials", "jobs": "Deployment jobs", "credentials_notice": "Credentials are encrypted and never returned. Empty fields preserve existing secrets. Changed endpoints, accounts or host keys require fresh credentials.", "port": "SSH port", "username": "SSH user", "probe": "Probe host key (without credentials)", "probe_warning": "This fingerprint is unverified. Check it independently, such as through the server console, before entering it below.", "fingerprint": "Verified SHA256 host fingerprint", "verified": "I independently verified this host fingerprint", "auth": "Authentication", "key": "SSH private key", "password": "SSH password", "passphrase": "Key passphrase", "key_hint": "Import a file for multiline keys. Its path is not uploaded.", "import_key": "Import private key", "key_too_large": "Private key exceeds 64KiB", "sudo": "Use sudo", "sudo_password": "Sudo password", "sudo_hint": "Initially empty uses passwordless sudo; empty on update preserves the stored password.", "cancel": "Cancel", "save": "Save encrypted", "deploy_notice": "Linux amd64 with Docker Compose installed is required. Creates /opt/enb/node with a pinned image. Never overwrites existing directories, migrates proxies or modifies EasyTier. Failed installations are preserved for inspection and are not automatically retried.", "confirm_deploy": "Confirm deployment", "test_ok": "SSH identity, authentication and Docker Compose privileges verified.", "load_failed": "Could not load SSH profiles or deployment jobs"
+    "pause":"Withdraw deployment (keep data)",
+    "resume":"Resume deployment",
+    "paused":"Withdrawn (data retained)",
+    "confirm_lifecycle":"Confirm action",
+    "pause_notice":"Down only the managed Compose at this SSH user's ~/enb/node. The Node and its proxy cores stop. Keep the directory, original Compose, token, snapshots, rules and server record. No data or other projects are deleted.",
+    "resume_notice":"Pull the original pinned image and start the retained Compose. Preserve its settings, token and all data; do not apply new deployment settings or register another server. Wait for the Agent to reconnect. A deleted panel record invalidates the old token and cannot be directly resumed.",
+    "force_deploy": "Force overwrite",
+    "detected_yes": "yes",
+    "detected_no": "no",
+    "installation_detected": "~/enb/node inspection: directory {{directory}} · Compose/containers {{compose}} · running {{running}}",
+    "overwrite_warning": "An installation or panel association exists. Confirmation downs only the enb-managed-node project belonging to this SSH user's ~/enb/node, then deletes and recreates that directory. All old inbounds, snapshots, credentials and directory data are permanently lost without backup. A failed down prevents deletion. Other projects and the parent ~/enb are not removed.",
+    "overwrite_confirm": "I confirm stopping and permanently deleting this device's ~/enb/node installation and data, and authorize overwrite.",
+    "deletion_notice": "Deleting a server does not uninstall the remote Node. Deployment first inspects the old directory and Compose. Replacement requires explicit overwrite confirmation and targets only this SSH user's ~/enb/node.",
+    "deployment_settings": "Deployment settings",
+    "control_url": "Node control HTTPS URL",
+    "control_ip": "Control virtual IP mapping (optional)",
+    "control_hint": "Stored in the Head database and used only for new Nodes. Does not change EasyTier, host DNS or existing Nodes. Clear both fields to disable deployment.",
+    "control_missing": "Configure the Node HTTPS control URL in Deployment settings before deploying a Node.",
+    "control_url_hint": "An HTTPS origin reachable by the Node with a valid certificate; an optional port is allowed. No path, credentials, query or secrets.",
+    "control_ip_hint": "Optionally map the control hostname to this EasyTier IP only inside new Node containers. Leave empty for normal DNS. TLS still validates the hostname.",
+    "save_settings": "Save settings",
+    "settings_saved": "Deployment settings saved; only new Node installations are affected.",
+    "connection_hint": "Use the target's actual SSH port and login account, not necessarily 22 / root. Sudo is used only after login and cannot enable a prohibited root login.",
+    "errors": {
+      "authentication": "SSH authentication failed. Check the username, password or private key, and whether this account allows SSH login. The sudo password is not an SSH login password.",
+      "handshake": "SSH handshake failed. Check that the port serves SSH and supports compatible algorithms.",
+      "host_key": "SSH host fingerprint mismatch. No login credentials were sent. Verify the fingerprint independently before updating it.",
+      "private_key": "Invalid SSH private key or passphrase. Import the complete private key, not a public key or file path.",
+      "timeout": "SSH handshake timed out. Check the SSH port and network reachability.",
+      "unreachable": "SSH endpoint unreachable. Check the virtual address, SSH port and network reachability."
+    },
+    "title": "Virtual network", "refresh": "Refresh", "readonly": "EasyTier configuration is read-only. Node installation requires confirmation and does not alter networking, existing proxies or firewalls.", "instance": "Instance", "default_instance": "Default instance", "device": "Device", "addresses": "Virtual addresses", "route": "Route", "version": "Version", "ssh": "SSH profile", "actions": "Actions", "local": "Local Head", "not_configured": "Not configured", "configure": "Configure SSH", "test": "Test connection", "deploy": "Deploy Node", "forget": "Delete credentials", "jobs": "Deployment jobs", "credentials_notice": "Credentials are encrypted and never returned. Empty fields preserve existing secrets. Changed endpoints, accounts or host keys require fresh credentials.", "port": "SSH port", "username": "SSH user", "probe": "Probe host key (without credentials)", "probe_warning": "This fingerprint is unverified. Check it independently, such as through the server console, before entering it below.", "fingerprint": "Verified SHA256 host fingerprint", "verified": "I independently verified this host fingerprint", "auth": "Authentication", "key": "SSH private key", "password": "SSH password", "passphrase": "Key passphrase", "key_hint": "Import a file for multiline keys. Its path is not uploaded.", "import_key": "Import private key", "key_too_large": "Private key exceeds 64KiB", "sudo": "Use sudo", "sudo_password": "Sudo password", "sudo_hint": "Initially empty uses passwordless sudo; empty on update preserves the stored password.", "cancel": "Cancel", "save": "Save encrypted",
+    "deploy_notice": "Requires Linux amd64, Docker Compose and iproute2. Installs under the SSH user's ~/enb/node; sudo keeps this path. New installs use host networking and detected physical default-route NICs to measure host traffic. Proxy cores bind host ports directly: check conflicts first. Overwrite needs separate confirmation. No proxy migration or EasyTier changes. Resume retains the original Compose and network mode; failures are preserved.",
+    "confirm_deploy": "Confirm deployment", "test_ok": "SSH identity, authentication and Docker Compose privileges verified.", "load_failed": "Could not load SSH profiles or deployment jobs"
   },
   "account": {
     "2fa_enabled": "Two-factor authentication is enabled",

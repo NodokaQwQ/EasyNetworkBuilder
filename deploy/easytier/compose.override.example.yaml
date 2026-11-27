@@ -14,7 +14,7 @@ services:
       ENB_EASYTIER_RPC: 127.0.0.1:15888
       ENB_EASYTIER_CLI: /usr/local/bin/easytier-cli
       ENB_EASYTIER_INSTANCE: ${EASYTIER_INSTANCE:-}
-      ENB_NODE_CONTROL_URL: ${ENB_NODE_CONTROL_URL:?set HTTPS internal control URL}
+      # Configure the Node HTTPS control URL / optional virtual IP on /admin/virtualnet.
     volumes:
       - ./enb-data:/app/data
     restart: unless-stopped
