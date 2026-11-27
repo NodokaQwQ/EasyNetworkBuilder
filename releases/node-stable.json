@@ -10,11 +10,11 @@
       "channel": "stable",
       "rollback": "restore-nodemgt-v1",
       "from_versions": [
-        "0.0.1"
+        "0.2.1-enb-permissions.1"
       ],
       "published_at": "2026-11-27T08:22:00.181730Z",
       "min_head": "0.0.1",
-      "notes": "首个 ENB Node 数字版本，人工首次安装基线。独立远程权限参数、Docker 固定版本发布。镜像启动/权限策略拒绝及相关 Go 测试通过；真实 SSH→Agent 更新回滚与代理业务闭环未验收。from_versions 仅为基线占位，同版本更新被拒绝，不开放旧版本迁移。详见 releases/0.0.1.md。"
+      "notes": "允许受管 linux/amd64 Node 从 0.2.1-enb-permissions.1 升级至 0.0.1，最低 Head 0.0.1。已在隔离真实 Docker Compose 下验证两个实际镜像切换、保留 Compose/环境/数据、提交及停机快照回滚。仅支持 SSH 登录用户 ~/enb/node 的 enb-managed-node 单服务及 /app/nodemgt 单 bind；旧 ~/enb-test 不可直接升级。完整真实 SSH→Head→Agent 及代理业务闭环未验收，不自动批量升级。详见 releases/0.0.1.md。"
     }
   ]
 }
