@@ -4,7 +4,12 @@
 
 ## 当前状态
 
-### Head 0.0.2（镜像已发布，未更新线上）
+### Head 0.0.3（镜像已发布，手动更新）
+
+- `nodokaqwq/enb:head-v0.0.3`，linux/amd64，源码 `57d48d8`；digest `sha256:2fac47d6eba103f790d3598cf0e719a0a914803f5f85c0d2d610099ccb96356d`。
+- 修复 Reality 订阅遗漏 MLKEM 开关；允许从 Head 0.0.2 手动更新，Node 保持 0.0.1。不自动更新线上服务或移动 latest。
+
+### Head 0.0.2
 
 - `nodokaqwq/enb:head-v0.0.2`，linux/amd64，源码 `13341e28aad45579b5401341830030b8080d5e2c`；digest `sha256:3d4b21e55ee89b033a20fc0e4ead43a68d1404745106be18256b003f31ee86d7`。Node 不变，未移动 latest。
 - 修复物理出口与 IPv6 隧道并存时部署失败，补充脱敏错误分类；HK/MY 旧 Node 防覆盖检查保留。三台机器只读网卡检查、Head 回归/相关竞态/vet、镜像冒烟及隔离更新器 0.0.1→0.0.2 成功/失败回滚通过。
