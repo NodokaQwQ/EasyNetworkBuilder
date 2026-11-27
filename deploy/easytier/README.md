@@ -24,7 +24,7 @@ ENB 读取已有 EasyTier 实例发现设备，不创建或修改组网。不要
 
 镜像获取先检查本地缓存，再尝试最多20秒拉取。失败后按当前发现的虚拟 IP 数值顺序尝试其他已授权设备；候选须有匹配当前地址的可信 SSH 凭据及 Node Docker 权限。命中镜像缓存直接传输，否则拉取也限20秒。
 
-传输通过 SSH 经 Head 流式协调，不开放 Docker API；单次5分钟、2GiB上限。核验发布 digest 对应的 amd64 manifest/config 和导入镜像ID，Head仍需能访问官方 registry 的元数据接口。导入可能不保留RepoDigests，故使用验明config ID运行，且启动禁止再次pull。全部失败在注册和停止旧服务前结束，不尝试次新版本。真实跨节点传输尚未验收，以上动态选择及中转为未发布源码功能。
+传输通过 SSH 经 Head 流式协调，不开放 Docker API；单次5分钟、2GiB上限。核验发布 digest 对应的 amd64 manifest/config 和导入镜像ID，Head仍需能访问官方 registry 的元数据接口。导入可能不保留RepoDigests，故使用验明config ID运行，且启动禁止再次pull。全部失败在注册和停止旧服务前结束，不尝试次新版本。动态选择和中转已经包含在 Head 0.0.4 中，但真实跨节点传输尚未验收，不保证端到端可用性。
 
 ## 宿主机流量
 
