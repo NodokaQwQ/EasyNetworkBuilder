@@ -706,3 +706,30 @@ func TestSummarizeDashboardLatencyAndLossPoints(t *testing.T) {
 	assert.InDelta(t, 50, avgLat, 0.001)
 	assert.InDelta(t, 12.5, avgLoss, 0.001)
 }
+
+func TestSubDayTrafficCalibrationsStayWithinTheirOwnDay(t *testing.T) {
+	loc := trafficledger.BeijingLocation
+	now := time.Date(2026, 7, 31, 10, 30, 0, 0, loc)
+	yesterday := dashboardDay(now, loc).AddDate(0, 0, -1)
+	buckets, _ := summarizeSubDayTrafficBuckets(
+		[]models.Client{{UUID: "a"}},
+		map[string][]trafficledger.HourlyUsage{"a": {
+			{Hour: yesterday.Add(time.Hour), Usage: trafficledger.Usage{Up: 100}},
+			{Hour: dashboardDay(now, loc).Add(time.Hour), Usage: trafficledger.Usage{Up: 10}},
+		}},
+		map[string]trafficledger.SignedUsage{
+			"a\x00" + yesterday.Format(time.DateOnly): {Up: 20},
+			"a\x00" + now.Format(time.DateOnly):       {Up: -50},
+		}, yesterday, 6, 6, 36, now, loc,
+	)
+	var previous, current int64
+	for _, bucket := range buckets {
+		if bucket.Start.In(loc).Before(dashboardDay(now, loc)) {
+			previous += bucket.Up
+		} else {
+			current += bucket.Up
+		}
+	}
+	require.EqualValues(t, 120, previous)
+	require.Zero(t, current)
+}

@@ -17,11 +17,11 @@ COPY --from=frontend /enb-theme/Lite-theme.json ./web/public/bundledThemes/enb-t
 COPY --from=frontend /enb-theme/preview.png ./web/public/bundledThemes/enb-theme/preview.png
 COPY --from=frontend /enb-theme/dist ./web/public/bundledThemes/enb-theme/dist
 ENV CGO_ENABLED=1 GODEBUG=http2client=0
-ARG ENB_VERSION=0.0.1
+ARG ENB_VERSION=0.0.5
 ARG ENB_REVISION=unknown
 RUN --mount=type=cache,id=enb-head-modules,target=/go/pkg/mod --mount=type=cache,id=enb-head-build,target=/root/.cache/go-build go build -trimpath -ldflags "-s -w -linkmode external -extldflags '-static' -X github.com/nuomiiiii/lite/utils.CurrentVersion=${ENB_VERSION} -X github.com/nuomiiiii/lite/utils.VersionHash=${ENB_REVISION}" -o /out/Lite .
 FROM alpine:3.23
-ARG ENB_VERSION=0.0.1
+ARG ENB_VERSION=0.0.5
 ARG ENB_REVISION=unknown
 LABEL org.opencontainers.image.version=$ENB_VERSION org.opencontainers.image.revision=$ENB_REVISION org.opencontainers.image.source="https://github.com/NodokaQwQ/EasyNetworkBuilder" io.enb.component="head"
 RUN apk add --no-cache ca-certificates tzdata

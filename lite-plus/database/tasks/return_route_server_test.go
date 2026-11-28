@@ -120,6 +120,7 @@ func TestServerQueryPaginationIncludesAllSiblingTargets(t *testing.T) {
 func TestServerTaskPreservesHistoryAndRetargetsPing(t *testing.T) {
 	db := newReturnRouteServerTestDB(t)
 	p := serverParams(t, db, "node-a")
+	p.MainlandReachabilityEnabled = true
 	require.NoError(t, saveReturnRouteServer(db, p))
 	id := p.Targets[0].ID
 	var old models.ReturnRouteTask
@@ -127,6 +128,7 @@ func TestServerTaskPreservesHistoryAndRetargetsPing(t *testing.T) {
 	oldPingID := *old.MainlandReachabilityPingTaskID
 	require.NoError(t, db.Create(&models.ReturnRouteEvent{TaskId: id, Client: "node-a", Kind: "switch", OccurredAt: time.Now()}).Error)
 	p = serverParams(t, db, "node-a")
+	p.MainlandReachabilityEnabled = true
 	p.Name = "renamed"
 	require.NoError(t, saveReturnRouteServer(db, p))
 	var status models.ReturnRouteStatus
@@ -136,6 +138,7 @@ func TestServerTaskPreservesHistoryAndRetargetsPing(t *testing.T) {
 	var row models.ReturnRouteTask
 	require.NoError(t, db.First(&row, id).Error)
 	require.NotEqual(t, oldPingID, *row.MainlandReachabilityPingTaskID)
+	require.True(t, row.MainlandReachabilityEnabled)
 	require.ErrorIs(t, db.First(&status, "task_id = ?", id).Error, gorm.ErrRecordNotFound)
 	var events int64
 	require.NoError(t, db.Model(&models.ReturnRouteEvent{}).Where("task_id = ?", id).Count(&events).Error)

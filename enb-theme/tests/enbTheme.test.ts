@@ -14,7 +14,7 @@ import {
   parseNodeTags,
   resolveCountryCode,
   shortOsName,
-} from "../src/lib/format";
+} from "../src/lib/format.ts";
 import {
   ALL_SERVERS_SERIES_KEY,
   buildMultiNodePingDataset,
@@ -22,12 +22,12 @@ import {
   projectPingChartData,
   projectTrafficChartData,
   type MetricSeries,
-} from "../src/lib/rpc";
+} from "../src/lib/rpc.ts";
 import {
   CHART_PALETTE_DARK,
   CHART_PALETTE_LIGHT,
   chartSeriesColor,
-} from "../src/theme/tokens";
+} from "../src/theme/tokens.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const themeRoot = path.resolve(__dirname, "..");

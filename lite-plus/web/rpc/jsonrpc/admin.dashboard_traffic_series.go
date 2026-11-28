@@ -245,12 +245,27 @@ func summarizeSubDayTrafficBuckets(
 		indexByStart[bStart.Unix()] = i
 	}
 
-	todayKey := dashboardDay(now, loc).Format(time.DateOnly)
 	serverTotals := make(map[string]int64, len(clientList))
 
 	for _, client := range clientList {
-		adj := adjustments[client.UUID+"\x00"+todayKey]
-		adjustedHours := trafficledger.ApplyHourlyAdjustmentIn(hourlyByClient[client.UUID], adj, now, loc)
+		// Multi-day windows must apply each day's calibration only to that day.
+		// Applying today's negative delta to the whole window can erase yesterday.
+		var adjustedHours []trafficledger.HourlyUsage
+		for day := dashboardDay(firstBucket, loc); !day.After(dashboardDay(now, loc)); day = day.AddDate(0, 0, 1) {
+			end := day.AddDate(0, 0, 1)
+			var hours []trafficledger.HourlyUsage
+			for _, hour := range hourlyByClient[client.UUID] {
+				if !hour.Hour.Before(day) && hour.Hour.Before(end) {
+					hours = append(hours, hour)
+				}
+			}
+			adj := adjustments[client.UUID+"\x00"+day.Format(time.DateOnly)]
+			anchor := end.Add(-time.Hour)
+			if now.Before(end) {
+				anchor = now
+			}
+			adjustedHours = append(adjustedHours, trafficledger.ApplyHourlyAdjustmentIn(hours, adj, anchor, loc)...)
+		}
 		for _, h := range adjustedHours {
 			if h.Up <= 0 && h.Down <= 0 {
 				continue
