@@ -8,6 +8,7 @@ import { VitePWA } from "vite-plugin-pwa";
 import type { Plugin, UserConfig } from "vite";
 import * as fs from "fs";
 import * as http from "http";
+import * as https from "https";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
@@ -55,7 +56,8 @@ function litePublicDashboardProxy(apiTarget: string): Plugin {
           return;
         }
         const target = new URL(apiTarget);
-        const upstream = http.request(
+        const transport = target.protocol === "https:" ? https : http;
+        const upstream = transport.request(
           {
             protocol: target.protocol,
             hostname: target.hostname,

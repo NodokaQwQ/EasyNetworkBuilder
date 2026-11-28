@@ -44,7 +44,7 @@ export default function AdminTopbar({
       position="sticky"
       color="inherit"
       sx={{
-        bgcolor: "background.default",
+         bgcolor: (theme) => theme.palette.mode === "light" ? "#F3F2F8" : "#181821",
         backgroundImage: "none",
         color: "text.primary",
         boxShadow: "none",
@@ -77,7 +77,8 @@ export default function AdminTopbar({
             <Chip
               data-testid="admin-update-button"
               clickable
-              color={updateAvailable ? "error" : "default"}
+               color={updateAvailable ? "error" : "primary"}
+               variant={updateAvailable ? "filled" : "outlined"}
               size="small"
               label={updateAvailable ? t("common.update_available") : "ENB 更新"}
               onClick={onOpenUpdate}

@@ -9,8 +9,8 @@ import {
 } from "../src/theme/appearanceChrome.ts";
 
 test("admin appearance chrome matches the header, not the brand accent", () => {
-  assert.equal(APPEARANCE_CHROME_LIGHT, "#FFFFFF");
-  assert.equal(APPEARANCE_CHROME_DARK, "#161C24");
+  assert.equal(APPEARANCE_CHROME_LIGHT, "#F9F8FC");
+  assert.equal(APPEARANCE_CHROME_DARK, "#111118");
   assert.equal(appearanceChromeColor(false), APPEARANCE_CHROME_LIGHT);
   assert.equal(appearanceChromeColor(true), APPEARANCE_CHROME_DARK);
 
@@ -21,8 +21,10 @@ test("admin appearance chrome matches the header, not the brand accent", () => {
   const cards = readFileSync("src/components/admin/DashboardPanels.tsx", "utf8");
   const theme = readFileSync("src/theme/createAppTheme.ts", "utf8");
 
-  assert.match(html, /theme-color" content="#FFFFFF"/);
-  assert.match(html, /isDark \? "#161C24" : "#FFFFFF"/);
+  assert.match(html, /theme-color" content="#F9F8FC"/);
+  assert.match(html, /isDark \? "#111118" : "#F9F8FC"/);
+  assert.match(html, /:where\(html\)\s*\{\s*background: #F9F8FC/);
+  assert.match(html, /:where\(html.dark\)\s*\{\s*background: #111118/);
   assert.doesNotMatch(html, /theme-color" content="#0E86DD"/);
   assert.match(main, /flushSync/);
   assert.match(main, /applyAppearanceChrome/);

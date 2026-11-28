@@ -38,7 +38,7 @@ test("radix space tokens stay in CSS pixels for MUI sx", () => {
   assert.match(source, /return `\$\{Number\(value\) \* 4\}px`/);
 });
 
-test("node list filters use a gray toolbar and white search field", () => {
+test("node list filters retain neutral surfaces and theme-aware primary controls", () => {
   const css = readFileSync("src/global.css", "utf8");
   const layout = readFileSync("src/components/admin/adminListLayout.ts", "utf8");
   assert.match(css, /\.km-admin-node-list-filters[\s\S]*?padding: 16px 16px 20px;\s*background: #f4f6f8;/);
@@ -48,7 +48,10 @@ test("node list filters use a gray toolbar and white search field", () => {
   assert.match(layout, /palette\.mode === "dark" \? INPUT_FILL_DARK : FILTER_FIELD/);
   assert.match(css, /html\.dark \[data-admin-shell\] \.km-admin-node-list-filters \.MuiOutlinedInput-root[\s\S]*?background-color: #212b36;/);
   const theme = readFileSync("src/theme/createAppTheme.ts", "utf8");
-  assert.match(theme, /primary: \{\s*main: ACCENT/);
+  assert.match(theme, /primary: \{\s*main: isLight \? ACCENT : "#ACA3FF"/);
+  const material = readFileSync("src/adminMaterial.css", "utf8");
+  assert.match(material, /html\[data-admin-shell-active="true"\][\s\S]*--muted: #f3f2f8;/);
+  assert.match(material, /\.km-admin-node-list-filters[\s\S]*background: var\(--muted\)/);
   assert.match(theme, /MuiAppBar:[\s\S]*color: "inherit"/);
   assert.match(theme, /MuiAppBar:[\s\S]*transition: "none"/);
 });
@@ -130,7 +133,9 @@ test("node detail overview keeps flag assets, spec icons, and HK preview values"
   assert.doesNotMatch(detailSource, /PREVIEW\.cores/);
   assert.doesNotMatch(detailSource, /PREVIEW\.ipv4/);
   assert.match(sidebarBrandSource, /data-testid="sidebar-brand"/);
-  assert.match(sidebarBrandSource, /data-testid="sidebar-brand-plus"/);
+  assert.match(sidebarBrandSource, /data-testid="sidebar-brand-wordmark"/);
+  assert.match(sidebarBrandSource, /EasyNetworkBuilder/);
+  assert.match(sidebarBrandSource, /aria-label=\{LITE_NAME\}/);
   assert.match(sidebarBrandSource, /viewBox="0 0 32 32"/);
   assert.doesNotMatch(sidebarBrandSource, /LITE_NAME\.split/);
   assert.match(sidebarSource, /fontSize: 16/);

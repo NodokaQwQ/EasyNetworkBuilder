@@ -27,6 +27,7 @@ import {
 import { ArrowDown, ArrowUp, ArrowUpDown } from "@/components/admin/muiIcons";
 import { AppDialogContent, Button, Dialog, Skeleton } from "@/components/admin/ui";
 import { ChartContainer } from "@/components/ui/chart";
+import { CHART_COLORS } from "@/theme/chartPalette";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   Table,
@@ -190,7 +191,7 @@ export function BillingTrendPanel({
         </div>
       ) : charts ? (
         <ChartContainer
-          config={{ billable: { label: t("admin_dashboard.billable"), color: "var(--accent-9)" } }}
+          config={{ billable: { label: t("admin_dashboard.billable"), color: CHART_COLORS.billable } }}
           className="min-h-[220px] w-full flex-1 aspect-auto"
         >
           <BarChart
@@ -213,16 +214,17 @@ export function BillingTrendPanel({
               content={({ active, payload, label }) => active && payload?.length ? (
                 <div className="rounded-md border bg-background px-3 py-2 text-xs shadow-sm">
                   <div className="mb-1 text-muted-foreground">{label}</div>
-                  <div className="font-medium">{t("admin_dashboard.billable")}: {formatBytes(Number(payload[0]?.value ?? 0))}</div>
+                   <div className="font-medium" style={{ color: CHART_COLORS.billable }}>{t("admin_dashboard.billable")}: {formatBytes(Number(payload[0]?.value ?? 0))}</div>
                   <div className="mt-1 text-muted-foreground">{t("admin_dashboard.click_bar_hint")}</div>
                 </div>
               ) : null}
             />
-            <Bar dataKey="billable" radius={[2, 2, 0, 0]} maxBarSize={24} isAnimationActive={false} cursor="pointer">
+            <Bar dataKey="billable" radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false} cursor="pointer">
               {data.map((entry) => (
                 <Cell
                   key={entry.day}
-                  fill={entry.day === selectedDay ? "var(--accent-9)" : "var(--color-billable)"}
+                  fill={CHART_COLORS.billable}
+                  fillOpacity={entry.day === selectedDay ? 1 : 0.8}
                 />
               ))}
             </Bar>

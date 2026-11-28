@@ -102,7 +102,7 @@ type BillingClientInfo = { uuid: string; name: string; region?: string; group?: 
 
 const BILLING_TABS = ["overview", "monthly", "yearly"] as const;
 
-const ONE_TIME_FEE_COLOR = "#8250DF";
+const ONE_TIME_FEE_COLOR = "var(--chart-series-4)";
 
 const panelSx = {
   overflow: "hidden",
@@ -382,9 +382,9 @@ function FxStatus({ state }: { state?: BillingFXState }) {
 function BreakdownPanel({ overview, currency }: { overview: BillingOverview; currency: BillingCurrency }) {
   const { t } = useTranslation();
   const values = [
-    { label: t("billing.types.base"), amount: overview.month_composition.base, percent: overview.month_composition.base_percent, color: "primary.main" },
-    { label: t("billing.types.trafficReset"), amount: overview.month_composition.extra, percent: overview.month_composition.extra_percent, color: "warning.main" },
-    { label: t("billing.types.ipChange"), amount: overview.month_composition.other || "0", percent: overview.month_composition.other_percent, color: "success.main" },
+    { label: t("billing.types.base"), amount: overview.month_composition.base, percent: overview.month_composition.base_percent, color: "var(--chart-series-1)" },
+    { label: t("billing.types.trafficReset"), amount: overview.month_composition.extra, percent: overview.month_composition.extra_percent, color: "var(--chart-series-2)" },
+    { label: t("billing.types.ipChange"), amount: overview.month_composition.other || "0", percent: overview.month_composition.other_percent, color: "var(--chart-series-3)" },
     { label: t("billing.types.oneTimeFee"), amount: overview.month_composition.one_time || "0", percent: overview.month_composition.one_time_percent, color: ONE_TIME_FEE_COLOR },
   ];
   return (
@@ -434,9 +434,9 @@ function TrendPanel({ overview, currency }: { overview: BillingOverview; currenc
     one_time: Number(item.one_time),
   }));
   const tooltipStyle = {
-    borderRadius: 8,
+    borderRadius: 12,
     fontSize: 12,
-    backgroundColor: theme.palette.background.paper,
+    backgroundColor: "var(--chart-tooltip-bg)",
     borderColor: theme.palette.divider,
     color: theme.palette.text.primary,
     boxShadow: theme.shadows[2],
@@ -450,19 +450,18 @@ function TrendPanel({ overview, currency }: { overview: BillingOverview; currenc
         <Box sx={{ position: "absolute", inset: 0, p: "8px 8px 0 0" }}>
           <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} barGap={0} barCategoryGap="22%">
-            <CartesianGrid stroke="rgba(145,158,171,.16)" vertical={false} />
+            <CartesianGrid stroke="var(--chart-grid-line)" vertical={false} strokeDasharray="4 4" />
             <XAxis dataKey="period" axisLine={false} tickLine={false} tick={{ fill: "#919EAB", fontSize: 11 }} />
             <YAxis axisLine={false} tickLine={false} width={48} tick={{ fill: "#919EAB", fontSize: 11 }} />
             <Tooltip
               formatter={(value) => formatBillingMoney(String(value ?? "0"), currency)}
               contentStyle={tooltipStyle}
               labelStyle={{ color: theme.palette.text.secondary }}
-              itemStyle={{ color: theme.palette.text.primary }}
               cursor={{ fill: theme.palette.action.hover }}
             />
-            <Bar dataKey="base" name={t("billing.types.base")} fill="#0E86DD" radius={[4, 4, 0, 0]} maxBarSize={32} />
-            <Bar dataKey="extra" name={t("billing.types.trafficReset")} fill="#FFAB00" radius={[4, 4, 0, 0]} maxBarSize={32} />
-            <Bar dataKey="other" name={t("billing.types.ipChange")} fill="#118D57" radius={[4, 4, 0, 0]} maxBarSize={32} />
+            <Bar dataKey="base" name={t("billing.types.base")} fill="var(--chart-series-1)" radius={[4, 4, 0, 0]} maxBarSize={32} />
+            <Bar dataKey="extra" name={t("billing.types.trafficReset")} fill="var(--chart-series-2)" radius={[4, 4, 0, 0]} maxBarSize={32} />
+            <Bar dataKey="other" name={t("billing.types.ipChange")} fill="var(--chart-series-3)" radius={[4, 4, 0, 0]} maxBarSize={32} />
             <Bar dataKey="one_time" name={t("billing.types.oneTimeFee")} fill={ONE_TIME_FEE_COLOR} radius={[4, 4, 0, 0]} maxBarSize={32} />
           </BarChart>
           </ResponsiveContainer>

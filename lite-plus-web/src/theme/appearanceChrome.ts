@@ -1,5 +1,5 @@
-export const APPEARANCE_CHROME_LIGHT = "#FFFFFF";
-export const APPEARANCE_CHROME_DARK = "#161C24";
+export const APPEARANCE_CHROME_LIGHT = "#F9F8FC";
+export const APPEARANCE_CHROME_DARK = "#111118";
 
 export function appearanceChromeColor(isDark: boolean) {
   return isDark ? APPEARANCE_CHROME_DARK : APPEARANCE_CHROME_LIGHT;

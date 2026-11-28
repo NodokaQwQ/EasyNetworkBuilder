@@ -1,6 +1,6 @@
 import Box from "@mui/material/Box";
 
-import { LITE_BLUE, LITE_NAME } from "@/theme/brand";
+import { LITE_NAME } from "@/theme/brand";
 
 export default function SidebarBrand({
   mini,
@@ -47,11 +47,10 @@ export default function SidebarBrand({
           flexShrink: 0,
         }}
       >
-        <rect x="3" y="3" width="11.5" height="11.5" rx="3.5" fill="currentColor" />
-        <rect x="3" y="17.5" width="11.5" height="11.5" rx="3.5" fill="#FF6B63" />
-        <rect x="17.5" y="17.5" width="11.5" height="11.5" rx="3.5" fill={LITE_BLUE} />
-        <circle cx="23.25" cy="8.75" r="4" fill="#22B573" fillOpacity="0.12" />
-        <circle cx="23.25" cy="8.75" r="2.25" fill="#22B573" />
+        <rect x="0" y="0" width="32" height="32" rx="7" fill="#5845FF" />
+        <path d="M16 7 25 12.2v7.6L16 25l-9-5.2v-7.6L16 7Z" fill="none" stroke="white" strokeWidth="1.6" strokeLinejoin="round" />
+        <path d="M16 16V7m0 9 8 4.6M16 16 8 20.6" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+        <circle cx="16" cy="16" r="3.4" fill="white" />
       </Box>
       {mini ? null : (
         <Box
@@ -71,30 +70,14 @@ export default function SidebarBrand({
             sx={{
               position: "relative",
               display: "inline-block",
-              color: LITE_BLUE,
-              fontSize: compact ? 22 : 24,
-              fontWeight: 650,
+              color: "text.primary",
+              fontSize: compact ? 14 : 15,
+              fontWeight: 700,
               lineHeight: 1.05,
-              letterSpacing: "-0.6px",
-              paddingRight: "0.46em",
+              letterSpacing: "-0.4px",
             }}
           >
-            Lite
-            <Box
-              component="span"
-              data-testid="sidebar-brand-plus"
-              sx={{
-                position: "absolute",
-                top: "-0.14em",
-                right: 0,
-                fontSize: "0.5em",
-                fontWeight: 700,
-                lineHeight: 1,
-                letterSpacing: 0,
-              }}
-            >
-              +
-            </Box>
+            EasyNetworkBuilder
           </Box>
           <Box
             component="span"
@@ -106,7 +89,7 @@ export default function SidebarBrand({
               letterSpacing: "0.1em",
             }}
           >
-            SERVER MONITOR
+            OPERATIONS CONSOLE
           </Box>
         </Box>
       )}

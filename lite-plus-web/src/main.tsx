@@ -2,6 +2,7 @@ import React, { StrictMode, Suspense, useCallback, useLayoutEffect, useMemo } fr
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import "./global.css";
+import "./adminMaterial.css";
 import {
   ThemeContext,
   THEME_DEFAULTS,

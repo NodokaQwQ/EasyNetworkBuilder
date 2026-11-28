@@ -301,6 +301,10 @@ test("ships complete billing copy for every administrator locale", () => {
 
 test("yearly cost trend tooltip follows the current appearance", () => {
   assert.match(pageSource, /useTheme\(\)/);
-  assert.match(pageSource, /backgroundColor: theme\.palette\.background\.paper/);
-  assert.match(pageSource, /itemStyle=\{\{ color: theme\.palette\.text\.primary \}\}/);
+  assert.match(pageSource, /backgroundColor: "var\(--chart-tooltip-bg\)"/);
+  assert.match(pageSource, /borderColor: theme\.palette\.divider/);
+  assert.match(pageSource, /color: theme\.palette\.text\.primary/);
+  assert.match(pageSource, /labelStyle=\{\{ color: theme\.palette\.text\.secondary \}\}/);
+  // Let Recharts inherit each series color rather than flattening tooltip rows.
+  assert.doesNotMatch(pageSource, /itemStyle=\{\{ color: theme\.palette\.text\.primary \}\}/);
 });

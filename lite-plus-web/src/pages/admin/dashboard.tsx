@@ -605,7 +605,7 @@ export default function AdminDashboard() {
       ref={dashboardRootRef}
       data-admin-route-pending={initialDataPending ? "true" : undefined}
       onClickCapture={rememberClickedModule}
-      className="flex flex-col gap-4 p-0 md:p-4"
+       className="flex flex-col gap-5 p-0 md:p-4"
     >
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <AdminPageTitle description={t("admin_dashboard.subtitle")}>

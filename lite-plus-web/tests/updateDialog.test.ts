@@ -151,14 +151,15 @@ test("account menu reserves the destructive treatment for logout", () => {
   );
 });
 
-test("update chrome uses a red new-release chip instead of a download tray", () => {
+test("update chrome distinguishes new releases from the outlined primary update action", () => {
   const topbar = readFileSync("src/components/admin/shell/AdminTopbar.tsx", "utf8");
   const dialog = readFileSync(
     "src/components/admin/shell/UpdateReleaseDialog.tsx",
     "utf8",
   );
   assert.match(topbar, /<Chip/);
-  assert.match(topbar, /color=\{updateAvailable \? "error" : "default"\}/);
+  assert.match(topbar, /color=\{updateAvailable \? "error" : "primary"\}/);
+  assert.match(topbar, /variant=\{updateAvailable \? "filled" : "outlined"\}/);
   assert.match(topbar, /t\("common\.update_available"\)/);
   assert.doesNotMatch(topbar, /SystemUpdateAlt/);
   assert.doesNotMatch(topbar, /from "@mui\/icons-material\/Upgrade"/);

@@ -16,6 +16,7 @@ import {
   writeDesktopNavMini,
 } from "./adminShellModel";
 import AdminSidebar from "./AdminSidebar";
+import AdminChartTokens from "@/components/admin/AdminChartTokens";
 import AdminTopbar from "./AdminTopbar";
 import UpdateReleaseDialog from "./UpdateReleaseDialog";
 import { footerMenuItems, useAdminShell } from "./useAdminShell";
@@ -258,6 +259,7 @@ export default function AdminShell({ content }: AdminShellProps) {
         bgcolor: "background.default",
       }}
     >
+      <AdminChartTokens />
       <Drawer
         variant={isMobile ? "temporary" : "permanent"}
         open={isMobile ? sidebarOpen : true}
@@ -288,7 +290,8 @@ export default function AdminShell({ content }: AdminShellProps) {
             pt: isMobile ? "var(--safe-area-top)" : 0,
             pb: isMobile ? "var(--safe-area-bottom)" : 0,
             pl: isMobile ? "var(--safe-area-left)" : 0,
-            borderRight: "1px solid rgba(145, 158, 171, 0.2)",
+             borderRight: "1px solid",
+             borderColor: "divider",
             transition: (theme) =>
               theme.transitions.create("width", navMotion),
           },
@@ -316,7 +319,8 @@ export default function AdminShell({ content }: AdminShellProps) {
             width: 24,
             height: 24,
             ml: "-12px",
-            border: "1px solid rgba(145, 158, 171, 0.24)",
+             border: "1px solid",
+             borderColor: "divider",
             p: 0,
             display: "inline-flex",
             alignItems: "center",

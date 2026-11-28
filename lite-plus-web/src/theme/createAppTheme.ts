@@ -4,21 +4,25 @@ import { INPUT_FILL, INPUT_FILL_DARK, LITE_BLUE } from "@/theme/brand";
 import { dialogContainerNoFadeSx, dialogPaperVisibility } from "@/theme/dialogCloseMotion";
 
 const GREY = {
-  100: "#F9FAFB",
-  200: "#F4F6F8",
-  300: "#DFE3E8",
-  400: "#C4CDD5",
-  500: "#919EAB",
-  600: "#637381",
-  700: "#454F5B",
-  800: "#1C252E",
-  900: "#141A21",
+  100: "#F9F8FC",
+  200: "#F3F2F8",
+  300: "#E4E3EE",
+  400: "#C5C3D5",
+  500: "#8A87A1",
+  600: "#4D4B63",
+  700: "#323040",
+  800: "#1A1924",
+  900: "#111118",
 };
 
 const ACCENT = LITE_BLUE;
+const SURFACE = {
+  light: { canvas: "#F9F8FC", paper: "#FFFFFF", low: "#F3F2F8", high: "#E4E3EE", outline: "#C5C3D5" },
+  dark: { canvas: "#111118", paper: "#1F1E29", low: "#181821", high: "#282735", outline: "#434059" },
+} as const;
 
 const FONT_FAMILY =
-  '"Public Sans Variable", "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+  'Inter, "Public Sans Variable", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif';
 
 const CARD_SHADOW_LIGHT =
   "0 0 2px 0 rgba(145, 158, 171, 0.24), 0 12px 24px -4px rgba(145, 158, 171, 0.16)";
@@ -27,37 +31,47 @@ const CARD_SHADOW_DARK =
 
 export function createAppTheme(mode: "light" | "dark") {
   const isLight = mode === "light";
+  const surface = SURFACE[mode];
 
   return createTheme({
     palette: {
       mode,
       primary: {
-        main: ACCENT,
-        contrastText: "#FFFFFF",
+        main: isLight ? ACCENT : "#ACA3FF",
+        contrastText: isLight ? "#FFFFFF" : "#10066B",
       },
       info: {
-        main: ACCENT,
-        contrastText: "#FFFFFF",
+        main: isLight ? ACCENT : "#ACA3FF",
+        contrastText: isLight ? "#FFFFFF" : "#10066B",
       },
       secondary: {
-        main: isLight ? GREY[700] : GREY[200],
+        main: isLight ? "#554F87" : "#B9B5DE",
+      },
+      success: {
+        main: isLight ? "#0F8B5F" : "#6EE7B7",
+      },
+      warning: {
+        main: isLight ? "#B45309" : "#FCD34D",
+      },
+      error: {
+        main: isLight ? "#BA1A1A" : "#FFB4AB",
       },
       background: {
-        default: isLight ? "#FFFFFF" : "#161C24",
-        paper: isLight ? "#FFFFFF" : "#212B36",
+        default: surface.canvas,
+        paper: surface.paper,
       },
       text: {
-        primary: isLight ? GREY[800] : "#FFFFFF",
-        secondary: isLight ? GREY[600] : GREY[400],
+        primary: isLight ? "#1A1924" : "#E4E3ED",
+        secondary: isLight ? "#4D4B63" : "#BAB8CC",
       },
-      divider: alpha(GREY[500], isLight ? 0.2 : 0.24),
+      divider: surface.outline,
       action: {
-        hover: alpha(GREY[500], 0.08),
-        selected: alpha(GREY[500], 0.16),
+        hover: surface.high,
+        selected: isLight ? "#E0DEF2" : "#3A3663",
       },
     },
     shape: {
-      borderRadius: 8,
+      borderRadius: 12,
     },
     typography: {
       fontFamily: FONT_FAMILY,
@@ -87,7 +101,7 @@ export function createAppTheme(mode: "light" | "dark") {
             textRendering: "optimizeLegibility",
           },
           body: {
-            backgroundColor: isLight ? "#FFFFFF" : "#161C24",
+             backgroundColor: surface.canvas,
             WebkitFontSmoothing: "auto",
             MozOsxFontSmoothing: "auto",
             fontSize: 15,
@@ -97,9 +111,9 @@ export function createAppTheme(mode: "light" | "dark") {
           "[data-admin-shell]": {
             fontSize: 15,
             lineHeight: 1.65,
-            color: isLight ? "#1C252E" : "#FFFFFF",
-            "--muted-foreground": isLight ? GREY[600] : GREY[400],
-            "--gray-11": isLight ? GREY[600] : GREY[400],
+             color: isLight ? "#1A1924" : "#E4E3ED",
+             "--muted-foreground": isLight ? "#4D4B63" : "#BAB8CC",
+             "--gray-11": isLight ? "#4D4B63" : "#BAB8CC",
           },
         },
       },
@@ -107,7 +121,7 @@ export function createAppTheme(mode: "light" | "dark") {
         defaultProps: { disableElevation: true },
         styleOverrides: {
           root: {
-            borderRadius: 8,
+             borderRadius: 999,
             fontWeight: 600,
             minWidth: 0,
           },
@@ -142,21 +156,21 @@ export function createAppTheme(mode: "light" | "dark") {
         defaultProps: { elevation: 0 },
         styleOverrides: {
           root: {
-            borderRadius: 8,
-            boxShadow: "none",
-            border: `1px solid ${alpha(GREY[500], isLight ? 0.2 : 0.24)}`,
+             borderRadius: 16,
+             boxShadow: "none",
+             border: `1px solid ${surface.outline}`,
           },
         },
       },
       MuiPaper: {
         styleOverrides: {
-          rounded: { borderRadius: 8 },
+           rounded: { borderRadius: 16 },
         },
       },
       MuiOutlinedInput: {
         styleOverrides: {
           root: {
-            borderRadius: 8,
+             borderRadius: 12,
             backgroundColor: isLight ? INPUT_FILL : INPUT_FILL_DARK,
             transition: "border-color 180ms ease, box-shadow 180ms ease",
             "& .MuiOutlinedInput-notchedOutline": {
@@ -167,11 +181,11 @@ export function createAppTheme(mode: "light" | "dark") {
               borderColor: alpha(GREY[500], isLight ? 0.4 : 0.48),
             },
             "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-              borderColor: ACCENT,
+               borderColor: isLight ? ACCENT : "#ACA3FF",
               borderWidth: 1,
             },
             "&.Mui-focused": {
-              boxShadow: `0 0 0 3px ${alpha(ACCENT, isLight ? 0.1 : 0.16)}`,
+               boxShadow: `0 0 0 3px ${alpha(isLight ? ACCENT : "#ACA3FF", isLight ? 0.1 : 0.16)}`,
             },
             "&.Mui-disabled": {
               backgroundColor: isLight
@@ -227,15 +241,15 @@ export function createAppTheme(mode: "light" | "dark") {
       MuiListItemButton: {
         styleOverrides: {
           root: {
-            borderRadius: 8,
+             borderRadius: 12,
             paddingLeft: 10,
             paddingRight: 10,
             "&.Mui-selected": {
-              backgroundColor: isLight ? alpha(ACCENT, 0.08) : alpha(ACCENT, 0.16),
-              color: ACCENT,
+               backgroundColor: isLight ? "#DFDBFF" : "#3A3663",
+               color: isLight ? "#10085E" : "#E0DEF2",
               boxShadow: "none",
               "&:hover": {
-                backgroundColor: isLight ? alpha(ACCENT, 0.12) : alpha(ACCENT, 0.2),
+                 backgroundColor: isLight ? "#E0DEF2" : "#434059",
               },
             },
           },
@@ -246,7 +260,7 @@ export function createAppTheme(mode: "light" | "dark") {
         styleOverrides: {
           root: {
             backgroundImage: "none",
-            backgroundColor: isLight ? "#FFFFFF" : "#161C24",
+             backgroundColor: surface.low,
             transition: "none",
           },
         },
@@ -254,9 +268,9 @@ export function createAppTheme(mode: "light" | "dark") {
       MuiDrawer: {
         styleOverrides: {
           paper: {
-            borderRight: "none",
-            backgroundImage: "none",
-            backgroundColor: isLight ? "#FFFFFF" : "#161C24",
+             borderRight: `1px solid ${surface.outline}`,
+             backgroundImage: "none",
+             backgroundColor: surface.low,
           },
         },
       },
@@ -304,9 +318,9 @@ export function createAppTheme(mode: "light" | "dark") {
         },
         styleOverrides: {
           paper: {
-            borderRadius: 8,
+             borderRadius: 16,
             padding: 4,
-            border: `1px solid ${alpha(GREY[500], isLight ? 0.2 : 0.24)}`,
+             border: `1px solid ${surface.outline}`,
             backgroundImage: "none",
             boxShadow: isLight ? CARD_SHADOW_LIGHT : CARD_SHADOW_DARK,
           },
@@ -334,8 +348,8 @@ export function createAppTheme(mode: "light" | "dark") {
             ...dialogContainerNoFadeSx,
           },
           paper: ({ ownerState }: { ownerState?: { open?: boolean } }) => ({
-            borderRadius: 8,
-            border: `1px solid ${alpha(GREY[500], isLight ? 0.2 : 0.24)}`,
+             borderRadius: 28,
+             border: `1px solid ${surface.outline}`,
             backgroundImage: "none",
             boxShadow: isLight ? CARD_SHADOW_LIGHT : CARD_SHADOW_DARK,
             visibility: dialogPaperVisibility(Boolean(ownerState?.open)),
@@ -370,7 +384,7 @@ export function createAppTheme(mode: "light" | "dark") {
       MuiTableCell: {
         styleOverrides: {
           root: {
-            borderBottomColor: alpha(GREY[500], isLight ? 0.16 : 0.2),
+             borderBottomColor: surface.outline,
             padding: "12px 16px",
             fontSize: 14,
             fontWeight: 400,
@@ -378,7 +392,7 @@ export function createAppTheme(mode: "light" | "dark") {
           head: {
             height: 56,
             color: isLight ? GREY[600] : GREY[400],
-            backgroundColor: isLight ? GREY[200] : alpha("#FFFFFF", 0.04),
+             backgroundColor: surface.low,
             fontWeight: 600,
           },
         },
@@ -397,13 +411,13 @@ export function createAppTheme(mode: "light" | "dark") {
       },
       MuiChip: {
         styleOverrides: {
-          root: { borderRadius: 6, fontWeight: 500 },
+           root: { borderRadius: 999, fontWeight: 600 },
         },
       },
       MuiAlert: {
         styleOverrides: {
           root: {
-            borderRadius: 8,
+             borderRadius: 16,
             fontSize: 14,
             fontWeight: 400,
             alignItems: "flex-start",

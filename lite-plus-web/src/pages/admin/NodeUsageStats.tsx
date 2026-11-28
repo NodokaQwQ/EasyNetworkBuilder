@@ -4,7 +4,7 @@ import Stack from "@mui/material/Stack";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Area,
@@ -30,7 +30,8 @@ import { nodeTrafficType, trafficUsed } from "@/utils/trafficAccounting";
 import { formatTrafficResetRangeLabel } from "@/utils/trafficCycle";
 import { dashboardTrafficAxisWidth } from "@/utils/dashboard";
 import { formatBytes } from "@/utils/unitHelper";
-import { LITE_BLUE } from "@/theme/brand";
+import { CHART_COLORS } from "@/theme/chartPalette";
+import ChartGradient from "@/components/admin/ChartGradient";
 import {
   EMPTY_DISPLAY,
   type HoursRange,
@@ -267,12 +268,12 @@ function HistoryCard({ title, extra, children }: { title: string; extra?: ReactN
 function LegendItem({ color, label, value }: { color: string; label: string; value: string }) {
   return (
     <Stack direction="row" spacing={1} sx={{ minWidth: 0, alignItems: "center" }}>
-      <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: color, flexShrink: 0 }} />
+      <Box sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: color, flexShrink: 0 }} />
       <Box sx={{ minWidth: 0 }}>
-        <Typography variant="caption" sx={{ color: "#919EAB", fontWeight: 400 }}>
+        <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 400 }}>
           {label}
         </Typography>
-        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+        <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: "var(--chart-mono)", fontVariantNumeric: "tabular-nums" }}>
           {value}
         </Typography>
       </Box>
@@ -290,6 +291,7 @@ export default function NodeUsageStats({
   online: boolean;
 }) {
   const { t } = useTranslation();
+  const gradientId = useId().replace(/:/g, "");
   const [hours, setHours] = useState<HoursRange>(1);
   const [records, setRecords] = useState<LoadRecord[]>([]);
   const [daily, setDaily] = useState<DailyTrafficPoint[]>([]);
@@ -491,14 +493,14 @@ export default function NodeUsageStats({
         <Stack spacing={1.5} sx={{ height: "100%" }}>
           <UsageCard
             icon={<Cpu size={24} />}
-            color={LITE_BLUE}
+            color={CHART_COLORS.cpu}
             label={t("admin.nodeDetail.cpuUsage", "CPU 使用率")}
             value={hasCpu ? cpuPct.toFixed(1) : EMPTY_DISPLAY}
             percent={hasCpu ? cpuPct : 0}
           />
           <UsageCard
             icon={<MemoryStick size={24} />}
-            color="#FFAB00"
+            color={CHART_COLORS.memory}
             label={t("admin.nodeDetail.memUsage", "内存使用率")}
             value={hasMem ? memPct.toFixed(1) : EMPTY_DISPLAY}
             detail={
@@ -513,7 +515,7 @@ export default function NodeUsageStats({
           />
           <UsageCard
             icon={<HardDrive size={24} />}
-            color="#22C55E"
+            color={CHART_COLORS.disk}
             label={t("admin.nodeDetail.diskUsage", "磁盘使用率")}
             value={hasDisk ? diskPct.toFixed(1) : EMPTY_DISPLAY}
             detail={
@@ -551,7 +553,7 @@ export default function NodeUsageStats({
               {hasTrafficSplit ? (
                 <>
               <ChartContainer
-                config={{ in: { color: LITE_BLUE }, out: { color: "#FFAB00" } }}
+                config={{ in: { color: CHART_COLORS.inbound }, out: { color: CHART_COLORS.outbound } }}
                 className="h-[168px] w-[168px] aspect-auto"
               >
                 <PieChart>
@@ -560,11 +562,13 @@ export default function NodeUsageStats({
                     dataKey="value"
                     innerRadius={52}
                     outerRadius={74}
+                    paddingAngle={3}
+                    cornerRadius={4}
                     strokeWidth={0}
                     isAnimationActive={false}
                   >
-                    <Cell fill={LITE_BLUE} />
-                    <Cell fill="#FFAB00" />
+                    <Cell fill={CHART_COLORS.inbound} />
+                    <Cell fill={CHART_COLORS.outbound} />
                   </Pie>
                 </PieChart>
               </ChartContainer>
@@ -579,7 +583,7 @@ export default function NodeUsageStats({
                   pointerEvents: "none",
                 }}
               >
-                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, fontFamily: "var(--chart-mono)" }}>
                   {inShare} / {100 - inShare}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
@@ -600,10 +604,10 @@ export default function NodeUsageStats({
                 width: "100%",
               }}
             >
-              <LegendItem color={LITE_BLUE} label={t("admin.nodeDetail.inbound", "入站")} value={displayOrEmpty(inbound, formatBytes)} />
-              <LegendItem color="#69B1FF" label={t("admin.nodeDetail.speedIn", "入站速度")} value={formatSpeed(inboundSpeed)} />
-              <LegendItem color="#FFAB00" label={t("admin.nodeDetail.outbound", "出站")} value={displayOrEmpty(outbound, formatBytes)} />
-              <LegendItem color="#FF5630" label={t("admin.nodeDetail.speedOut", "出站速度")} value={formatSpeed(outboundSpeed)} />
+              <LegendItem color={CHART_COLORS.inbound} label={t("admin.nodeDetail.inbound", "入站")} value={displayOrEmpty(inbound, formatBytes)} />
+              <LegendItem color={CHART_COLORS.inbound} label={t("admin.nodeDetail.speedIn", "入站速度")} value={formatSpeed(inboundSpeed)} />
+              <LegendItem color={CHART_COLORS.outbound} label={t("admin.nodeDetail.outbound", "出站")} value={displayOrEmpty(outbound, formatBytes)} />
+              <LegendItem color={CHART_COLORS.outbound} label={t("admin.nodeDetail.speedOut", "出站速度")} value={formatSpeed(outboundSpeed)} />
               <LegendItem
                 color="#637381"
                 label={`${t("admin.nodeDetail.total", "总计")}${
@@ -632,7 +636,7 @@ export default function NodeUsageStats({
               height: 10,
               borderRadius: 99,
               bgcolor: "rgba(145,158,171,0.16)",
-              "& .MuiLinearProgress-bar": { bgcolor: LITE_BLUE, borderRadius: 99 },
+              "& .MuiLinearProgress-bar": { bgcolor: CHART_COLORS.inbound, borderRadius: 99 },
             }}
           />
           <Stack
@@ -689,7 +693,7 @@ export default function NodeUsageStats({
             </Typography>
             <Typography
               sx={{
-                color: usedTraffic != null && trafficLimit > 0 ? LITE_BLUE : "text.disabled",
+                color: usedTraffic != null && trafficLimit > 0 ? CHART_COLORS.inbound : "text.disabled",
                 fontWeight: 700,
                 fontSize: { xs: 28, sm: 32 },
                 lineHeight: 1,
@@ -724,7 +728,7 @@ export default function NodeUsageStats({
       >
         <HistoryCard title={t("admin.nodeDetail.cpuHistory", "CPU 历史数据")} extra={rangeButtons}>
           {points.length ? (
-          <ChartContainer config={{ cpu: { label: "CPU", color: LITE_BLUE } }} className="h-[180px] w-full aspect-auto">
+          <ChartContainer config={{ cpu: { label: "CPU", color: CHART_COLORS.cpu } }} className="h-[180px] w-full aspect-auto">
             <LineChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid vertical={false} strokeDasharray="3 3" />
               <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={28} />
@@ -739,7 +743,7 @@ export default function NodeUsageStats({
                   ) : null
                 }
               />
-              <Line type="monotone" dataKey="cpu" stroke={LITE_BLUE} strokeWidth={2} dot={false} isAnimationActive={false} />
+              <Line type="monotone" dataKey="cpu" stroke="var(--color-cpu)" strokeWidth={2} dot={false} isAnimationActive={false} />
             </LineChart>
           </ChartContainer>
           ) : (
@@ -748,8 +752,9 @@ export default function NodeUsageStats({
         </HistoryCard>
         <HistoryCard title={t("admin.nodeDetail.memHistory", "内存历史用量")}>
           {points.length ? (
-          <ChartContainer config={{ mem: { label: "Mem", color: "#2065D1" } }} className="h-[180px] w-full aspect-auto">
+          <ChartContainer config={{ mem: { label: "Mem", color: CHART_COLORS.memory } }} className="h-[180px] w-full aspect-auto">
             <AreaChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <defs><ChartGradient id={`${gradientId}-mem`} color={CHART_COLORS.memory} /></defs>
               <CartesianGrid vertical={false} strokeDasharray="3 3" />
               <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={28} />
               <YAxis hide domain={[0, 100]} />
@@ -763,7 +768,7 @@ export default function NodeUsageStats({
                   ) : null
                 }
               />
-              <Area type="monotone" dataKey="mem" stroke="#2065D1" fill="rgba(32,101,209,0.18)" strokeWidth={2} isAnimationActive={false} />
+              <Area type="monotone" dataKey="mem" stroke="var(--color-mem)" fill={`url(#${gradientId}-mem)`} fillOpacity={1} strokeWidth={2} isAnimationActive={false} />
             </AreaChart>
           </ChartContainer>
           ) : (
@@ -772,8 +777,9 @@ export default function NodeUsageStats({
         </HistoryCard>
         <HistoryCard title={t("admin.nodeDetail.diskHistory", "Disk 历史用量")}>
           {points.length ? (
-          <ChartContainer config={{ disk: { label: "Disk", color: "#00A76F" } }} className="h-[180px] w-full aspect-auto">
+          <ChartContainer config={{ disk: { label: "Disk", color: CHART_COLORS.disk } }} className="h-[180px] w-full aspect-auto">
             <AreaChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <defs><ChartGradient id={`${gradientId}-disk`} color={CHART_COLORS.disk} /></defs>
               <CartesianGrid vertical={false} strokeDasharray="3 3" />
               <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={28} />
               <YAxis hide domain={[0, 100]} />
@@ -787,7 +793,7 @@ export default function NodeUsageStats({
                   ) : null
                 }
               />
-              <Area type="monotone" dataKey="disk" stroke="#00A76F" fill="rgba(0,167,111,0.16)" strokeWidth={2} isAnimationActive={false} />
+              <Area type="monotone" dataKey="disk" stroke="var(--color-disk)" fill={`url(#${gradientId}-disk)`} fillOpacity={1} strokeWidth={2} isAnimationActive={false} />
             </AreaChart>
           </ChartContainer>
           ) : (
@@ -797,10 +803,14 @@ export default function NodeUsageStats({
         <HistoryCard title={t("admin.nodeDetail.networkHistory", "网络历史用量")}>
           {points.length ? (
           <ChartContainer
-            config={{ down: { label: "In", color: LITE_BLUE }, up: { label: "Out", color: "#FFAB00" } }}
+            config={{ down: { label: "In", color: CHART_COLORS.inbound }, up: { label: "Out", color: CHART_COLORS.outbound } }}
             className="h-[180px] w-full aspect-auto"
           >
             <AreaChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <ChartGradient id={`${gradientId}-in`} color={CHART_COLORS.inbound} />
+                <ChartGradient id={`${gradientId}-out`} color={CHART_COLORS.outbound} />
+              </defs>
               <CartesianGrid vertical={false} strokeDasharray="3 3" />
               <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={28} />
               <YAxis hide />
@@ -810,7 +820,7 @@ export default function NodeUsageStats({
                     <div className="rounded-md border bg-background px-3 py-2 text-xs shadow-sm">
                       <div className="text-muted-foreground">{label}</div>
                       {payload.map((item) => (
-                        <div key={String(item.dataKey)} className="mt-1 font-medium">
+                        <div key={String(item.dataKey)} className="mt-1 font-medium" style={{ color: item.color }}>
                           {item.dataKey === "down"
                             ? t("admin.nodeDetail.inbound", "入站")
                             : t("admin.nodeDetail.outbound", "出站")}{" "}
@@ -821,8 +831,8 @@ export default function NodeUsageStats({
                   ) : null
                 }
               />
-              <Area type="monotone" dataKey="down" stroke={LITE_BLUE} fill="rgba(14,134,221,0.16)" strokeWidth={2} isAnimationActive={false} />
-              <Area type="monotone" dataKey="up" stroke="#FFAB00" fill="rgba(255,171,0,0.14)" strokeWidth={2} isAnimationActive={false} />
+              <Area type="monotone" dataKey="down" stroke="var(--color-down)" fill={`url(#${gradientId}-in)`} fillOpacity={1} strokeWidth={2} isAnimationActive={false} />
+              <Area type="monotone" dataKey="up" stroke="var(--color-up)" fill={`url(#${gradientId}-out)`} fillOpacity={1} strokeWidth={2} isAnimationActive={false} />
             </AreaChart>
           </ChartContainer>
           ) : (
@@ -846,7 +856,7 @@ export default function NodeUsageStats({
         ) : null}
         {daily.length ? (
         <ChartContainer
-          config={{ down: { label: "In", color: "#FF5630" }, up: { label: "Out", color: LITE_BLUE } }}
+          config={{ down: { label: "In", color: CHART_COLORS.inbound }, up: { label: "Out", color: CHART_COLORS.outbound } }}
           className="h-[200px] w-full aspect-auto [&_.recharts-wrapper]:overflow-visible [&_.recharts-surface]:overflow-visible"
         >
           <BarChart data={daily} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -866,7 +876,7 @@ export default function NodeUsageStats({
                   <div className="rounded-md border bg-background px-3 py-2 text-xs shadow-sm">
                     <div className="text-muted-foreground">{label}</div>
                     {payload.map((item) => (
-                      <div key={String(item.dataKey)} className="mt-1 font-medium">
+                      <div key={String(item.dataKey)} className="mt-1 font-medium" style={{ color: item.color }}>
                         {item.dataKey === "down"
                           ? t("admin.nodeDetail.inbound", "入站")
                           : t("admin.nodeDetail.outbound", "出站")}{" "}
@@ -881,8 +891,8 @@ export default function NodeUsageStats({
                 ) : null
               }
             />
-            <Bar dataKey="down" fill="#FF5630" radius={[4, 4, 0, 0]} isAnimationActive={false} />
-            <Bar dataKey="up" fill={LITE_BLUE} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="down" fill="var(--color-down)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="up" fill="var(--color-up)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
           </BarChart>
         </ChartContainer>
         ) : (

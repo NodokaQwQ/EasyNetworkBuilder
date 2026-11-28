@@ -121,7 +121,7 @@ const nestedNavRowSx = {
 } as const;
 
 const navLabelSx = {
-  fontSize: 16,
+  fontSize: 14,
   lineHeight: "20px",
   whiteSpace: "normal",
   overflowWrap: "break-word",
@@ -793,8 +793,8 @@ export default function AdminSidebar({
     ? `${t("common.version", "版本")}：${formatVersion(currentVersion, versionHash)}`
     : "";
 
-  return (
-    <Stack sx={{ height: "100%", bgcolor: "background.paper", position: "relative" }}>
+   return (
+     <Stack sx={{ height: "100%", bgcolor: (theme) => theme.palette.mode === "light" ? "#F3F2F8" : "#181821", position: "relative" }}>
       <Stack
         direction="row"
         spacing={mini ? 0 : 1}

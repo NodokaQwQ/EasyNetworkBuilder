@@ -10,7 +10,7 @@
     />
     <meta name="author" content="Nomi" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#FFFFFF" />
+    <meta name="theme-color" content="#F9F8FC" />
     <script>
       (() => {
         const parseAppearance = (value) => {
@@ -28,7 +28,7 @@
           const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches;
           const isDark = appearance === "dark" || (appearance !== "light" && prefersDark);
           document.documentElement.classList.toggle("dark", isDark);
-          const themeColor = isDark ? "#161C24" : "#FFFFFF";
+          const themeColor = isDark ? "#111118" : "#F9F8FC";
           document.querySelector('meta[name="theme-color"]')?.setAttribute("content", themeColor);
         } catch {
           document.documentElement.classList.remove("dark");
@@ -42,12 +42,12 @@
     </script>
     <style>
       :where(html) {
-      background: #F4F6F8;
+        background: #F9F8FC;
         color-scheme: light;
       }
 
       :where(html.dark) {
-        background: #161C24;
+        background: #111118;
         color-scheme: dark;
       }
 

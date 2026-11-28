@@ -1,0 +1,266 @@
+/* ENB console surfaces. Keep this scoped: public dashboard themes are independent. */
+html[data-admin-shell-active="true"] {
+  --background: #f9f8fc;
+  --foreground: #1a1924;
+  --card: #fff;
+  --card-foreground: #1a1924;
+  --popover: #fff;
+  --popover-foreground: #1a1924;
+  --primary: #5845ff;
+  --primary-foreground: #fff;
+  --secondary: #e0def2;
+  --secondary-foreground: #1d1b37;
+  --accent: #dfdbff;
+  --accent-foreground: #10085e;
+  --muted: #f3f2f8;
+  --muted-foreground: #4d4b63;
+  --border: #c5c3d5;
+  --input: #c5c3d5;
+  --ring: #5845ff;
+  --radius: 1rem;
+  --chart-1: var(--chart-series-1);
+  --chart-2: var(--chart-series-2);
+  --chart-3: var(--chart-series-3);
+  --chart-4: var(--chart-series-4);
+  --chart-5: var(--chart-series-5);
+  --chart-grid-line: rgba(115, 112, 143, .18);
+  --chart-tooltip-bg: #dcdae7;
+  --chart-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+html.dark[data-admin-shell-active="true"] {
+  --background: #111118;
+  --foreground: #e4e3ed;
+  --card: #1f1e29;
+  --card-foreground: #e4e3ed;
+  --popover: #282735;
+  --popover-foreground: #e4e3ed;
+  --primary: #aca3ff;
+  --primary-foreground: #10066b;
+  --secondary: #3a3663;
+  --secondary-foreground: #e0def2;
+  --accent: #1d0eaa;
+  --accent-foreground: #dfdbff;
+  --muted: #282735;
+  --muted-foreground: #bab8cc;
+  --border: #434059;
+  --input: #434059;
+  --ring: #aca3ff;
+  --chart-grid-line: rgba(186, 184, 204, .14);
+  --chart-tooltip-bg: #323040;
+}
+
+html[data-admin-shell-active="true"],
+html[data-admin-shell-active="true"] [data-admin-shell] {
+  --accent-9: #5845ff;
+  --accent-10: #4633e5;
+  --accent-11: #4633c9;
+  --accent-8: #5845ff;
+  --accent-a2: rgba(88, 69, 255, .08);
+  --accent-a3: rgba(88, 69, 255, .12);
+  --accent-a7: rgba(88, 69, 255, .48);
+  --gray-2: #f3f2f8;
+  --gray-10: #4d4b63;
+  --gray-11: #4d4b63;
+  --gray-12: #1a1924;
+  --gray-a5: #c5c3d5;
+  --color-panel-solid: #fff;
+  --green-9: #0f8b5f;
+  --green-11: #0b7650;
+  --orange-9: #b45309;
+  --orange-11: #93420a;
+  --red-9: #ba1a1a;
+  --red-11: #a01515;
+  font-family: Inter, "Public Sans Variable", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+}
+
+html.dark[data-admin-shell-active="true"],
+html.dark[data-admin-shell-active="true"] [data-admin-shell] {
+  --accent-9: #aca3ff;
+  --accent-10: #bcb5ff;
+  --accent-11: #d1cbff;
+  --accent-8: #aca3ff;
+  --accent-a2: rgba(172, 163, 255, .14);
+  --accent-a3: rgba(172, 163, 255, .24);
+  --accent-a7: rgba(172, 163, 255, .48);
+  --gray-2: #282735;
+  --gray-10: #bab8cc;
+  --gray-11: #bab8cc;
+  --gray-12: #e4e3ed;
+  --gray-a5: #434059;
+  --color-panel-solid: #1f1e29;
+  --green-9: #6ee7b7;
+  --green-11: #6ee7b7;
+  --orange-9: #fcd34d;
+  --orange-11: #fcd34d;
+  --red-9: #ffb4ab;
+  --red-11: #ffb4ab;
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-surface,
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-responsive-table-wrap,
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list,
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-detail-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: none;
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .admin-responsive-table-wrap {
+  border: 0;
+  border-radius: 0;
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list-filters,
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-table-header,
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-mobile-card-stack {
+  background: var(--muted);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .admin-pagination,
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .km-admin-list-empty {
+  background: var(--card);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-table-header th,
+html[data-admin-shell-active="true"] [data-admin-shell] .km-table td,
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .km-admin-list-empty {
+  color: var(--foreground);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-sheet-tabs {
+  background: transparent;
+  border-bottom-color: var(--border);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-sheet-tabs .MuiTab-root.Mui-selected {
+  color: var(--primary);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-sheet-tabs .MuiTab-root.Mui-selected::after,
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-sheet-tabs [role="tab"][aria-selected="true"]::after,
+html[data-admin-shell-active="true"] [data-admin-shell] [data-admin-tab-motion-ready="true"]::after {
+  background: var(--primary);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-sheet-tabs.firewall-protection-tabs {
+  --protection-tab-active-bg: var(--card);
+  --protection-tab-active-color: var(--primary);
+  background: var(--muted);
+}
+
+/* The segmented tab indicator is its selection surface, not an underline. */
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-ping-loss-sheets .km-admin-sheet-tabs-actions [data-admin-tab-motion-ready="true"]::after {
+  background: var(--card);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-dashboard-chip {
+  border-radius: 999px;
+}
+
+/* Status keeps its meaning across themes; brand purple must not signal health. */
+html[data-admin-shell-active="true"] [data-admin-shell] .km-dashboard-chip--orange {
+  background: #fef3c7;
+  color: #451a03;
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-dashboard-chip--red {
+  background: #ffdad6;
+  color: #410002;
+}
+
+html.dark[data-admin-shell-active="true"] [data-admin-shell] .km-dashboard-chip--orange {
+  background: #78350f;
+  color: #fef3c7;
+}
+
+html.dark[data-admin-shell-active="true"] [data-admin-shell] .km-dashboard-chip--red {
+  background: #93000a;
+  color: #ffdad6;
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-node-table tbody td:nth-child(2),
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-sortable-table tbody td:nth-child(2),
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-selection-table tbody td:nth-child(2),
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-primary-first-table tbody td:first-child {
+  background: var(--muted);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .km-admin-node-list-filters .MuiOutlinedInput-root {
+  background: var(--card);
+}
+
+html.dark[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .admin-responsive-table-wrap,
+html.dark[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .admin-pagination,
+html.dark[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .km-admin-list-empty,
+html.dark[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .km-admin-node-list-filters .MuiOutlinedInput-root {
+  background: var(--card);
+}
+
+html.dark[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list-filters,
+html.dark[data-admin-shell-active="true"] [data-admin-shell] .admin-table-header {
+  background: var(--muted);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .admin-pagination,
+html.dark[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .admin-pagination {
+  border-top-color: var(--border);
+}
+
+/* Shared Recharts chrome, including charts that do not use ChartContainer. */
+html[data-admin-shell-active="true"] .recharts-cartesian-grid-horizontal line {
+  stroke: var(--chart-grid-line);
+  stroke-dasharray: 4 4;
+}
+
+html[data-admin-shell-active="true"] .recharts-cartesian-grid-vertical,
+html[data-admin-shell-active="true"] .recharts-cartesian-axis-line,
+html[data-admin-shell-active="true"] .recharts-cartesian-axis-tick-line {
+  display: none;
+}
+
+html[data-admin-shell-active="true"] .recharts-cartesian-axis-tick text,
+html[data-admin-shell-active="true"] .recharts-text {
+  fill: var(--muted-foreground);
+  font-family: var(--chart-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+html[data-admin-shell-active="true"] .recharts-line-curve,
+html[data-admin-shell-active="true"] .recharts-area-curve {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+html[data-admin-shell-active="true"] .recharts-tooltip-wrapper > div {
+  background: var(--chart-tooltip-bg) !important;
+  color: var(--foreground) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 16px rgba(17, 17, 24, .08) !important;
+  font-family: var(--chart-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+html[data-admin-shell-active="true"] .enb-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+html[data-admin-shell-active="true"] .enb-chart-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+html[data-admin-shell-active="true"] .enb-chart-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}

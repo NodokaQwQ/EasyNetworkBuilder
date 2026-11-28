@@ -25,6 +25,8 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import {
+  Area,
+  AreaChart,
   CartesianGrid,
   Line,
   LineChart,
@@ -38,6 +40,8 @@ import {
   useAdminPagination,
 } from "@/components/admin/AdminPagination";
 import { ChartContainer } from "@/components/ui/chart";
+import ChartGradient from "@/components/admin/ChartGradient";
+import { CHART_COLORS } from "@/theme/chartPalette";
 import {
   type DashboardAlertKind,
   type DashboardAlertSummary,
@@ -113,14 +117,14 @@ export function SummaryPanel({
   tone?: "accent" | "green" | "orange" | "muted";
 }) {
   return (
-    <section className="min-h-[112px] h-full km-admin-surface p-3 transition-[border-color] group-hover:border-[var(--accent-a7)]">
+    <section className="min-h-[112px] h-full km-admin-surface p-4 transition-[border-color] group-hover:border-[var(--accent-a7)]">
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm font-medium text-muted-foreground">{label}</span>
         <Box
           sx={(theme) => ({
             width: 32,
             height: 32,
-            borderRadius: 1,
+             borderRadius: 2,
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
@@ -634,7 +638,7 @@ export function LatencyPanel({
         trailing={(
           <span className="mt-0.5 flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
-              <span className="size-2 rounded-sm bg-[var(--accent-9)]" />
+              <span className="size-2 rounded-sm" style={{ background: CHART_COLORS.inbound }} />
               {t("admin_dashboard.average_latency")}
             </span>
           </span>
@@ -659,7 +663,7 @@ export function LatencyPanel({
           </div>
         ) : charts ? (
           <ChartContainer
-            config={{ average: { label: t("admin_dashboard.average_latency"), color: "var(--accent-9)" } }}
+            config={{ average: { label: t("admin_dashboard.average_latency"), color: CHART_COLORS.inbound } }}
             className="h-[78px] w-full aspect-auto"
           >
             <LineChart data={points} margin={{ top: 3, right: 3, left: 0, bottom: 0 }}>
@@ -1035,6 +1039,7 @@ export function TrafficTrendPanel({
   axisWidth: number;
 }) {
   const { t } = useTranslation();
+  const gradientId = React.useId().replace(/:/g, "");
   return (
     <section className="@container flex h-full min-w-0 flex-col km-admin-surface p-3">
       <PanelHeader
@@ -1042,9 +1047,9 @@ export function TrafficTrendPanel({
         description={t("admin_dashboard.hourly_traffic_hint")}
         responsive
         trailing={(
-          <div className="mt-0.5 flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1.5"><span className="size-2 rounded-sm bg-[var(--accent-9)]" />{t("admin_dashboard.upload")}</span>
-            <span className="flex items-center gap-1.5"><span className="size-2 rounded-sm bg-[var(--orange-9)]" />{t("admin_dashboard.download")}</span>
+          <div className="enb-chart-legend mt-0.5 shrink-0">
+            <span><i style={{ background: CHART_COLORS.outbound }} />{t("admin_dashboard.upload")}</span>
+            <span><i style={{ background: CHART_COLORS.inbound }} />{t("admin_dashboard.download")}</span>
           </div>
         )}
       />
@@ -1055,12 +1060,16 @@ export function TrafficTrendPanel({
       ) : charts ? (
         <ChartContainer
           config={{
-            up: { label: t("admin_dashboard.upload"), color: "var(--accent-9)" },
-            down: { label: t("admin_dashboard.download"), color: "var(--orange-9)" },
+            up: { label: t("admin_dashboard.upload"), color: CHART_COLORS.outbound },
+            down: { label: t("admin_dashboard.download"), color: CHART_COLORS.inbound },
           }}
           className="min-h-[220px] w-full flex-1 aspect-auto"
         >
-          <LineChart data={charts.traffic.hourly} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <AreaChart data={charts.traffic.hourly} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <defs>
+              <ChartGradient id={`${gradientId}-in`} color={CHART_COLORS.inbound} />
+              <ChartGradient id={`${gradientId}-out`} color={CHART_COLORS.outbound} />
+            </defs>
             <CartesianGrid vertical={false} strokeDasharray="3 3" />
             <XAxis dataKey="hour" tickLine={false} axisLine={false} minTickGap={28} />
             <YAxis tickLine={false} axisLine={false} width={axisWidth} tickFormatter={(value) => formatBytes(Number(value)).replace(" ", "")} />
@@ -1068,14 +1077,14 @@ export function TrafficTrendPanel({
               content={({ active, payload, label }) => active && payload?.length ? (
                 <div className="rounded-md border bg-background px-3 py-2 text-xs shadow-sm">
                   <div className="mb-1.5 text-muted-foreground">{label}</div>
-                  <div className="font-medium text-[var(--accent-11)]">{t("admin_dashboard.upload")}: {formatBytes(Number(payload[0]?.value ?? 0))}</div>
-                  <div className="mt-1 font-medium text-[var(--orange-11)]">{t("admin_dashboard.download")}: {formatBytes(Number(payload[1]?.value ?? 0))}</div>
+                  <div className="font-medium" style={{ color: CHART_COLORS.outbound }}>{t("admin_dashboard.upload")}: {formatBytes(Number(payload.find((item) => item.dataKey === "up")?.value ?? 0))}</div>
+                  <div className="mt-1 font-medium" style={{ color: CHART_COLORS.inbound }}>{t("admin_dashboard.download")}: {formatBytes(Number(payload.find((item) => item.dataKey === "down")?.value ?? 0))}</div>
                 </div>
               ) : null}
             />
-            <Line type="monotone" dataKey="up" stroke="var(--color-up)" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} />
-            <Line type="monotone" dataKey="down" stroke="var(--color-down)" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} />
-          </LineChart>
+            <Area type="monotone" dataKey="up" stroke="var(--color-up)" fill={`url(#${gradientId}-out)`} fillOpacity={1} strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+            <Area type="monotone" dataKey="down" stroke="var(--color-down)" fill={`url(#${gradientId}-in)`} fillOpacity={1} strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+          </AreaChart>
         </ChartContainer>
       ) : <Skeleton className="min-h-[220px] w-full flex-1" />}
     </section>
