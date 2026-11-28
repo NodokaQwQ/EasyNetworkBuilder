@@ -6,9 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/nuomiiiii/lite/database/models"
 	"github.com/nuomiiiii/lite/pkg/config"
+	"github.com/nuomiiiii/lite/web/public"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -333,4 +335,49 @@ func TestDeleteInstalledThemeCommitsFallbackAndConfigurationRemoval(t *testing.T
 	var configurationCount int64
 	require.NoError(t, db.Model(&models.ThemeConfiguration{}).Where("short = ?", "target").Count(&configurationCount).Error)
 	assert.Zero(t, configurationCount)
+}
+
+func TestInstalledThemesSortsEnbThemeRightAfterLiteTheme(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeUsableTheme(t, "alpha-custom", "Lite-theme.json", `{"name":"Alpha","short":"alpha-custom","configuration":{"type":"managed","data":[]}}`)
+	writeUsableTheme(t, public.EnbTheme, "Lite-theme.json", `{"name":"ENB Material You","short":"enb-theme","configuration":{"type":"managed","data":[]}}`)
+	writeUsableTheme(t, public.DefaultTheme, "Lite-theme.json", `{"name":"Lite-Theme","short":"lite-theme","configuration":{"type":"managed","data":[]}}`)
+
+	themes, err := installedThemes()
+	require.NoError(t, err)
+	require.Len(t, themes, 3)
+	assert.Equal(t, public.DefaultTheme, themes[0].Short)
+	assert.Equal(t, public.EnbTheme, themes[1].Short)
+	assert.Equal(t, "alpha-custom", themes[2].Short)
+}
+
+func TestExtractAndValidateEnbThemeZip(t *testing.T) {
+	zipPath, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "enb-theme", "enb-theme.zip"))
+	require.NoError(t, err)
+	if _, statErr := os.Stat(zipPath); os.IsNotExist(statErr) {
+		t.Skip("enb-theme.zip is not present in this test environment")
+	}
+
+	t.Chdir(t.TempDir())
+	peeked, err := peekThemeFromZip(zipPath)
+	require.NoError(t, err)
+	assert.Equal(t, public.EnbTheme, peeked.Short)
+	assert.Equal(t, "ENB Material You", peeked.Name)
+
+	extracted, err := extractAndValidateTheme(zipPath)
+	require.NoError(t, err)
+	assert.Equal(t, public.EnbTheme, extracted.Short)
+	assert.True(t, public.IsLocalThemeUsable(public.EnbTheme))
+
+	// Wait for the async preview-card JPEG sidecar goroutine before TempDir cleanup.
+	sidecarMeta := filepath.Join("data", "theme", public.EnbTheme, ".lite", "preview-card.jpg.src")
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sidecarMeta); err == nil {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	_, err = os.Stat(filepath.Join("data", "theme", public.EnbTheme, ".lite", "preview-card.jpg"))
+	require.NoError(t, err)
 }

@@ -42,7 +42,6 @@ import {
   RefreshCw,
   Shield,
 } from "@/components/admin/muiIcons";
-import PhotoCameraOutlined from "@mui/icons-material/PhotoCameraOutlined";
 import { updateSettingsWithToast, useSettings } from "@/lib/api";
 import { uploadArchive } from "@/utils/archiveUpload";
 import {
@@ -51,8 +50,11 @@ import {
   type UploadProgressState,
   withUploadProgressCopy,
 } from "@/utils/uploadProgress";
+import { materialSymbol } from "@/theme/MaterialSymbol";
 
-const DEFAULT_SITE_ICON = "/favicon.png?v=lite-icon-0e86dd";
+const PhotoCameraOutlined = materialSymbol("PhotoCamera");
+
+const DEFAULT_SITE_ICON = "/favicon.png?v=enb-icon-5845ff";
 const siteIconPreviewSx = {
   width: 75,
   height: 75,
@@ -158,7 +160,7 @@ export default function SiteSettings() {
           gap: 2,
           p: { xs: 2.5, md: 3 },
           boxShadow: "none",
-          borderRadius: "8px",
+          borderRadius: "16px",
         }}
       >
         <Box

@@ -748,7 +748,7 @@ const SortableRowCells = React.memo(function SortableRowCells({
           {networkAddresses.length > 0 ? networkAddresses.map(([type, address]) => (
             <div key={type} className="flex min-w-0 items-center gap-1 overflow-hidden" title={address}>
               <span className="min-w-0 truncate whitespace-nowrap tabular-nums">
-                {type} {type === "IPv6" ? compactIPv6(address) : address}
+                {type} <span className="enb-mono">{type === "IPv6" ? compactIPv6(address) : address}</span>
               </span>
               <button
                 type="button"
@@ -861,7 +861,7 @@ const SortableMobileCard = React.memo(function SortableMobileCard({
             }}
             title={address}
           >
-            {type} {type === "IPv6" ? compactIPv6(address) : address}
+            {type} <span className="enb-mono">{type === "IPv6" ? compactIPv6(address) : address}</span>
           </Typography>
         ))}
       </Stack>
@@ -1403,10 +1403,10 @@ function InstallPlatformToggle({
       onChange={(_event, next: Platform | null) => next && onChange(next)}
       sx={{
         "& .MuiToggleButton-root.Mui-selected": {
-          bgcolor: "rgba(7, 141, 238, 0.12)",
-          color: "#078dee",
-          boxShadow: "inset 0 0 0 1px rgba(7, 141, 238, 0.48)",
-          "&:hover": { bgcolor: "rgba(7, 141, 238, 0.12)" },
+          bgcolor: "var(--md-sys-color-secondary-container, #E0DEF2)",
+          color: "var(--md-sys-color-on-secondary-container, #1D1B37)",
+          boxShadow: "none",
+          "&:hover": { bgcolor: "var(--md-sys-color-secondary-container, #E0DEF2)" },
         },
       }}
     >

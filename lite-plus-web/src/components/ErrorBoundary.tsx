@@ -7,11 +7,13 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
-import ExpandMore from "@mui/icons-material/ExpandMore";
 import React from "react";
 import type { ErrorInfo, ReactNode } from "react";
 
 import i18n from "@/i18n/config";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const ExpandMore = materialSymbol("ExpandMore");
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -85,7 +87,7 @@ class ErrorBoundary extends React.Component<
               sx={{
                 border: 1,
                 borderColor: "divider",
-                borderRadius: "8px",
+                borderRadius: "16px",
                 overflow: "hidden",
                 "&:before": { display: "none" },
               }}
@@ -121,9 +123,10 @@ class ErrorBoundary extends React.Component<
                   sx={{
                     m: 0,
                     p: 1.5,
-                    borderRadius: "8px",
-                    bgcolor: "action.hover",
+                    borderRadius: "12px",
+                    bgcolor: "var(--md-sys-color-surface-container, rgba(0, 0, 0, 0.04))",
                     color: "text.primary",
+                    fontFamily: "var(--font-mono)",
                     fontSize: 12,
                     lineHeight: 1.5,
                     overflowX: "auto",

@@ -2,8 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import MuiButton from "@mui/material/Button";
-import ChevronLeft from "@mui/icons-material/ChevronLeft";
-import ChevronRight from "@mui/icons-material/ChevronRight";
 import MuiTextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import { toast } from "sonner";
@@ -62,6 +60,10 @@ import {
   saveStoredRemoteGrant,
 } from "@/utils/remoteSession";
 import { createRandomId } from "@/utils/randomId";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const ChevronLeft = materialSymbol("ChevronLeft");
+const ChevronRight = materialSymbol("ChevronRight");
 
 type ScheduleKind = "interval" | "daily" | "weekly" | "monthly";
 type IntervalUnit = "minute" | "day";
@@ -611,7 +613,7 @@ function SchedulesContent() {
             disableElevation
             disabled={!deleting || busyId === deleting.id}
             onClick={() => deleting && void remove(deleting)}
-            sx={{ textTransform: "none", borderRadius: "8px", fontWeight: 600 }}
+            sx={{ textTransform: "none", borderRadius: "9999px", fontWeight: 600 }}
           >
             {t("scheduled_exec.delete")}
           </MuiButton>
@@ -1098,19 +1100,19 @@ function ScheduleDialog({
               if (twoFaEnabled) setOtp(value.replace(/\D/g, "").slice(0, 6));
               else setPassword(value);
             }}
-            sx={{ "& .MuiOutlinedInput-root": { height: 40, borderRadius: "8px", bgcolor: "background.paper" } }}
+            sx={{ "& .MuiOutlinedInput-root": { height: 40, borderRadius: "12px", bgcolor: "background.paper" } }}
           />
           <MuiButton
             variant="contained"
             disableElevation
             disabled={saving}
             onClick={() => void submit(false)}
-            sx={{ minWidth: 120, height: 40, borderRadius: "8px", textTransform: "none", fontWeight: 600 }}
+            sx={{ minWidth: 120, height: 40, borderRadius: "9999px", textTransform: "none", fontWeight: 600 }}
           >
             {saving ? t("scheduled_exec.saving") : t("scheduled_exec.save")}
           </MuiButton>
           {passkeyAvailable && !hasGrant ? (
-            <MuiButton variant="outlined" disabled={saving} onClick={() => void submit(true)} sx={{ height: 40, borderRadius: "8px", textTransform: "none", fontWeight: 600 }}>
+            <MuiButton variant="outlined" disabled={saving} onClick={() => void submit(true)} sx={{ height: 40, borderRadius: "9999px", textTransform: "none", fontWeight: 600 }}>
               {t("login.passkey")}
             </MuiButton>
           ) : null}
@@ -1208,7 +1210,7 @@ function ScheduleRuns({
                     key={run.id}
                     type="button"
                     aria-pressed={on}
-                    className={`flex w-full cursor-pointer flex-col gap-0.5 border-b border-[var(--gray-a4)] px-4 py-3 text-left last:border-b-0 ${on ? "bg-[rgba(7,141,238,0.08)]" : "bg-transparent hover:bg-[var(--gray-a2)]"}`}
+                    className={`flex w-full cursor-pointer flex-col gap-0.5 border-b border-[var(--gray-a4)] px-4 py-3 text-left last:border-b-0 ${on ? "bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]" : "bg-transparent hover:bg-[var(--gray-a2)]"}`}
                     onClick={() => setSelected(run.id)}
                   >
                     <Text as="div" size="2" weight="medium">{shanghaiClock(run.started_at)}</Text>
@@ -1303,7 +1305,7 @@ function ReauthDialog({
         />
         <Flex gap="2" justify="end">
           {passkeyAvailable ? (
-            <MuiButton variant="outlined" disabled={busy} onClick={() => onConfirm("", "", true)} sx={{ textTransform: "none", borderRadius: "8px" }}>
+            <MuiButton variant="outlined" disabled={busy} onClick={() => onConfirm("", "", true)} sx={{ textTransform: "none", borderRadius: "9999px" }}>
               {t("login.passkey")}
             </MuiButton>
           ) : null}
@@ -1312,7 +1314,7 @@ function ReauthDialog({
             disableElevation
             disabled={busy || (twoFaEnabled ? !otp.trim() : !password.trim())}
             onClick={() => onConfirm(password, otp, false)}
-            sx={{ textTransform: "none", borderRadius: "8px", fontWeight: 600 }}
+            sx={{ textTransform: "none", borderRadius: "9999px", fontWeight: 600 }}
           >
             {t("scheduled_exec.confirm")}
           </MuiButton>

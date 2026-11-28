@@ -183,7 +183,7 @@ test("provides stable skeletons and mobile server cards", () => {
   assert.match(pageSource, /display:\s*\{ xs:\s*"none", md:\s*"block" \}/);
   assert.match(pageSource, /display:\s*\{ xs:\s*"flex", md:\s*"none" \}/);
   assert.match(pageSource, /gridTemplateColumns:\s*"1fr 1fr"/);
-  assert.match(pageSource, /borderRadius:\s*\{ xs:\s*0, sm:\s*"8px" \}/);
+  assert.match(pageSource, /borderRadius:\s*\{ xs:\s*0, sm:\s*"28px" \}/);
 });
 
 test("server rows use country flags, group-only subtitles, and the global page size", () => {

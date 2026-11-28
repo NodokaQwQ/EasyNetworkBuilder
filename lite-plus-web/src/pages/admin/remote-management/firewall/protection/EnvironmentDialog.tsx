@@ -66,7 +66,7 @@ export default function EnvironmentDialog({ open, view, busy, loading, readOnly,
         {[
           { label: text("environment_firewall"), value: backendName, icon: <Firewall size={18} /> },
           { label: text("environment_engine"), value: "nftables", icon: <Shield size={18} />, detail: cap?.nft_version },
-        ].map((item) => <Box key={item.label} sx={{ p: 1.5, border: 1, borderColor: "divider", borderRadius: "8px", minWidth: 0, bgcolor: "action.hover" }}>
+        ].map((item) => <Box key={item.label} sx={{ p: 1.5, border: 1, borderColor: "divider", borderRadius: "12px", minWidth: 0, bgcolor: "var(--md-sys-color-surface-container-low, #F3F2F8)" }}>
           <Stack direction="row" spacing={0.75} sx={{ alignItems: "center", color: "text.secondary", mb: 0.75 }}>
             <Box sx={{ display: "flex", flexShrink: 0 }}>{item.icon}</Box>
             <Typography variant="caption">{item.label}</Typography>
@@ -78,7 +78,7 @@ export default function EnvironmentDialog({ open, view, busy, loading, readOnly,
 
       {agentOld || !view.linux ? <Alert severity="warning">{text(agentOld ? "need_agent" : "linux_only")}</Alert> : ready ?
         <Alert className="km-settings-alert" severity="success" icon={<CheckCircle2 size={20} />} sx={{ alignItems: "center", "& .MuiAlert-icon": { py: 0, paddingBlock: 0, alignSelf: "center", display: "flex", alignItems: "center", "& svg": { display: "block", fontSize: 20 } }, "& .MuiAlert-message": { py: 0, display: "flex", alignItems: "center", lineHeight: 1.5 } }}>{text("environment_ready_help")}</Alert> : canUpgrade ?
-          <Box sx={{ p: 1.75, borderRadius: "8px", bgcolor: "action.hover" }}>
+          <Box sx={{ p: 1.75, borderRadius: "12px", bgcolor: "var(--md-sys-color-surface-container-low, #F3F2F8)" }}>
             <Typography variant="subtitle2" sx={{ mb: 1.5 }}>{text("environment_prepare")}</Typography>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
               {[

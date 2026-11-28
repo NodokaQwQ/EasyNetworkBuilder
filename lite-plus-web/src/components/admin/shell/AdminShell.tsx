@@ -1,8 +1,6 @@
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Drawer from "@mui/material/Drawer";
-import ChevronLeft from "@mui/icons-material/ChevronLeft";
-import ChevronRight from "@mui/icons-material/ChevronRight";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -20,6 +18,10 @@ import AdminChartTokens from "@/components/admin/AdminChartTokens";
 import AdminTopbar from "./AdminTopbar";
 import UpdateReleaseDialog from "./UpdateReleaseDialog";
 import { footerMenuItems, useAdminShell } from "./useAdminShell";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const ChevronLeft = materialSymbol("ChevronLeft");
+const ChevronRight = materialSymbol("ChevronRight");
 
 type AdminShellProps = {
   content: ReactNode;
@@ -217,8 +219,8 @@ export default function AdminShell({ content }: AdminShellProps) {
   };
 
   const navMotion = {
-    duration: shell.reduceMotion ? 0 : 280,
-    easing: shell.reduceMotion ? "linear" : "cubic-bezier(0.22, 1, 0.36, 1)",
+    duration: shell.reduceMotion ? 0 : 250,
+    easing: shell.reduceMotion ? "linear" : "cubic-bezier(0.2, 0, 0, 1)",
   };
 
   const sidebar = (
@@ -328,11 +330,14 @@ export default function AdminShell({ content }: AdminShellProps) {
             borderRadius: "50%",
             bgcolor: "background.paper",
             color: "text.secondary",
-            boxShadow: "0 0 2px 0 rgba(145, 158, 171, 0.32)",
+            boxShadow: "var(--md-sys-elevation-1)",
             cursor: "pointer",
             transition: (theme) =>
-              theme.transitions.create("left", navMotion),
-            "&:hover": { color: "text.primary", bgcolor: "action.hover" },
+              theme.transitions.create(["left", "background-color", "color"], navMotion),
+            "&:hover": {
+              color: "var(--md-sys-color-on-secondary-container)",
+              bgcolor: "var(--md-sys-color-secondary-container)",
+            },
           }}
         >
           {mini ? (

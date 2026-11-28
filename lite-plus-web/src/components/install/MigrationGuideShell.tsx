@@ -45,10 +45,7 @@ export default function MigrationGuideShell({
         minHeight: "100dvh",
         pt: "var(--safe-area-top)",
         pb: "var(--safe-area-bottom)",
-        bgcolor:
-          theme.palette.mode === "light"
-            ? "#eef2f6"
-            : theme.palette.background.default,
+        bgcolor: "background.default",
         "& .MuiOutlinedInput-root:not(.MuiInputBase-multiline)": {
           minHeight: 44,
         },
@@ -62,7 +59,7 @@ export default function MigrationGuideShell({
           height: { xs: 56, sm: 64 },
           borderBottom: 1,
           borderColor: "divider",
-          bgcolor: "background.paper",
+          bgcolor: "var(--md-sys-color-surface-container-low, var(--card))",
         }}
       >
         <Stack
@@ -77,13 +74,17 @@ export default function MigrationGuideShell({
           <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
             <Box
               component="img"
-              src={getAppAssetUrl("assets/logo.png?v=lite-icon-0e86dd")}
+              src={getAppAssetUrl("assets/logo.png?v=enb-icon-5845ff")}
               alt={LITE_NAME}
               sx={{ width: 34, height: 34, objectFit: "contain" }}
             />
             <Typography
               component="span"
-              sx={{ color: LITE_BLUE, fontSize: 20, fontWeight: 700 }}
+              sx={{
+                color: theme.palette.mode === "light" ? LITE_BLUE : "primary.main",
+                fontSize: 20,
+                fontWeight: 700,
+              }}
             >
               {LITE_NAME}
             </Typography>
@@ -111,19 +112,17 @@ export default function MigrationGuideShell({
           elevation={0}
           sx={{
             overflow: "hidden",
+            borderRadius: "28px",
             border: 1,
             borderColor: "divider",
-            boxShadow:
-              theme.palette.mode === "light"
-                ? "0 10px 28px rgba(145, 158, 171, 0.13)"
-                : "0 10px 28px rgba(0, 0, 0, 0.2)",
+            boxShadow: "var(--md-sys-elevation-1)",
           }}
         >
           <Box sx={{ px: { xs: 2, sm: 4 }, py: { xs: 3, sm: 4 } }}>
             <Typography
               component="div"
               sx={{
-                color: LITE_BLUE,
+                color: theme.palette.mode === "light" ? LITE_BLUE : "primary.main",
                 fontSize: 20,
                 fontWeight: 700,
                 lineHeight: 1,
@@ -155,7 +154,11 @@ export default function MigrationGuideShell({
                   {progress?.determinate !== false ? (
                     <Typography
                       variant="body2"
-                      sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}
+                      sx={{
+                        fontWeight: 700,
+                        fontFamily: "var(--font-mono)",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
                     >
                       {Math.round(progress?.value ?? 0)}%
                     </Typography>
@@ -169,8 +172,11 @@ export default function MigrationGuideShell({
                   sx={{
                     mt: 1,
                     height: 6,
-                    borderRadius: 2,
-                    bgcolor: alpha(theme.palette.primary.main, 0.12),
+                    borderRadius: "9999px",
+                    bgcolor:
+                      theme.palette.mode === "light"
+                        ? "#DFDBFF"
+                        : alpha(theme.palette.primary.main, 0.2),
                   }}
                 />
                 {progress?.detail ? (

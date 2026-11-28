@@ -9,10 +9,12 @@ import Stack from "@mui/material/Stack";
 import Switch from "@mui/material/Switch";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
-import ExpandMore from "@mui/icons-material/ExpandMore";
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { adminMenuProps } from "@/components/admin/adminMenu";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const ExpandMore = materialSymbol("ExpandMore");
 
 interface SettingCardProps {
   title?: string | React.ReactNode;
@@ -124,7 +126,7 @@ export function SettingCard({
           : {
               px: 2.5,
               py: 2,
-              borderRadius: "8px",
+              borderRadius: "16px",
               bgcolor: "background.paper",
               boxShadow: "none",
               border: "1px solid",

@@ -7,7 +7,6 @@ import Stack from "@mui/material/Stack";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import Typography from "@mui/material/Typography";
-import ChevronLeft from "@mui/icons-material/ChevronLeft";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
@@ -80,6 +79,9 @@ import {
   metricCardSurfaceSx,
   metricCardSx,
 } from "@/pages/admin/nodeDetailCardStyles";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const ChevronLeft = materialSymbol("ChevronLeft");
 
 const BILLING_CURRENCY_OPTIONS = ["¥", "$", "€", "£", "C$", "HK$"];
 
@@ -130,11 +132,11 @@ function DetailSectionHeader({
         px: 2,
         py: 1.25,
         alignItems: "center",
-        borderBottom: "1px solid rgba(145, 158, 171, 0.16)",
-        bgcolor: "rgba(145, 158, 171, 0.06)",
+        borderBottom: "1px solid var(--md-sys-color-outline-variant, #C5C3D5)",
+        bgcolor: "var(--md-sys-color-surface-container-low, #F3F2F8)",
       }}
     >
-      <Box sx={{ display: "inline-flex", color: "text.secondary", lineHeight: 0 }}>
+      <Box sx={{ display: "inline-flex", color: "primary.main", lineHeight: 0 }}>
         {icon}
       </Box>
       <Typography variant="subtitle2" sx={{ minWidth: 0, flex: 1, fontWeight: 600 }}>
@@ -147,25 +149,25 @@ function DetailSectionHeader({
 
 const solidButtonSx = {
   textTransform: "none" as const,
-  bgcolor: LITE_BLUE_SOFT_STRONG,
-  color: LITE_BLUE,
+  bgcolor: `var(--md-sys-color-primary-container, ${LITE_BLUE_SOFT_STRONG})`,
+  color: `var(--md-sys-color-on-primary-container, ${LITE_BLUE})`,
   minHeight: 36,
   height: 36,
-  px: 1.5,
+  px: 1.75,
   py: 0,
   fontSize: 13.5,
   fontWeight: 600,
-  borderRadius: "8px",
+  borderRadius: "9999px",
   boxShadow: "none",
   "&:hover": {
-    bgcolor: LITE_BLUE_SOFT_STRONG,
+    bgcolor: `var(--md-sys-color-primary-container, ${LITE_BLUE_SOFT_STRONG})`,
     boxShadow: "none",
     filter: "brightness(0.96)",
   },
   "html.dark &": {
-    bgcolor: "rgba(7, 141, 238, 0.22)",
-    color: "#7EC8F8",
-    "&:hover": { bgcolor: "rgba(7, 141, 238, 0.32)", boxShadow: "none", filter: "none" },
+    bgcolor: "#1D0EAA",
+    color: "#DFDBFF",
+    "&:hover": { bgcolor: "#2616C4", boxShadow: "none", filter: "none" },
   },
   "& .MuiButton-startIcon": { mr: 0.75, ml: 0 },
   "& .MuiButton-endIcon": { ml: 0.5, mr: 0 },
@@ -203,13 +205,13 @@ const iconWellSx = {
   flexShrink: 0,
   lineHeight: 0,
   borderRadius: "50%",
-  bgcolor: "rgba(255, 255, 255, 0.58)",
-  color: "#637381",
+  bgcolor: "var(--md-sys-color-surface-container-lowest, rgba(255, 255, 255, 0.86))",
+  color: "var(--md-sys-color-primary, #5845FF)",
   position: "relative",
   zIndex: 1,
   "html.dark &": {
-    bgcolor: "rgba(255, 255, 255, 0.08)",
-    color: "#C4CDD5",
+    bgcolor: "rgba(172, 163, 255, 0.14)",
+    color: "#ACA3FF",
   },
 } as const;
 
@@ -229,7 +231,7 @@ function SpecTile({
       sx={{
         ...metricCardSx,
         p: { xs: 1.5, sm: 2 },
-        borderRadius: "8px",
+        borderRadius: "16px",
         minWidth: 0,
         minHeight: 80,
         height: "100%",
@@ -281,7 +283,7 @@ function TrafficStat({
         p: { xs: 1.5, sm: 2 },
         minHeight: 80,
         height: "100%",
-        borderRadius: "8px",
+        borderRadius: "16px",
         alignItems: "center",
       }}
     >
@@ -332,7 +334,7 @@ function DetailValueTile({
         minHeight: 80,
         p: 2,
         alignItems: "center",
-        borderRadius: "8px",
+        borderRadius: "16px",
       }}
     >
       <Box sx={{ ...iconWellSx, width: 40, height: 40 }}>{icon}</Box>
@@ -380,7 +382,7 @@ function TrafficUsageProgress({
         minHeight: 83,
         flexShrink: 0,
         mt: 1,
-        borderRadius: "8px",
+        borderRadius: "16px",
         ...metricCardSurfaceSx,
       }}
     >
@@ -391,8 +393,12 @@ function TrafficUsageProgress({
           inset: 0,
           width: available ? `${safePercent}%` : 0,
           backgroundImage:
-            "linear-gradient(90deg, rgba(7, 141, 238, 0.08) 0%, rgba(7, 141, 238, 0.16) 100%)",
-          transition: "width 260ms cubic-bezier(0.22, 1, 0.36, 1)",
+            "linear-gradient(90deg, rgba(88, 69, 255, 0.08) 0%, rgba(88, 69, 255, 0.20) 100%)",
+          "html.dark &": {
+            backgroundImage:
+              "linear-gradient(90deg, rgba(172, 163, 255, 0.12) 0%, rgba(172, 163, 255, 0.26) 100%)",
+          },
+          transition: "width 250ms cubic-bezier(0.2, 0, 0, 1)",
         }}
       />
       <Stack
@@ -412,14 +418,14 @@ function TrafficUsageProgress({
           <Typography
             variant="caption"
             data-testid="admin-node-traffic-label"
-            sx={{ display: "block", color: "#919EAB", fontWeight: 500, lineHeight: 1.35 }}
+            sx={{ display: "block", color: "text.secondary", fontWeight: 500, lineHeight: 1.35 }}
           >
             {label}
           </Typography>
           <Typography
             variant="caption"
             data-testid="admin-node-traffic-detail"
-            sx={{ display: "block", mt: 0.5, color: "#637381", fontWeight: 400, lineHeight: 1.35 }}
+            sx={{ display: "block", mt: 0.5, color: "text.secondary", fontWeight: 400, lineHeight: 1.35, fontFamily: "var(--font-mono)" }}
           >
             {detail}
           </Typography>
@@ -428,7 +434,8 @@ function TrafficUsageProgress({
           variant="subtitle2"
           data-testid="admin-node-traffic-percent"
           sx={{
-            color: available ? LITE_BLUE : "text.disabled",
+            color: available ? "primary.main" : "text.disabled",
+            fontFamily: "var(--font-mono)",
             fontWeight: 700,
             fontSize: 18,
             lineHeight: 1.2,
@@ -453,6 +460,7 @@ function CopyRow({
   leading?: ReactNode;
 }) {
   const empty = !value || value === EMPTY_DISPLAY;
+  const isMono = label === "IPv4" || label === "IPv6" || label.toUpperCase().includes("UUID");
   return (
     <Stack
       data-testid="admin-node-network-row"
@@ -464,7 +472,7 @@ function CopyRow({
         minHeight: 56,
         minWidth: 0,
         flex: 1,
-        borderRadius: "8px",
+        borderRadius: "12px",
         ...metricCardSurfaceSx,
         alignItems: "center",
         justifyContent: "flex-start",
@@ -477,7 +485,7 @@ function CopyRow({
           alignItems: "center",
           justifyContent: "center",
           flexShrink: 0,
-          color: "#919EAB",
+          color: "text.secondary",
           lineHeight: 0,
         }}
       >
@@ -501,6 +509,7 @@ function CopyRow({
           minWidth: 0,
           flex: 1,
           fontWeight: 600,
+          fontFamily: isMono && !empty ? "var(--font-mono)" : undefined,
           wordBreak: "break-all",
           color: empty ? "text.disabled" : "text.primary",
         }}
@@ -631,12 +640,17 @@ function NodeDetailPageBody() {
                 label={statusLabel}
                 aria-hidden={statusPending || undefined}
                 sx={{
-                  height: 22,
+                  height: 24,
+                  borderRadius: "9999px",
                   fontWeight: 600,
                   fontSize: 12,
                   visibility: statusPending ? "hidden" : "visible",
-                  color: online ? "#fff" : "var(--red-11)",
-                  bgcolor: online ? "#22C55E" : "var(--red-a3)",
+                  color: online
+                    ? "var(--ops-color-on-healthy-container, #065F46)"
+                    : "var(--md-sys-color-on-error-container, #881337)",
+                  bgcolor: online
+                    ? "var(--ops-color-healthy-container, #D1FAE5)"
+                    : "var(--md-sys-color-error-container, #FFE4E6)",
                 }}
               />
             </Stack>
@@ -991,9 +1005,9 @@ function BillingPanel({ node, onSaved }: { node: NodeDetail; onSaved: () => void
 
   const actionSx = (bg: string, color: string) => ({
     textTransform: "none" as const,
-    minHeight: 51,
-    height: 51,
-    borderRadius: "8px",
+    minHeight: 48,
+    height: 48,
+    borderRadius: "9999px",
     bgcolor: bg,
     color,
     fontWeight: 600,
@@ -1002,6 +1016,11 @@ function BillingPanel({ node, onSaved }: { node: NodeDetail; onSaved: () => void
     "& .MuiButton-startIcon": { mr: 0.75, ml: 0 },
     "&:hover": { bgcolor: bg, boxShadow: "none", filter: "brightness(0.97)" },
   });
+
+  const primaryTonalBg = `var(--md-sys-color-primary-container, ${LITE_BLUE_SOFT_STRONG})`;
+  const primaryTonalFg = `var(--md-sys-color-on-primary-container, ${LITE_BLUE})`;
+  const healthyTonalBg = "var(--ops-color-healthy-container, rgba(34, 197, 94, 0.16))";
+  const healthyTonalFg = "var(--ops-color-on-healthy-container, #065F46)";
 
   return (
     <Stack spacing={2} data-testid="admin-node-billing">
@@ -1050,7 +1069,7 @@ function BillingPanel({ node, onSaved }: { node: NodeDetail; onSaved: () => void
               disabled={saving}
               startIcon={<Clock size={17} />}
               onClick={(event) => setCycleEl(event.currentTarget)}
-              sx={actionSx(LITE_BLUE_SOFT_STRONG, LITE_BLUE)}
+              sx={actionSx(primaryTonalBg, primaryTonalFg)}
             >
               {t("admin.nodeDetail.changeCycle", "变更周期")}
             </Button>
@@ -1064,14 +1083,14 @@ function BillingPanel({ node, onSaved }: { node: NodeDetail; onSaved: () => void
               onClick={() => {
                 void save(earlyRenewPayload(node.expired_at));
               }}
-              sx={actionSx("rgba(34, 197, 94, 0.16)", "#118D57")}
+              sx={actionSx(healthyTonalBg, healthyTonalFg)}
             >
               {t("admin.nodeDetail.renewNow", "提前续费")}
             </Button>
             <Button
               startIcon={<ArrowRight size={17} />}
               onClick={() => setTrafficResetOpen(true)}
-              sx={actionSx(LITE_BLUE_SOFT_STRONG, LITE_BLUE)}
+              sx={actionSx(primaryTonalBg, primaryTonalFg)}
             >
               {t("admin.nodeDetail.transfer", "流量重置")}
             </Button>
@@ -1081,7 +1100,7 @@ function BillingPanel({ node, onSaved }: { node: NodeDetail; onSaved: () => void
               onClick={() => {
                 void save({ auto_renewal: !autoRenewal });
               }}
-              sx={actionSx("rgba(34, 197, 94, 0.16)", "#118D57")}
+              sx={actionSx(healthyTonalBg, healthyTonalFg)}
             >
               {autoRenewal
                 ? t("admin.nodeDetail.autoRenewOn", "自动续费中")
@@ -1089,13 +1108,13 @@ function BillingPanel({ node, onSaved }: { node: NodeDetail; onSaved: () => void
             </Button>
             <Button
               onClick={() => setIpChangeOpen(true)}
-              sx={actionSx(LITE_BLUE_SOFT_STRONG, LITE_BLUE)}
+              sx={actionSx(primaryTonalBg, primaryTonalFg)}
             >
               {t("admin.nodeDetail.recordTrafficReset", "更换IP")}
             </Button>
             <Button
               onClick={() => setOneTimeFeeOpen(true)}
-              sx={actionSx("rgba(34, 197, 94, 0.16)", "#118D57")}
+              sx={actionSx(healthyTonalBg, healthyTonalFg)}
             >
               {t("admin.nodeDetail.oneTimeFee", "一次性费用")}
             </Button>

@@ -2176,8 +2176,8 @@ function ReturnRouteContent() {
                   in={Boolean(taskQuery.keyword || taskQuery.carriers.length || taskQuery.states.length)}
                   timeout={{ enter: 260, exit: 180 }}
                   easing={{
-                    enter: "cubic-bezier(0.22, 1, 0.36, 1)",
-                    exit: "cubic-bezier(0.4, 0, 1, 1)",
+                    enter: "cubic-bezier(0.2, 0, 0, 1)",
+                    exit: "cubic-bezier(0.3, 0, 1, 1)",
                   }}
                   unmountOnExit
                 >
@@ -2369,8 +2369,8 @@ function ReturnRouteContent() {
                   in={hasTemplateFilters}
                   timeout={{ enter: 260, exit: 180 }}
                   easing={{
-                    enter: "cubic-bezier(0.22, 1, 0.36, 1)",
-                    exit: "cubic-bezier(0.4, 0, 1, 1)",
+                    enter: "cubic-bezier(0.2, 0, 0, 1)",
+                    exit: "cubic-bezier(0.3, 0, 1, 1)",
                   }}
                   unmountOnExit
                 >
@@ -2577,8 +2577,8 @@ function ReturnRouteContent() {
                   )}
                   timeout={{ enter: 260, exit: 180 }}
                   easing={{
-                    enter: "cubic-bezier(0.22, 1, 0.36, 1)",
-                    exit: "cubic-bezier(0.4, 0, 1, 1)",
+                    enter: "cubic-bezier(0.2, 0, 0, 1)",
+                    exit: "cubic-bezier(0.3, 0, 1, 1)",
                   }}
                   unmountOnExit
                 >
@@ -2678,8 +2678,8 @@ function ReturnRouteContent() {
                     sx={{ width: "100%", flexWrap: "wrap", alignItems: { xs: "stretch", sm: "center" } }}
                   >
                     <div className="min-w-0 w-full sm:w-auto sm:flex-1 sm:basis-[16rem]">
-                      <div className="text-sm font-semibold text-[#1C252E]">{tr("rules.method", "识别方式")}</div>
-                      <div className="mt-0.5 text-xs leading-5 break-words whitespace-normal text-[#637381]">{tr("rules.method_hint", "本地骨干特征库（BGPtools 定时更新） + 有序路径判断 + Cymru/RIPEstat/BGPView 按需回退")}</div>
+                      <div className="text-sm font-semibold text-foreground">{tr("rules.method", "识别方式")}</div>
+                      <div className="mt-0.5 text-xs leading-5 break-words whitespace-normal text-muted-foreground">{tr("rules.method_hint", "本地骨干特征库（BGPtools 定时更新） + 有序路径判断 + Cymru/RIPEstat/BGPView 按需回退")}</div>
                     </div>
                     <Stack direction="row" spacing={1} useFlexGap sx={{ flexShrink: 0, flexWrap: "wrap", width: { xs: "100%", sm: "auto" }, alignItems: "center" }}>
                       <MuiButton variant="outlined" startIcon={<Download size={16} />} onClick={exportRules} sx={ADMIN_LIST_OUTLINE_SX}>{tr("rules.export", "导出规则")}</MuiButton>

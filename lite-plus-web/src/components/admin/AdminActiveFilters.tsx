@@ -34,8 +34,8 @@ export function AdminActiveFilters({
       in={hasActive}
       timeout={{ enter: 260, exit: 180 }}
       easing={{
-        enter: "cubic-bezier(0.22, 1, 0.36, 1)",
-        exit: "cubic-bezier(0.4, 0, 1, 1)",
+        enter: "cubic-bezier(0.2, 0, 0, 1)",
+        exit: "cubic-bezier(0.3, 0, 1, 1)",
       }}
       unmountOnExit
       sx={{
@@ -44,7 +44,7 @@ export function AdminActiveFilters({
           transform: "translateY(-6px)",
           transformOrigin: "top left",
           transition:
-            "opacity 150ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1)",
+            "opacity 150ms ease, transform 180ms cubic-bezier(0.2, 0, 0, 1)",
         },
         "&.MuiCollapse-entered .km-admin-active-filters": {
           opacity: 1,
@@ -98,7 +98,7 @@ export function AdminActiveFilters({
             flexWrap: "wrap",
             alignItems: "center",
             "& .km-admin-filter-chip": {
-              animation: "adminFilterChipIn 180ms cubic-bezier(0.22, 1, 0.36, 1)",
+              animation: "adminFilterChipIn 180ms cubic-bezier(0.2, 0, 0, 1)",
             },
             "@keyframes adminFilterChipIn": {
               from: { opacity: 0, transform: "translateY(-3px) scale(0.96)" },
@@ -114,7 +114,19 @@ export function AdminActiveFilters({
               onDelete={chip.onDelete}
               deleteIcon={<X size={14} />}
               label={chip.label}
-              sx={chip.sx}
+              sx={[
+                {
+                  borderRadius: "8px",
+                  bgcolor: "var(--md-sys-color-secondary-container)",
+                  color: "var(--md-sys-color-on-secondary-container)",
+                  "& .MuiChip-deleteIcon": {
+                    color: "var(--md-sys-color-on-secondary-container)",
+                    opacity: 0.72,
+                    "&:hover": { opacity: 1, color: "var(--md-sys-color-on-secondary-container)" },
+                  },
+                },
+                ...(Array.isArray(chip.sx) ? chip.sx : chip.sx ? [chip.sx] : []),
+              ]}
             />
           ))}
           <Button

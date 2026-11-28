@@ -106,7 +106,7 @@ const ONE_TIME_FEE_COLOR = "var(--chart-series-4)";
 
 const panelSx = {
   overflow: "hidden",
-  borderRadius: "8px",
+  borderRadius: "16px",
   borderColor: "divider",
   bgcolor: "background.paper",
   boxShadow: "none",
@@ -329,9 +329,18 @@ function MetricCard({
   loading?: boolean;
 }) {
   const colors = {
-    blue: { bg: "rgba(14, 134, 221, 0.12)", fg: "#0E86DD" },
-    green: { bg: "rgba(17, 141, 87, 0.12)", fg: "#118D57" },
-    orange: { bg: "rgba(255, 171, 0, 0.15)", fg: "#B76E00" },
+    blue: {
+      bg: "var(--md-sys-color-primary-container, #DFDBFF)",
+      fg: "var(--md-sys-color-on-primary-container, #10085E)",
+    },
+    green: {
+      bg: "var(--ops-color-healthy-container, #D1FAE5)",
+      fg: "var(--ops-color-on-healthy-container, #065F46)",
+    },
+    orange: {
+      bg: "var(--ops-color-warning-container, #FEF3C7)",
+      fg: "var(--ops-color-on-warning-container, #92400E)",
+    },
   }[tone];
   return (
     <Paper variant="outlined" sx={{ ...panelSx, minWidth: 0, minHeight: 124, p: { xs: 1.5, sm: 2 } }}>
@@ -451,8 +460,8 @@ function TrendPanel({ overview, currency }: { overview: BillingOverview; currenc
           <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} barGap={0} barCategoryGap="22%">
             <CartesianGrid stroke="var(--chart-grid-line)" vertical={false} strokeDasharray="4 4" />
-            <XAxis dataKey="period" axisLine={false} tickLine={false} tick={{ fill: "#919EAB", fontSize: 11 }} />
-            <YAxis axisLine={false} tickLine={false} width={48} tick={{ fill: "#919EAB", fontSize: 11 }} />
+            <XAxis dataKey="period" axisLine={false} tickLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
+            <YAxis axisLine={false} tickLine={false} width={48} tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
             <Tooltip
               formatter={(value) => formatBillingMoney(String(value ?? "0"), currency)}
               contentStyle={tooltipStyle}
@@ -480,7 +489,7 @@ function ActiveFilters({
 }) {
   const { t } = useTranslation();
   return (
-    <Collapse in={chips.length > 0} timeout={{ enter: 260, exit: 180 }} easing={{ enter: "cubic-bezier(0.22, 1, 0.36, 1)", exit: "cubic-bezier(0.4, 0, 1, 1)" }} unmountOnExit>
+    <Collapse in={chips.length > 0} timeout={{ enter: 260, exit: 180 }} easing={{ enter: "cubic-bezier(0.2, 0, 0, 1)", exit: "cubic-bezier(0.3, 0, 1, 1)" }} unmountOnExit>
       <Stack className="km-admin-active-filters" direction="row" spacing={0.75} useFlexGap sx={{ pt: 1.75, flexWrap: "wrap", alignItems: "center" }}>
         {chips.map((chip) => <Chip key={chip.key} className="km-admin-filter-chip" size="small" label={chip.label} onDelete={chip.remove} deleteIcon={<X size={14} />} />)}
         <Button color="error" size="small" startIcon={<FilterOff size={16} />} onClick={onClear}>{t("billing.actions.clearAll")}</Button>
@@ -683,7 +692,7 @@ function ServerList({
         </Table>
       </Box>
       <Stack spacing={1.25} sx={{ display: { xs: "flex", md: "none" }, p: 1.25 }}>
-        {data.items.map((server) => <Paper key={server.client} variant="outlined" sx={{ borderRadius: "8px", overflow: "hidden", borderColor: "divider" }}>
+        {data.items.map((server) => <Paper key={server.client} variant="outlined" sx={{ borderRadius: "16px", overflow: "hidden", borderColor: "divider" }}>
           <Stack direction="row" spacing={1.25} sx={{ p: 1.5, alignItems: "center", bgcolor: "action.hover" }}><Box sx={{ minWidth: 0, flex: 1 }}><BillingServerIdentity server={server} groupFallback={t("billing.status.noGroup")} /></Box><DetailsButton onClick={() => onDetails(server)} /></Stack>
           <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>{[[t("billing.table.nativePrice"), server.billing_status === "recurring" ? formatBillingMoney(server.original_amount, server.original_currency) : server.billing_status === "free" ? t("billing.status.free") : server.billing_status === "one_time" ? t("billing.status.oneTime") : t("billing.status.unconfigured")], [t("billing.common.monthlyAverage"), formatBillingMoney(server.monthly_average, currency)], [t("billing.table.monthExtra"), formatBillingMoney(server.month_extra, currency)], [t("billing.table.monthTotal"), formatBillingMoney(server.month_total, currency)], [t("billing.table.expiry"), <ExpiryDisplay key="expiry" server={server} />], [t("billing.table.remainingValue"), formatBillingMoney(server.remaining_value, currency)]].map(([label, value]) => <Box key={String(label)} sx={{ p: 1.35, borderTop: 1, borderRight: 1, borderColor: "divider", minWidth: 0, "&:nth-of-type(2n)": { borderRight: 0 } }}><Typography color="text.secondary" sx={{ mb: 0.4, fontSize: 11.5 }}>{label}</Typography><Typography component="div" sx={{ fontSize: 13.5, fontWeight: 400, minWidth: 0 }}>{value}</Typography></Box>)}</Box>
         </Paper>)}
@@ -723,7 +732,7 @@ function PeriodList({ data, currency, monthly, page, pageSize, onPage, onPageSiz
         <BillingActionHead>{t("billing.table.actions")}</BillingActionHead>
       </TableRow></TableHeader>
       <TableBody>{data.items.map((period) => <TableRow key={period.period}>
-        <TableCell data-label={t("billing.table.period")}><Stack direction="row" spacing={1} sx={{ alignItems: "center" }}><Box sx={{ width: 30, height: 30, borderRadius: "50%", display: "grid", placeItems: "center", bgcolor: "primary.main", color: "primary.contrastText" }}><History size={15} /></Box><Typography sx={{ fontWeight: 400 }}>{period.period}</Typography></Stack></TableCell>
+        <TableCell data-label={t("billing.table.period")}><Stack direction="row" spacing={1} sx={{ alignItems: "center" }}><Box sx={{ width: 30, height: 30, borderRadius: "50%", display: "grid", placeItems: "center", bgcolor: "var(--md-sys-color-primary-container, #DFDBFF)", color: "var(--md-sys-color-on-primary-container, #10085E)" }}><History size={15} /></Box><Typography sx={{ fontWeight: 400 }}>{period.period}</Typography></Stack></TableCell>
         <TableCell data-label={t("billing.types.base")}>{period.status === "no_record" ? "--" : formatBillingMoney(period.base, currency)}</TableCell><TableCell data-label={t("billing.types.trafficReset")}>{period.status === "no_record" ? "--" : formatBillingMoney(period.extra, currency)}</TableCell><TableCell data-label={t("billing.types.ipChange")}>{period.status === "no_record" ? "--" : formatBillingMoney(period.other, currency)}</TableCell><TableCell data-label={t("billing.types.oneTimeFee")}>{period.status === "no_record" ? "--" : formatBillingMoney(period.one_time, currency)}</TableCell><TableCell data-label={t("billing.table.total")}><Typography sx={{ fontWeight: 400 }}>{period.status === "no_record" ? "--" : formatBillingMoney(period.total, currency)}</Typography></TableCell>
         <TableCell data-label={monthly ? t("billing.table.server") : t("billing.table.yearOverYear")}>{monthly ? t("billing.common.serverCount", { count: period.server_count || 0 }) : period.year_over_year ? `${Number(period.year_over_year) > 0 ? "+" : ""}${period.year_over_year}%` : "--"}</TableCell>
         <TableCell data-label={t("billing.table.status")}><Badge color={periodStatusColor(period.status ?? "no_record")}>{billingStatusLabel(t, period.status ?? "no_record")}</Badge></TableCell>
@@ -810,7 +819,7 @@ function EntryDetailsDialog({
           sx: {
             display: "flex",
             flexDirection: "column",
-            borderRadius: { xs: 0, sm: "8px" },
+            borderRadius: { xs: 0, sm: "28px" },
             maxHeight: { xs: "100%", sm: "88vh" },
             m: { xs: 0, sm: 2 },
             width: { xs: "100%", sm: "calc(100% - 32px)" },

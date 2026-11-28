@@ -1094,8 +1094,8 @@ function TerminalWorkspaceInner() {
               ? {
                   height: "min(92dvh, 100%)",
                   maxHeight: "min(92dvh, 100%)",
-                  borderTopLeftRadius: "16px",
-                  borderTopRightRadius: "16px",
+                  borderTopLeftRadius: "28px",
+                  borderTopRightRadius: "28px",
                 }
               : pickerSide === "left"
                 ? {
@@ -1131,8 +1131,8 @@ function TerminalWorkspaceInner() {
           paper: {
             sx: {
               height: "min(72dvh, 100%)",
-              borderTopLeftRadius: "16px",
-              borderTopRightRadius: "16px",
+              borderTopLeftRadius: "28px",
+              borderTopRightRadius: "28px",
               p: 2,
             },
           },

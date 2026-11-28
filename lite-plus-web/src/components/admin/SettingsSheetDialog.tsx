@@ -6,12 +6,14 @@ import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
-import Close from "@mui/icons-material/Close";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useReduceMotionPreference } from "@/lib/api";
 import { dialogContainerNoFadeSx, dialogPaperVisibility } from "@/theme/dialogCloseMotion";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const Close = materialSymbol("Close");
 
 type SettingsSheetDialogProps = {
   open: boolean;
@@ -71,7 +73,7 @@ export default function SettingsSheetDialog({
             m: { xs: 0, sm: 2 },
             mt: { xs: "auto", sm: 2 },
             mb: { xs: 0, sm: 2 },
-            borderRadius: { xs: "12px 12px 0 0", sm: "8px" },
+            borderRadius: { xs: "28px 28px 0 0", sm: "28px" },
             maxHeight: {
               xs: "calc(100dvh - 24px)",
               sm: "calc(100% - 64px)",
@@ -83,8 +85,8 @@ export default function SettingsSheetDialog({
           sx: {
             bgcolor: (theme) =>
               theme.palette.mode === "dark"
-                ? "rgba(4, 9, 14, 0.56)"
-                : "rgba(16, 24, 32, 0.24)",
+                ? "rgba(11, 10, 15, 0.56)"
+                : "rgba(11, 10, 15, 0.45)",
           },
         },
       }}
@@ -96,6 +98,21 @@ export default function SettingsSheetDialog({
         },
       }}
     >
+      <Box
+        aria-hidden="true"
+        sx={{
+          display: { xs: "block", sm: "none" },
+          width: 36,
+          height: 4,
+          borderRadius: 9999,
+          bgcolor: "var(--md-sys-color-outline)",
+          opacity: 0.45,
+          mx: "auto",
+          mt: 1.5,
+          mb: -1,
+          flexShrink: 0,
+        }}
+      />
       <DialogTitle
         sx={{
           px: 3,

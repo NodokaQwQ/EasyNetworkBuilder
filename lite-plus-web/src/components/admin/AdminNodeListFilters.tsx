@@ -226,7 +226,13 @@ export default function AdminNodeListFilters({
               onStatusFiltersChange(statusFilters.filter((item) => item !== status)),
             sx: {
               bgcolor:
-                status === "online" ? "rgba(34, 197, 94, 0.12)" : "rgba(255, 86, 48, 0.12)",
+                status === "online"
+                  ? "var(--ops-color-healthy-container)"
+                  : "var(--md-sys-color-error-container)",
+              color:
+                status === "online"
+                  ? "var(--ops-color-on-healthy-container)"
+                  : "var(--md-sys-color-on-error-container)",
             },
             label: (
               <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>

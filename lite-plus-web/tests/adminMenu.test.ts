@@ -361,7 +361,7 @@ test("admin tabs and dialogs share the saved motion preference", () => {
   assert.doesNotMatch(globalCssSource, /admin-tab-content-enter/);
   assert.match(
     globalCssSource,
-    /\[data-admin-tab-motion-ready="true"\]::after[\s\S]*width 220ms cubic-bezier\(0\.22, 1, 0\.36, 1\)/,
+    /\[data-admin-tab-motion-ready="true"\]::after[\s\S]*width 220ms cubic-bezier\(0\.2, 0, 0, 1\)/,
   );
   assert.match(
     globalCssSource,
@@ -410,7 +410,7 @@ test("admin multi-sheet pages share the node-detail tab bar", () => {
   assert.match(globalCssSource, /\.km-admin-sheet-tabs \.MuiTabs-indicator[\s\S]*display: none/);
   assert.match(
     globalCssSource,
-    /\[data-admin-tab-motion-ready="true"\]::after[\s\S]*width 220ms cubic-bezier\(0\.22, 1, 0\.36, 1\)/,
+    /\[data-admin-tab-motion-ready="true"\]::after[\s\S]*width 220ms cubic-bezier\(0\.2, 0, 0, 1\)/,
   );
   for (const source of sheetPages) {
     assert.match(source, /admin-tab-panel/);
@@ -435,7 +435,7 @@ test("admin checkboxes share the active accent palette", () => {
   assert.match(checkboxSource, /data-slot="checkbox"/);
   assert.match(checkboxSource, /indeterminate=\{indeterminate\}/);
   assert.match(checkboxSource, /onChange=\{\(_, next\) => onCheckedChange\?\.\(next\)\}/);
-  assert.match(appThemeSource, /MuiCheckbox:[\s\S]*&\.Mui-checked, &\.MuiCheckbox-indeterminate[\s\S]*color: ACCENT/);
+  assert.match(appThemeSource, /MuiCheckbox:[\s\S]*&\.Mui-checked, &\.MuiCheckbox-indeterminate[\s\S]*color: tokens\.primary/);
   assert.match(globalCssSource, /data-reduce-motion="true"[\s\S]*\[data-slot="checkbox"\]/);
   assert.match(selectorSource, /import \{ Checkbox \} from "\.\/ui\/checkbox"/);
   assert.doesNotMatch(selectorSource, /import \{ Checkbox, TextField \} from "@radix-ui\/themes"/);

@@ -1,7 +1,7 @@
 html.remote-terminal-open {
-  --remote-accent: #078dee;
-  --remote-online: #22c55e;
-  --remote-offline: #ff5630;
+  --remote-accent: #5845FF;
+  --remote-online: #10B981;
+  --remote-offline: #F43F5E;
   --remote-header-h: 56px;
   --remote-status-h: 32px;
   --remote-rail-w: 280px;
@@ -15,40 +15,43 @@ html.remote-terminal-open {
 }
 
 html.remote-terminal-open:not(.dark) {
-  --remote-bg: #f4f6f8;
-  --remote-chrome: #ffffff;
-  --remote-paper: #ffffff;
-  --remote-text: #1c252e;
-  --remote-muted: #637381;
-  --remote-border: rgba(145, 158, 171, 0.24);
-  --remote-rail: #fafbfc;
-  --remote-hover: rgba(145, 158, 171, 0.08);
-  --remote-selected: rgba(7, 141, 238, 0.1);
-  --remote-files-head: #f4f6f8;
-  --remote-files-row-hover: rgba(145, 158, 171, 0.08);
-  --remote-files-selected: rgba(7, 141, 238, 0.12);
-  --remote-menu: #ffffff;
-  --remote-menu-border: rgba(145, 158, 171, 0.24);
-  --remote-danger: #ff5630;
+  --remote-bg: #F9F8FC;
+  --remote-chrome: #F3F2F8;
+  --remote-paper: #FFFFFF;
+  --remote-text: #1A1924;
+  --remote-muted: #4D4B63;
+  --remote-border: #C5C3D5;
+  --remote-rail: #F3F2F8;
+  --remote-hover: rgba(26, 25, 36, 0.08);
+  --remote-selected: #E0DEF2;
+  --remote-files-head: #F3F2F8;
+  --remote-files-row-hover: rgba(26, 25, 36, 0.08);
+  --remote-files-selected: #DFDBFF;
+  --remote-menu: #FFFFFF;
+  --remote-menu-border: #C5C3D5;
+  --remote-danger: #F43F5E;
   --remote-reconnect-fg: #d6dfe7;
 }
 
 html.remote-terminal-open.dark {
-  --remote-bg: #161c24;
-  --remote-chrome: #161c24;
-  --remote-paper: #212b36;
-  --remote-text: #ffffff;
-  --remote-muted: #919eab;
-  --remote-border: rgba(145, 158, 171, 0.24);
-  --remote-rail: #1a232d;
-  --remote-hover: rgba(145, 158, 171, 0.08);
-  --remote-selected: rgba(7, 141, 238, 0.16);
-  --remote-files-head: #1c2128;
-  --remote-files-row-hover: #171c22;
-  --remote-files-selected: #173239;
-  --remote-menu: #212b36;
-  --remote-menu-border: #3b424b;
-  --remote-danger: #ff8f8f;
+  --remote-accent: #ACA3FF;
+  --remote-online: #6EE7B7;
+  --remote-offline: #FFB4AB;
+  --remote-bg: #111118;
+  --remote-chrome: #181821;
+  --remote-paper: #1F1E29;
+  --remote-text: #E4E3ED;
+  --remote-muted: #BAB8CC;
+  --remote-border: #434059;
+  --remote-rail: #181821;
+  --remote-hover: rgba(228, 227, 237, 0.08);
+  --remote-selected: #3A3663;
+  --remote-files-head: #181821;
+  --remote-files-row-hover: rgba(228, 227, 237, 0.08);
+  --remote-files-selected: #1D0EAA;
+  --remote-menu: #282735;
+  --remote-menu-border: #434059;
+  --remote-danger: #FFB4AB;
   --remote-reconnect-fg: #d6dfe7;
 }
 
@@ -65,7 +68,7 @@ html.remote-terminal-open .MuiButton-root svg {
   overflow: hidden;
   background: var(--remote-bg);
   color: var(--remote-text);
-  font-family: "Public Sans Variable", "Public Sans", Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-sans, Inter, "Segoe UI", "Microsoft YaHei", sans-serif);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
@@ -178,7 +181,7 @@ html.remote-terminal-open .MuiButton-root svg {
   align-items: center;
   gap: 2px;
   border: 1px solid var(--remote-border);
-  border-radius: 7px;
+  border-radius: 9999px;
   background: var(--remote-bg);
   padding: 3px;
 }
@@ -191,7 +194,7 @@ html.remote-terminal-open .MuiButton-root svg {
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 4px;
+  border-radius: 9999px;
   background: transparent;
   padding: 0;
   color: var(--remote-muted);
@@ -258,13 +261,14 @@ html.remote-terminal-open .MuiButton-root svg {
   align-items: center;
   gap: 9px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 16px;
   background: transparent;
-  padding: 8px 9px;
+  padding: 8px 11px;
   color: inherit;
   cursor: pointer;
   font: inherit;
   text-align: left;
+  transition: background-color 180ms cubic-bezier(0.2, 0, 0, 1), border-color 180ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .remote-rail-session:hover {
@@ -272,7 +276,7 @@ html.remote-terminal-open .MuiButton-root svg {
 }
 
 .remote-rail-session.is-active {
-  border-color: rgb(7 141 238 / 35%);
+  border-color: var(--remote-accent);
   background: var(--remote-selected);
 }
 
@@ -447,8 +451,9 @@ html.remote-terminal-open .MuiButton-root svg {
   min-width: 0;
   flex-direction: column;
   border: 1px solid var(--remote-border);
-  border-radius: 8px;
-  padding: 11px 15px;
+  border-radius: 16px;
+  padding: 12px 15px;
+  background: var(--remote-paper);
   background-image: none !important;
 }
 
@@ -514,26 +519,26 @@ html.remote-terminal-open .MuiButton-root svg {
   height: 6px;
   margin-top: 10px;
   overflow: hidden;
-  border-radius: 3px;
-  background: #e8edf0;
+  border-radius: 9999px;
+  background: #E4E3EE;
 }
 
 html.remote-terminal-open.dark .remote-metric-bar {
-  background: #2b3740;
+  background: #282735;
 }
 
 .remote-metric-bar > i {
   display: block;
   height: 100%;
-  border-radius: 3px;
+  border-radius: 9999px;
 }
 
 .remote-metric-bar.is-green > i {
-  background: #22b573;
+  background: #10B981;
 }
 
 .remote-metric-bar.is-amber > i {
-  background: #f0a632;
+  background: #F59E0B;
 }
 
 .remote-metric-bar.is-coral > i {
@@ -547,13 +552,13 @@ html.remote-terminal-open.dark .remote-metric-bar {
 }
 
 .remote-metric.is-up strong {
-  color: #22c55e;
+  color: var(--remote-online);
   font-size: 24px;
   line-height: 28px;
 }
 
 .remote-metric.is-down strong {
-  color: #078dee;
+  color: var(--remote-accent);
   font-size: 24px;
   line-height: 28px;
 }
@@ -685,7 +690,7 @@ html.remote-terminal-open.dark .remote-metric-bar {
 }
 
 .remote-divider:hover {
-  background: rgb(7 141 238 / 18%);
+  background: color-mix(in srgb, var(--remote-accent) 24%, transparent);
 }
 
 .remote-side-panel {
@@ -694,7 +699,7 @@ html.remote-terminal-open.dark .remote-metric-bar {
   flex: 0 0 auto;
   overflow: hidden;
   border: 1px solid var(--remote-border);
-  border-radius: 8px;
+  border-radius: 16px;
   background: var(--remote-paper);
 }
 
@@ -860,13 +865,14 @@ html.remote-terminal-open.dark .remote-metric-bar {
 }
 
 .remote-file-upload.MuiButton-contained:not(.Mui-disabled) {
-  background: rgba(7, 141, 238, 0.12);
-  color: #078dee;
+  background: var(--md-sys-color-primary-container, #DFDBFF);
+  color: var(--md-sys-color-on-primary-container, #10085E);
   box-shadow: none;
 }
 
 .remote-file-upload.MuiButton-contained:not(.Mui-disabled):hover {
-  background: rgba(7, 141, 238, 0.2);
+  background: var(--md-sys-color-primary-container, #DFDBFF);
+  filter: brightness(0.96);
 }
 
 .remote-file-toolbar .MuiIconButton-root {
@@ -1172,11 +1178,11 @@ html.remote-terminal-open.dark .remote-metric-bar {
   margin: 16px;
   overflow: hidden;
   border: 1px solid var(--remote-border);
-  border-radius: 12px;
+  border-radius: 28px;
   background: var(--remote-paper) !important;
   background-image: none !important;
   color: var(--remote-text);
-  box-shadow: 0 18px 48px rgb(0 0 0 / 32%);
+  box-shadow: var(--md-sys-elevation-3, 0 18px 48px rgb(0 0 0 / 32%));
 }
 
 .remote-confirm-paper .MuiDialogTitle-root {
@@ -1240,24 +1246,24 @@ html.remote-terminal-open.dark .remote-metric-bar {
 }
 
 .remote-picker-paper.is-right {
-  border-radius: 12px 0 0 12px;
+  border-radius: 28px 0 0 28px;
 }
 
 .remote-picker-paper.is-left {
-  border-radius: 0 12px 12px 0;
+  border-radius: 0 28px 28px 0;
 }
 
 .remote-picker-paper.is-center {
   width: min(864px, calc(100vw - 48px));
   margin: 24px;
-  border-radius: 12px;
+  border-radius: 28px;
   transform-origin: center center;
-  animation: remote-picker-center-in 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: remote-picker-center-in 360ms cubic-bezier(0.2, 0, 0, 1) both;
   max-height: min(calc(100dvh - 48px), calc(100dvh - var(--remote-header-h) - var(--remote-status-h)));
 }
 
 .MuiModal-root[aria-hidden="true"] .remote-picker-paper.is-center {
-  animation: remote-picker-center-out 200ms cubic-bezier(0.4, 0, 1, 1) both;
+  animation: remote-picker-center-out 200ms cubic-bezier(0.3, 0, 1, 1) both;
 }
 
 @keyframes remote-picker-center-in {
@@ -1768,18 +1774,18 @@ html.remote-terminal-open.dark .remote-metric-bar {
     flex: 1;
     align-items: center;
     gap: 10px;
-    height: 38px;
-    border: 1px solid #35465a;
-    border-radius: 8px;
-    background: #1a2735;
-    padding: 0 11px;
-    color: #8498af;
+    height: 40px;
+    border: 1px solid #434059;
+    border-radius: 12px;
+    background: #1F1E29;
+    padding: 0 12px;
+    color: #BAB8CC;
   }
 
   .remote-mobile-input span {
     flex: 0 0 auto;
-    color: #078dee;
-    font-family: Consolas, ui-monospace, monospace;
+    color: #ACA3FF;
+    font-family: var(--font-mono, Consolas, ui-monospace, monospace);
     font-size: 15px;
     line-height: 1;
   }
@@ -1810,16 +1816,16 @@ html.remote-terminal-open.dark .remote-metric-bar {
 
   .remote-mobile-send {
     display: inline-flex;
-    width: 38px;
-    height: 38px;
-    flex: 0 0 38px;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
     align-items: center;
     justify-content: center;
     border: 0;
-    border-radius: 8px;
+    border-radius: 9999px;
     background: var(--remote-accent);
     padding: 0;
-    color: #fff;
+    color: #10066B;
     cursor: pointer;
   }
 

@@ -403,8 +403,8 @@ export default function Sessions({
                     </Dialog.Root>
                   </TableCell>
                   <TableCell>{UserAgentHelper.format(s.user_agent, t)}</TableCell>
-                  <TableCell>{s.ip}</TableCell>
-                  <TableCell>{s.latest_ip}</TableCell>
+                  <TableCell className="enb-mono">{s.ip}</TableCell>
+                  <TableCell className="enb-mono">{s.latest_ip}</TableCell>
                   <TableCell>{new Date(logoutMs).toLocaleString()}</TableCell>
                   <TableCell>
                     {(() => {

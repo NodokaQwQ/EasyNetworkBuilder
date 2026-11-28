@@ -279,8 +279,8 @@ export const Code = ({
       px: 0.75,
       py: 0.25,
       borderRadius: "6px",
-      bgcolor: "action.hover",
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      bgcolor: "var(--md-sys-color-surface-container-high)",
+      fontFamily: "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)",
       fontSize: 12.5,
     }}
   >
@@ -299,7 +299,7 @@ export const Card = ({
     style={style}
     sx={{
       ...layoutSx(rest),
-      borderRadius: "8px",
+      borderRadius: "16px",
       border: "1px solid",
       borderColor: "divider",
       boxShadow: "none",

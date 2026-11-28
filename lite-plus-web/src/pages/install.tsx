@@ -673,7 +673,7 @@ export default function Install() {
           <Box sx={{ pt: { xs: 0, sm: 2, md: 4 } }}>
             <Box
               component="img"
-              src={getAppAssetUrl("assets/logo.png?v=lite-icon-0e86dd")}
+              src={getAppAssetUrl("assets/logo.png?v=enb-icon-5845ff")}
               alt={LITE_NAME}
               sx={{ width: 54, height: 54, objectFit: "contain" }}
             />
@@ -924,26 +924,26 @@ export default function Install() {
               aria-label={t("install.guide.database_mode")}
               sx={{
                 mb: 2.5,
-                borderRadius: "8px",
+                borderRadius: "9999px",
                 "& .MuiToggleButton-root": {
-                  minHeight: 48,
-                  px: { xs: 1.25, sm: 2 },
-                  borderColor: "divider",
-                  bgcolor: "background.paper",
+                  minHeight: 46,
+                  px: { xs: 1.5, sm: 2.25 },
+                  borderColor: "var(--md-sys-color-outline, rgba(115, 112, 143, 0.5))",
+                  bgcolor: "transparent",
                   color: "text.primary",
                   textTransform: "none",
                   gap: 0.85,
-                  transition: "color 160ms ease, background-color 160ms ease, border-color 160ms ease",
+                  transition: "color 200ms cubic-bezier(0.2, 0, 0, 1), background-color 200ms cubic-bezier(0.2, 0, 0, 1), border-color 200ms cubic-bezier(0.2, 0, 0, 1)",
                   "&:hover": {
-                    bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "light" ? 0.04 : 0.08),
+                    bgcolor: alpha(theme.palette.text.primary, 0.08),
                   },
                   "&.Mui-selected": {
-                    bgcolor: `${alpha(theme.palette.primary.main, theme.palette.mode === "light" ? 0.09 : 0.16)} !important`,
-                    color: "primary.main",
-                    borderColor: alpha(theme.palette.primary.main, 0.48),
+                    bgcolor: "var(--md-sys-color-secondary-container) !important",
+                    color: "var(--md-sys-color-on-secondary-container)",
+                    borderColor: "var(--md-sys-color-outline)",
                   },
                   "&.Mui-selected:hover": {
-                    bgcolor: `${alpha(theme.palette.primary.main, theme.palette.mode === "light" ? 0.12 : 0.2)} !important`,
+                    bgcolor: "var(--md-sys-color-secondary-container) !important",
                   },
                 },
               }}

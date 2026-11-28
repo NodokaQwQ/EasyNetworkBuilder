@@ -3,15 +3,6 @@ import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import { Skeleton } from "@/components/admin/ui";
-import ArrowDownward from "@mui/icons-material/ArrowDownward";
-import ArrowUpward from "@mui/icons-material/ArrowUpward";
-import BarChartOutlined from "@mui/icons-material/BarChartOutlined";
-import CreditCardOutlined from "@mui/icons-material/CreditCardOutlined";
-import DnsOutlined from "@mui/icons-material/DnsOutlined";
-import ErrorOutlined from "@mui/icons-material/ErrorOutlined";
-import PaymentsOutlined from "@mui/icons-material/PaymentsOutlined";
-import Refresh from "@mui/icons-material/Refresh";
-import StorageOutlined from "@mui/icons-material/StorageOutlined";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
@@ -73,6 +64,17 @@ import {
   writeDashboardSession,
   type DashboardViewState,
 } from "@/utils/dashboardSession";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const ArrowDownward = materialSymbol("ArrowDownward");
+const ArrowUpward = materialSymbol("ArrowUpward");
+const BarChartOutlined = materialSymbol("BarChart");
+const CreditCardOutlined = materialSymbol("CreditCard");
+const DnsOutlined = materialSymbol("Dns");
+const ErrorOutlined = materialSymbol("Error");
+const PaymentsOutlined = materialSymbol("Payments");
+const Refresh = materialSymbol("Refresh");
+const StorageOutlined = materialSymbol("Storage");
 
 const moduleGridClass: Record<number, string> = {
   1: "md:col-span-1",

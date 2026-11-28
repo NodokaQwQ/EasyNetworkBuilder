@@ -149,7 +149,7 @@ function UsageCard({
         justifyContent: "center",
         border: "1px solid",
         borderColor: "divider",
-        borderRadius: "8px",
+        borderRadius: "16px",
         boxShadow: "none",
       }}
     >
@@ -221,9 +221,9 @@ function UsageCard({
         value={percent}
         sx={{
           mt: 1.75,
-          height: 7,
+          height: 6,
           borderRadius: 99,
-          bgcolor: "rgba(145,158,171,0.16)",
+          bgcolor: `color-mix(in srgb, ${color} 16%, transparent)`,
           "& .MuiLinearProgress-bar": { bgcolor: color, borderRadius: 99 },
         }}
       />
@@ -447,27 +447,31 @@ export default function NodeUsageStats({
         if (next) setHours(next);
       }}
       sx={{
-        bgcolor: "rgba(145, 158, 171, 0.08)",
-        borderRadius: "8px",
+        bgcolor: "var(--md-sys-color-surface-container-low, #F3F2F8)",
+        border: "1px solid var(--md-sys-color-outline-variant, #C5C3D5)",
+        borderRadius: "9999px",
         p: "2px",
         "& .MuiToggleButtonGroup-grouped": {
           border: 0,
-          borderRadius: "6px !important",
+          borderRadius: "9999px !important",
           mx: 0,
         },
         "& .MuiToggleButton-root": {
           textTransform: "none",
           fontSize: 13,
           fontWeight: 600,
-          px: 1.25,
-          py: 0.5,
+          px: 1.5,
+          py: 0.4,
           border: 0,
-          color: "#637381",
-          transition: "background-color 160ms ease, color 160ms ease",
+          color: "var(--md-sys-color-on-surface-variant, #4D4B63)",
+          transition: "background-color 180ms cubic-bezier(0.2, 0, 0, 1), color 180ms cubic-bezier(0.2, 0, 0, 1)",
           "&.Mui-selected": {
-            bgcolor: "#fff",
-            color: "#1C252E",
-            boxShadow: "0 1px 2px rgba(145,158,171,0.24)",
+            bgcolor: "var(--md-sys-color-secondary-container, #E0DEF2)",
+            color: "var(--md-sys-color-on-secondary-container, #1D1B37)",
+            boxShadow: "none",
+          },
+          "&.Mui-selected:hover": {
+            bgcolor: "var(--md-sys-color-secondary-container, #E0DEF2)",
           },
         },
       }}
@@ -609,7 +613,7 @@ export default function NodeUsageStats({
               <LegendItem color={CHART_COLORS.outbound} label={t("admin.nodeDetail.outbound", "出站")} value={displayOrEmpty(outbound, formatBytes)} />
               <LegendItem color={CHART_COLORS.outbound} label={t("admin.nodeDetail.speedOut", "出站速度")} value={formatSpeed(outboundSpeed)} />
               <LegendItem
-                color="#637381"
+                color="var(--md-sys-color-secondary, #554F87)"
                 label={`${t("admin.nodeDetail.total", "总计")}${
                   trafficType
                     ? ` · ${t(`admin.nodeEdit.trafficLimitType_${trafficType}`)}`
@@ -618,7 +622,7 @@ export default function NodeUsageStats({
                 value={displayOrEmpty(usedTraffic, formatBytes)}
               />
               <LegendItem
-                color="#22C55E"
+                color="var(--ops-color-healthy, #10B981)"
                 label={t("admin.nodeDetail.trafficLimit", "流量限制")}
                 value={
                   trafficLimit > 0
@@ -633,9 +637,9 @@ export default function NodeUsageStats({
             value={trafficPct}
             sx={{
               mt: 2,
-              height: 10,
+              height: 8,
               borderRadius: 99,
-              bgcolor: "rgba(145,158,171,0.16)",
+              bgcolor: "var(--md-sys-color-primary-container, #DFDBFF)",
               "& .MuiLinearProgress-bar": { bgcolor: CHART_COLORS.inbound, borderRadius: 99 },
             }}
           />
@@ -646,7 +650,7 @@ export default function NodeUsageStats({
           >
             <Typography
               variant="body2"
-              sx={{ minWidth: 0, color: "#7C8996", fontWeight: 400 }}
+              sx={{ minWidth: 0, color: "text.secondary", fontWeight: 400 }}
             >
               {usedTraffic != null && trafficLimit > 0
                 ? t("admin.nodeDetail.usedOf", "已用 {{used}}，共 {{total}}", {
@@ -658,7 +662,7 @@ export default function NodeUsageStats({
             <Typography
               variant="body2"
               sx={{
-                color: "#7C8996",
+                color: "text.secondary",
                 fontWeight: 400,
                 whiteSpace: "nowrap",
                 flexShrink: 0,
@@ -676,8 +680,8 @@ export default function NodeUsageStats({
               minHeight: 84,
               px: { xs: 1.5, sm: 2 },
               py: 1.25,
-              borderRadius: "8px",
-              bgcolor: "rgba(145, 158, 171, 0.04)",
+              borderRadius: "16px",
+              bgcolor: "var(--md-sys-color-surface-container-low, #F3F2F8)",
               display: "grid",
               gridTemplateColumns: { xs: "1fr auto", sm: "1fr auto 1fr" },
               alignItems: "center",
@@ -687,13 +691,14 @@ export default function NodeUsageStats({
             <Typography
               variant="body2"
               data-testid="admin-node-network-range"
-              sx={{ minWidth: 0, color: "#919EAB", fontWeight: 400, fontSize: 13 }}
+              sx={{ minWidth: 0, color: "text.secondary", fontWeight: 400, fontSize: 13 }}
             >
               {usageRangeLabel}
             </Typography>
             <Typography
               sx={{
                 color: usedTraffic != null && trafficLimit > 0 ? CHART_COLORS.inbound : "text.disabled",
+                fontFamily: "var(--font-mono)",
                 fontWeight: 700,
                 fontSize: { xs: 28, sm: 32 },
                 lineHeight: 1,
@@ -707,7 +712,7 @@ export default function NodeUsageStats({
               data-testid="admin-node-network-summary-label"
               sx={{
                 display: { xs: "none", sm: "block" },
-                color: "#919EAB",
+                color: "text.secondary",
                 fontWeight: 400,
                 fontSize: 13,
                 textAlign: "right",

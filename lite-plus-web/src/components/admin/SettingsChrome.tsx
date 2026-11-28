@@ -1,4 +1,3 @@
-import ArrowForward from "@mui/icons-material/ArrowForward";
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
 import Box from "@mui/material/Box";
@@ -9,19 +8,22 @@ import Switch from "@mui/material/Switch";
 import Typography from "@mui/material/Typography";
 import type { Theme } from "@mui/material/styles";
 import type { ReactNode } from "react";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const ArrowForward = materialSymbol("ArrowForward");
 
 export function settingsSoftBg(theme: Theme) {
-  return theme.palette.mode === "dark" ? "rgba(7,141,238,.14)" : "rgba(7,141,238,.09)";
+  return theme.palette.mode === "dark" ? "#1D0EAA" : "#DFDBFF";
 }
 
 export function settingsNeutralBg(theme: Theme) {
-  return theme.palette.mode === "dark" ? "#293542" : "#F4F6F8";
+  return theme.palette.mode === "dark" ? "#181821" : "#F3F2F8";
 }
 
 /** Default letter avatar: same as the admin top-right account chip. */
 export const adminLetterAvatarSx = {
-  bgcolor: "text.primary",
-  color: "background.paper",
+  bgcolor: "var(--md-sys-color-primary-container)",
+  color: "var(--md-sys-color-on-primary-container)",
   fontWeight: 700,
 } as const;
 
@@ -41,13 +43,15 @@ export function SettingsIconTile({
       sx={(theme) => ({
         width: size,
         height: size,
-        borderRadius: large ? "10px" : "8px",
+        borderRadius: large ? "16px" : "12px",
         flexShrink: 0,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         bgcolor: accent ? settingsSoftBg(theme) : settingsNeutralBg(theme),
-        color: accent ? "primary.main" : "text.secondary",
+        color: accent
+          ? "var(--md-sys-color-on-primary-container)"
+          : "text.secondary",
         "& svg": { fontSize: icon, width: icon, height: icon },
       })}
     >
@@ -240,16 +244,18 @@ export function SettingsHero({
         sx={(theme) => ({
           width: 58,
           height: 58,
-          borderRadius: 2,
+          borderRadius: "16px",
           display: "grid",
           placeItems: "center",
           mb: 2,
           bgcolor: success
             ? theme.palette.mode === "dark"
-              ? "#214234"
-              : "#E8F7EE"
+              ? "#064E3B"
+              : "#D1FAE5"
             : settingsSoftBg(theme),
-          color: success ? "success.main" : "primary.main",
+          color: success
+            ? "var(--ops-color-on-healthy-container)"
+            : "var(--md-sys-color-on-primary-container)",
           "& svg": { fontSize: 30, width: 30, height: 30 },
         })}
       >
@@ -367,8 +373,8 @@ export function SettingsDashedZone({
         alignItems: "center",
         justifyContent: "center",
         border: "1px dashed",
-        borderColor: "text.disabled",
-        borderRadius: 2,
+        borderColor: "var(--md-sys-color-outline)",
+        borderRadius: "16px",
         px: { xs: 3, md: 3.5 },
         pt: { xs: 2.25, md: 2.5 },
         pb: { xs: 3.25, md: 3.75 },

@@ -1034,9 +1034,9 @@ export default function RemoteSession({ tabId, node, live, online, active, compa
               setSidePanel(value === "terminal" ? null : value);
             }}
           >
-            <BottomNavigationAction value="terminal" label={t("terminal.session.terminal")} icon={<TerminalIcon size={18} />} />
-            <BottomNavigationAction value="files" label={t("terminal.session.files")} icon={<Files size={18} />} />
-            <BottomNavigationAction value="commands" label={t("terminal.session.commands")} icon={<ClipboardList size={18} />} />
+            <BottomNavigationAction value="terminal" label={t("terminal.session.terminal")} icon={<TerminalIcon size={20} filled={!sidePanel} />} />
+            <BottomNavigationAction value="files" label={t("terminal.session.files")} icon={<Files size={20} filled={sidePanel === "files"} />} />
+            <BottomNavigationAction value="commands" label={t("terminal.session.commands")} icon={<ClipboardList size={20} filled={sidePanel === "commands"} />} />
           </BottomNavigation>
         ) : null}
 

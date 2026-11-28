@@ -261,16 +261,17 @@ export default function RemoteNodePicker<T extends RemoteNodePickerItem>({
                     height: "auto",
                     flexDirection: compact ? "row" : "column",
                     overflow: "hidden",
-                    borderRadius: "8px",
+                    borderRadius: "16px",
                     borderColor: selected ? "primary.main" : "divider",
                     bgcolor: "background.paper",
                     cursor: selectable ? "pointer" : "not-allowed",
                     opacity: knownOffline && !allowOffline ? 0.72 : 1,
-                    px: 1.5,
-                    py: 1.25,
+                    px: 1.75,
+                    py: 1.5,
                     boxShadow: selected
                       ? (theme) => `inset 0 0 0 1px ${theme.palette.primary.main}`
                       : "none",
+                    transition: "border-color 180ms cubic-bezier(0.2, 0, 0, 1), background-color 180ms cubic-bezier(0.2, 0, 0, 1)",
                     "&:hover": selectable
                       ? { borderColor: "primary.main" }
                       : undefined,
@@ -314,7 +315,7 @@ export default function RemoteNodePicker<T extends RemoteNodePickerItem>({
                               aria-label={value ? undefined : t("terminal.address_unreported")}
                               sx={{
                                 fontSize: 12,
-                                fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+                                fontFamily: "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)",
                                 color: value ? undefined : "text.secondary",
                               }}
                             >

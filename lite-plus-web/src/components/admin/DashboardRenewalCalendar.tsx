@@ -201,12 +201,12 @@ export function RenewalCalendarPanel() {
                     current?.date === cell.date ? null : { date: cell.date!, anchor }
                   ));
                 }}
-                className={`flex min-h-[3.25rem] flex-col items-center justify-center rounded-md px-0.5 py-1 outline-none hover:bg-[var(--gray-a3)] focus-visible:ring-2 focus-visible:ring-[var(--accent-8)] ${isOpen ? "bg-[var(--accent-a3)]" : ""} ${count > 0 ? "cursor-pointer" : "cursor-default"}`}
+                className={`flex min-h-[3.25rem] flex-col items-center justify-center rounded-xl px-0.5 py-1 outline-none transition-colors hover:bg-[var(--gray-a3)] focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] ${isOpen ? "bg-[var(--md-sys-color-secondary-container)]" : ""} ${count > 0 ? "cursor-pointer" : "cursor-default"}`}
               >
                 <span
                   className={`inline-flex size-6 items-center justify-center rounded-full text-xs font-medium tabular-nums ${
                     isToday
-                      ? "bg-[var(--accent-9)] text-white"
+                      ? "bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] font-semibold"
                       : isPast
                         ? "text-muted-foreground"
                         : "text-foreground"
@@ -214,7 +214,7 @@ export function RenewalCalendarPanel() {
                 >
                   {cell.day}
                 </span>
-                <span className={`mt-0.5 h-4 text-[11px] leading-4 tabular-nums ${count > 0 ? "text-[var(--orange-11)]" : "text-transparent"}`}>
+                <span className={`mt-0.5 h-4 text-[11px] leading-4 tabular-nums ${count > 0 ? "text-[var(--ops-color-warning)] font-medium" : "text-transparent"}`}>
                   {count > 0 ? t("admin_dashboard.renewal_count", { count }) : "0"}
                 </span>
               </button>
@@ -239,22 +239,22 @@ export function RenewalCalendarPanel() {
               minWidth: 280,
               maxWidth: 420,
               p: 0,
-              borderRadius: "8px",
-              border: "1px solid rgba(145, 158, 171, 0.28)",
-              bgcolor: "#fff",
-              color: "#1c252e",
-              boxShadow: "0 8px 24px rgba(15, 23, 42, 0.12)",
+              borderRadius: "16px",
+              border: "1px solid var(--md-sys-color-outline-variant, #C5C3D5)",
+              bgcolor: "var(--md-sys-color-surface-container-lowest, #FFFFFF)",
+              color: "var(--md-sys-color-on-surface, #1A1924)",
+              boxShadow: "var(--md-sys-elevation-2)",
               "html.dark &": {
-                bgcolor: "#212b36",
-                color: "#fff",
-                borderColor: "rgba(255, 255, 255, 0.12)",
-                boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+                bgcolor: "var(--md-sys-color-surface-container-high, #282735)",
+                color: "var(--md-sys-color-on-surface, #E4E3ED)",
+                borderColor: "var(--md-sys-color-outline-variant, #434059)",
+                boxShadow: "var(--md-sys-elevation-2)",
               },
             },
           },
         }}
       >
-        <div className="flex items-baseline justify-between gap-3 border-b border-[rgba(145,158,171,0.2)] px-3 py-2">
+        <div className="flex items-baseline justify-between gap-3 border-b border-[var(--md-sys-color-outline-variant)] px-3.5 py-2.5">
           <div className="text-sm font-semibold text-foreground">
             {menu ? formatDayLabel(menu.date, locale) : ""}
           </div>
@@ -262,18 +262,18 @@ export function RenewalCalendarPanel() {
             {t("admin_dashboard.renewal_count", { count: menuServers.length })}
           </div>
         </div>
-        <ul className="flex flex-col px-1.5 py-1">
+        <ul className="flex flex-col px-1.5 py-1.5">
           {visibleServers.map((server) => (
-            <li key={server.uuid} className="flex items-center gap-2 rounded px-1.5 py-1 hover:bg-[var(--gray-a3)]">
+            <li key={server.uuid} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--gray-a3)]">
               <Link
                 to={`/admin/servers/${server.uuid}?tab=billing`}
                 onClick={() => setMenu(null)}
-                className="min-w-0 flex-1 truncate text-sm font-medium text-foreground no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-8)]"
+                className="min-w-0 flex-1 truncate text-sm font-medium text-foreground no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)]"
               >
                 {server.name}
               </Link>
               {cycleFeeLabel(server, t) ? (
-                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground font-mono">
                   {cycleFeeLabel(server, t)}
                 </span>
               ) : null}
@@ -282,7 +282,7 @@ export function RenewalCalendarPanel() {
                   type="button"
                   disabled={renewing === server.uuid}
                   onClick={() => { void renew(server); }}
-                  className="shrink-0 rounded-md bg-[rgba(34,197,94,0.16)] px-2 py-1 text-xs font-semibold text-[#118D57] hover:brightness-95 disabled:opacity-60"
+                  className="shrink-0 rounded-full bg-[var(--ops-color-healthy-container)] px-2.5 py-1 text-xs font-semibold text-[var(--ops-color-on-healthy-container)] hover:brightness-95 disabled:opacity-60"
                 >
                   {t("admin_dashboard.renewal_now")}
                 </button>
@@ -291,7 +291,7 @@ export function RenewalCalendarPanel() {
           ))}
         </ul>
         {menuServers.length > RENEWAL_PAGE_SIZE ? (
-          <div className="border-t border-[rgba(145,158,171,0.2)]">
+          <div className="border-t border-[var(--md-sys-color-outline-variant)]">
             <AdminPagination
               page={menuPage}
               total={menuServers.length}

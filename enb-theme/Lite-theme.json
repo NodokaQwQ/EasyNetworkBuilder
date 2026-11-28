@@ -1,0 +1,81 @@
+{
+  "name": "ENB Material You",
+  "short": "enb-theme",
+  "description": "EasyNetworkBuilder 官方 Material Design 3 公共监控大屏主题（Seed #5845FF），内置明暗动态色板、实时流量趋势、1 小时网络质量矩阵与节点详情页。",
+  "version": "1.1.0",
+  "author": "EasyNetworkBuilder",
+  "url": "https://github.com/NodokaQwQ/EasyNetworkBuilder",
+  "preview": "preview.png",
+  "navigation": {
+    "server_detail": "/server/{uuid}",
+    "server_network": "/server/{uuid}?view=network",
+    "ping_task_parameter": "ping_task"
+  },
+  "configuration": {
+    "type": "managed",
+    "data": [
+      { "name": "外观设置", "type": "title" },
+      {
+        "key": "CustomBackgroundImage",
+        "name": "背景图片",
+        "type": "input",
+        "default": "",
+        "help": "桌面端背景图片 URL，留空使用 MD3 默认动态微光表面。"
+      },
+      {
+        "key": "CustomMobileBackgroundImage",
+        "name": "移动端背景图片",
+        "type": "input",
+        "default": "",
+        "help": "移动端单独的背景图片 URL，留空时跟随桌面端。"
+      },
+      {
+        "key": "CustomLogo",
+        "name": "站点 Logo",
+        "type": "input",
+        "default": "/favicon.ico",
+        "help": "留空时跟随后台站点图标。"
+      },
+      {
+        "key": "ForceTheme",
+        "name": "强制主题",
+        "type": "select",
+        "options": "跟随系统,dark,light",
+        "default": "跟随系统",
+        "help": "选择跟随系统时，访客可以在大屏右上角自由切换浅色/深色主题。"
+      },
+      { "name": "内容设置", "type": "title" },
+      {
+        "key": "ForcePeakCutEnabled",
+        "name": "网络图表削峰",
+        "type": "switch",
+        "default": false,
+        "help": "默认裁剪异常毛刺峰值，使网络延迟趋势更易读。"
+      },
+      {
+        "key": "ShowServerBandwidth",
+        "name": "显示带宽",
+        "type": "switch",
+        "default": false,
+        "help": "打开后在服务器卡片底部显示该节点配置的带宽。"
+      },
+      { "name": "账单货币设置", "type": "title" },
+      {
+        "key": "DefaultBillingCurrency",
+        "name": "默认账单货币",
+        "type": "select",
+        "options": "跟随后端,CNY,JPY,USD,EUR,HKD,TWD,KRW,SGD,CAD,AUD",
+        "default": "跟随后端",
+        "help": "节点未单独指定货币符号时使用的默认显示货币。"
+      },
+      {
+        "key": "CnySymbolStyle",
+        "name": "人民币显示风格",
+        "type": "select",
+        "options": "¥,CNY",
+        "default": "¥",
+        "help": "设置人民币金额的前缀符号。"
+      }
+    ]
+  }
+}

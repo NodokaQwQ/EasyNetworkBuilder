@@ -8,8 +8,6 @@ import Popover from "@mui/material/Popover";
 import Stack from "@mui/material/Stack";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import ExpandMore from "@mui/icons-material/ExpandMore";
-import Close from "@mui/icons-material/Close";
 import { Github } from "@/components/admin/muiIcons";
 import {
   memo,
@@ -34,6 +32,10 @@ import { preloadAdminRoute } from "@/routes";
 import { formatVersion } from "./adminShellModel";
 import { ChromeIconButton } from "./ChromeActions";
 import SidebarBrand from "./SidebarBrand";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const ExpandMore = materialSymbol("ExpandMore");
+const Close = materialSymbol("Close");
 
 function renderIcon(icon: string, label: string, active?: boolean) {
   const link = /^(https?:\/\/|\/|\.\/|\.\.\/)/.test(icon);
@@ -54,7 +56,7 @@ function renderIcon(icon: string, label: string, active?: boolean) {
   }
   const Icon = iconMap[icon];
   if (Icon) {
-    return <Icon size={18} strokeWidth={1.75} />;
+    return <Icon size={20} filled={active} />;
   }
   return (
     <Box
@@ -77,11 +79,12 @@ function navActive(pathname: string, to: string) {
 
 const miniItemSx = {
   mx: "auto",
-  mb: 0.5,
-  width: 48,
-  height: 48,
-  minHeight: 48,
+  mb: 0.75,
+  width: 52,
+  height: 36,
+  minHeight: 36,
   p: 0,
+  borderRadius: "9999px",
   justifyContent: "center",
   "& .MuiListItemIcon-root": {
     minWidth: 0,
@@ -102,21 +105,23 @@ const navIconSx = {
 } as const;
 
 const navRowSx = {
-  mx: 0.75,
-  mb: 0.25,
-  py: 0.5,
-  px: 1.25,
-  minHeight: 40,
+  mx: 1,
+  mb: 0.35,
+  py: 0.65,
+  px: 1.75,
+  minHeight: 42,
+  borderRadius: "9999px",
   alignItems: "center",
 } as const;
 
 const nestedNavRowSx = {
-  mx: 0.75,
+  mx: 1,
   mb: 0.25,
   py: 0.5,
-  pl: 2.75,
-  pr: 1.25,
+  pl: 3.25,
+  pr: 1.75,
   minHeight: 38,
+  borderRadius: "9999px",
   alignItems: "center",
 } as const;
 
@@ -399,7 +404,7 @@ function MiniFlyoutMenu({
       paper.style.setProperty(
         "transition",
         slide
-          ? "top 180ms cubic-bezier(0.22, 1, 0.36, 1), left 180ms cubic-bezier(0.22, 1, 0.36, 1)"
+          ? "top 180ms cubic-bezier(0.2, 0, 0, 1), left 180ms cubic-bezier(0.2, 0, 0, 1)"
           : "none",
       );
     };
@@ -449,15 +454,17 @@ function MiniFlyoutMenu({
           sx: {
             ml: 1,
             minWidth: 248,
-            py: 0.75,
+            py: 1,
             overflow: "hidden",
             pointerEvents: "auto",
-            borderRadius: "8px",
-            boxShadow:
-              "0 0 2px 0 rgba(145, 158, 171, 0.24), 0 12px 24px -4px rgba(145, 158, 171, 0.16)",
+            borderRadius: "16px",
+            border: "1px solid",
+            borderColor: "divider",
+            bgcolor: "background.paper",
+            boxShadow: "var(--md-sys-elevation-2)",
             "&&": {
               transition: slide
-                ? "top 180ms cubic-bezier(0.22, 1, 0.36, 1), left 180ms cubic-bezier(0.22, 1, 0.36, 1)"
+                ? "top 200ms cubic-bezier(0.2, 0, 0, 1), left 200ms cubic-bezier(0.2, 0, 0, 1)"
                 : "none",
             },
           },
@@ -468,7 +475,7 @@ function MiniFlyoutMenu({
         <Box
           key={item.path}
           sx={{
-            animation: "adminMiniFlySwap 160ms cubic-bezier(0.22, 1, 0.36, 1)",
+            animation: "adminMiniFlySwap 160ms cubic-bezier(0.2, 0, 0, 1)",
             "@keyframes adminMiniFlySwap": {
               from: { opacity: 0, transform: "translateY(6px)" },
               to: { opacity: 1, transform: "translateY(0)" },
@@ -521,7 +528,7 @@ function MiniFlyoutMenu({
                   />
                 </>
               );
-              const itemSx = { mx: 1, borderRadius: "8px", minHeight: 40 };
+              const itemSx = { mx: 1, mb: 0.25, borderRadius: "9999px", minHeight: 40 };
               if (openInNewTab || child.reloadDocument) {
                 return (
                   <ListItemButton

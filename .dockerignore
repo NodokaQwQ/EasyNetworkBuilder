@@ -1,6 +1,8 @@
 .git
 **/node_modules
 lite-plus-web/dist
+enb-theme/dist
+enb-theme/enb-theme.zip
 lite-plus/web/public/systemUI/dist
 **/.env
 **/.env.*

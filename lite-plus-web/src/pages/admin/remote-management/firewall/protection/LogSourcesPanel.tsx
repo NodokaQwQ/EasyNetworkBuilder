@@ -83,7 +83,7 @@ export default function LogSourcesPanel({ sources, stats, policies, disabled, bu
       </Stack></AdminListFiltersBar>
     {!sources.length ? <Box sx={{ p: { xs: 2, sm: 2.5 } }}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", mb: 2.5 }}>
-        <Box sx={{ display: "flex", p: 1.25, borderRadius: "8px", bgcolor: "action.hover", color: "primary.main" }}><File size={24} /></Box>
+        <Box sx={{ display: "flex", p: 1.25, borderRadius: "12px", bgcolor: "var(--md-sys-color-primary-container, #DFDBFF)", color: "var(--md-sys-color-on-primary-container, #10085E)" }}><File size={24} /></Box>
         <Box sx={{ minWidth: 0 }}>
           <Typography variant="subtitle2" sx={{ mb: 0.5 }}>{text("sources_empty_title")}</Typography>
           <Typography variant="body2" color="text.secondary">{text("sources_intro")}</Typography>
@@ -94,7 +94,7 @@ export default function LogSourcesPanel({ sources, stats, policies, disabled, bu
           { name: "SSH", format: "sshd", label: "sshd / journal" },
           { name: "Nginx", format: "nginx_combined", label: "combined / JSON" },
           { name: "Caddy", format: "caddy_json", label: "JSON" },
-        ].map((item) => <Box key={item.name} sx={{ p: 2, borderRadius: "8px", bgcolor: "action.hover", minWidth: 0 }}>
+        ].map((item) => <Box key={item.name} sx={{ p: 2, borderRadius: "16px", bgcolor: "var(--md-sys-color-surface-container-low, #F3F2F8)", minWidth: 0 }}>
           <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap", mb: 1.5 }}>
             <Typography sx={{ fontWeight: 600 }}>{item.name}</Typography><Typography variant="caption" color="text.secondary">{item.label}</Typography>
           </Stack>
@@ -102,7 +102,7 @@ export default function LogSourcesPanel({ sources, stats, policies, disabled, bu
         </Box>)}
       </Box>
     </Box> : !filtered.length ? <ProtectionEmptyState icon={<File size={28} />}>{t("common.no_results")}</ProtectionEmptyState> : <>
-      {mobile ? <AdminMobileCardStack>{pager.pageItems.map((item) => <Box key={item.id} sx={{ border: 1, borderColor: "divider", borderRadius: "8px", overflow: "hidden" }}>
+      {mobile ? <AdminMobileCardStack>{pager.pageItems.map((item) => <Box key={item.id} sx={{ border: 1, borderColor: "divider", borderRadius: "16px", overflow: "hidden" }}>
         <Box sx={{ p: 1.5, bgcolor: "action.hover" }}>{sourceInfo(item)}</Box>
         <Stack spacing={1.5} sx={{ p: 1.5 }}>
           {binding(item)}

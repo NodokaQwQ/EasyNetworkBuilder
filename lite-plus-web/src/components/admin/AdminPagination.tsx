@@ -1,7 +1,5 @@
 import React from "react";
 import { useDroppable, useDndContext } from "@dnd-kit/core";
-import ChevronLeft from "@mui/icons-material/ChevronLeft";
-import ChevronRight from "@mui/icons-material/ChevronRight";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import { useTranslation } from "react-i18next";
@@ -12,6 +10,10 @@ import {
   adminPageSizeOptions,
   normalizeAdminPageSize,
 } from "@/utils/adminPagination";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const ChevronLeft = materialSymbol("ChevronLeft");
+const ChevronRight = materialSymbol("ChevronRight");
 
 export { ADMIN_LIST_PAGE_SIZE } from "@/utils/adminPagination";
 

@@ -12,26 +12,26 @@ export function getAdminMenuProps(minWidth?: number): Partial<MenuProps> {
     slotProps: {
       transition: {
         easing: {
-          enter: "cubic-bezier(0.22, 1, 0.36, 1)",
-          exit: "cubic-bezier(0.4, 0, 1, 1)",
+          enter: "cubic-bezier(0.2, 0, 0, 1)",
+          exit: "cubic-bezier(0.3, 0, 1, 1)",
         },
       },
       paper: {
         className: "km-admin-menu",
         sx: {
-          mt: "4px",
+          mt: "6px",
           ml: 0,
           minWidth,
-          p: "4px",
+          p: "6px 0",
           overflowX: "hidden",
           overflowY: "auto",
           maxHeight: "min(320px, calc(100dvh - 16px))",
-          borderRadius: "8px",
-          bgcolor: "background.paper",
+          borderRadius: "var(--md-sys-shape-xs)",
+          border: "1px solid var(--md-sys-color-outline-variant)",
+          bgcolor: "var(--md-sys-color-surface-container)",
           backgroundImage: "none",
           willChange: "opacity, transform",
-          boxShadow:
-            "0 0 2px 0 rgba(145, 158, 171, 0.24), -20px 20px 40px -4px rgba(145, 158, 171, 0.24)",
+          boxShadow: "var(--md-sys-elevation-2)",
         },
       },
       list: {
@@ -44,12 +44,12 @@ export function getAdminMenuProps(minWidth?: number): Partial<MenuProps> {
           "& .MuiMenuItem-root": {
             minHeight: 38,
             m: 0,
-            px: 1,
+            px: 1.75,
             py: 0.75,
-            borderRadius: "6px",
+            borderRadius: 0,
             fontSize: ADMIN_MENU_FONT_SIZE,
-            fontWeight: 400,
-            lineHeight: 1.2,
+            fontWeight: 500,
+            lineHeight: 1.25,
             boxShadow: "none",
             transition: "color 150ms ease, background-color 150ms ease",
           },

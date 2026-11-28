@@ -41,7 +41,7 @@ test("admin appearance chrome matches the header, not the brand accent", () => {
   assert.doesNotMatch(cards, /km-admin-surface p-3 transition-colors/);
   assert.match(
     theme,
-    /MuiOutlinedInput:[\s\S]*transition:\s*"border-color 180ms ease, box-shadow 180ms ease"/,
+    /MuiOutlinedInput:[\s\S]*transition:\s*`border-color \$\{MD3_MOTION\.durationShort\} \$\{MD3_MOTION\.easingStandard\}, box-shadow \$\{MD3_MOTION\.durationShort\} \$\{MD3_MOTION\.easingStandard\}`/,
   );
   assert.match(theme, /&:-webkit-autofill, &:-webkit-autofill:hover/);
   assert.match(theme, /WebkitBoxShadow: `0 0 0 100px \$\{isLight \? INPUT_FILL : INPUT_FILL_DARK\} inset`/);

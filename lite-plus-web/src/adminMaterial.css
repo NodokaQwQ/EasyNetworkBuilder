@@ -1,10 +1,136 @@
+/* EasyNetworkBuilder — Material Design 3 (Material You) Console Design System
+   Seed Color: #5845FF
+   Keep surface overrides scoped so public dashboard themes remain independent. */
+
+:root {
+  /* Material Design 3 Light Tokens — Seed: #5845FF */
+  --md-sys-color-primary: #5845FF;
+  --md-sys-color-on-primary: #FFFFFF;
+  --md-sys-color-primary-container: #DFDBFF;
+  --md-sys-color-on-primary-container: #10085E;
+
+  --md-sys-color-secondary: #554F87;
+  --md-sys-color-on-secondary: #FFFFFF;
+  --md-sys-color-secondary-container: #E0DEF2;
+  --md-sys-color-on-secondary-container: #1D1B37;
+
+  --md-sys-color-tertiary: #D946EF;
+  --md-sys-color-on-tertiary: #FFFFFF;
+  --md-sys-color-tertiary-container: #FAE8FF;
+  --md-sys-color-on-tertiary-container: #701A75;
+
+  --md-sys-color-surface: #F9F8FC;
+  --md-sys-color-surface-container-lowest: #FFFFFF;
+  --md-sys-color-surface-container-low: #F3F2F8;
+  --md-sys-color-surface-container: #EDECF4;
+  --md-sys-color-surface-container-high: #E4E3EE;
+  --md-sys-color-surface-container-highest: #DCDAE7;
+
+  --md-sys-color-on-surface: #1A1924;
+  --md-sys-color-on-surface-variant: #4D4B63;
+  --md-sys-color-outline: #73708F;
+  --md-sys-color-outline-variant: #C5C3D5;
+
+  --md-sys-color-error: #F43F5E;
+  --md-sys-color-on-error: #FFFFFF;
+  --md-sys-color-error-container: #FFE4E6;
+  --md-sys-color-on-error-container: #881337;
+
+  --md-sys-color-inverse-surface: #2F2E3B;
+  --md-sys-color-inverse-on-surface: #F2F0F7;
+  --md-sys-color-inverse-primary: #ACA3FF;
+
+  /* Ops Semantic Tokens */
+  --ops-color-healthy: #10B981;
+  --ops-color-healthy-container: #D1FAE5;
+  --ops-color-on-healthy-container: #065F46;
+  --ops-color-warning: #F59E0B;
+  --ops-color-warning-container: #FEF3C7;
+  --ops-color-on-warning-container: #92400E;
+
+  /* Shape Scale */
+  --md-sys-shape-xs: 4px;
+  --md-sys-shape-sm: 8px;
+  --md-sys-shape-md: 12px;
+  --md-sys-shape-lg: 16px;
+  --md-sys-shape-xl: 28px;
+  --md-sys-shape-full: 9999px;
+
+  /* Elevation 0–5 */
+  --md-sys-elevation-0: none;
+  --md-sys-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.14), 0 1px 3px 1px rgba(0, 0, 0, 0.08);
+  --md-sys-elevation-2: 0 1px 2px rgba(0, 0, 0, 0.16), 0 2px 6px 2px rgba(0, 0, 0, 0.10);
+  --md-sys-elevation-3: 0 4px 8px 3px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.18);
+  --md-sys-elevation-4: 0 6px 10px 4px rgba(0, 0, 0, 0.12), 0 2px 3px rgba(0, 0, 0, 0.20);
+  --md-sys-elevation-5: 0 8px 12px 6px rgba(0, 0, 0, 0.14), 0 4px 4px rgba(0, 0, 0, 0.22);
+
+  /* Motion Easing & Duration */
+  --md-sys-motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --md-sys-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --md-sys-motion-easing-decelerate: cubic-bezier(0, 0, 0, 1);
+  --md-sys-motion-easing-accelerate: cubic-bezier(0.3, 0, 1, 1);
+  --md-sys-motion-duration-short: 150ms;
+  --md-sys-motion-duration-medium: 250ms;
+  --md-sys-motion-duration-long: 500ms;
+
+  /* Typography */
+  --font-sans: "Inter Variable", "Inter", "Public Sans Variable", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+html.dark {
+  /* Material Design 3 Dark Tokens — Seed: #5845FF */
+  --md-sys-color-primary: #ACA3FF;
+  --md-sys-color-on-primary: #10066B;
+  --md-sys-color-primary-container: #1D0EAA;
+  --md-sys-color-on-primary-container: #DFDBFF;
+
+  --md-sys-color-secondary: #B9B5DE;
+  --md-sys-color-on-secondary: #252145;
+  --md-sys-color-secondary-container: #3A3663;
+  --md-sys-color-on-secondary-container: #E0DEF2;
+
+  --md-sys-color-tertiary: #F2A6DE;
+  --md-sys-color-on-tertiary: #541242;
+  --md-sys-color-tertiary-container: #7C2765;
+  --md-sys-color-on-tertiary-container: #FCD9F3;
+
+  --md-sys-color-surface: #111118;
+  --md-sys-color-surface-container-lowest: #0B0A0F;
+  --md-sys-color-surface-container-low: #181821;
+  --md-sys-color-surface-container: #1F1E29;
+  --md-sys-color-surface-container-high: #282735;
+  --md-sys-color-surface-container-highest: #323040;
+
+  --md-sys-color-on-surface: #E4E3ED;
+  --md-sys-color-on-surface-variant: #BAB8CC;
+  --md-sys-color-outline: #8A87A1;
+  --md-sys-color-outline-variant: #434059;
+
+  --md-sys-color-error: #FFB4AB;
+  --md-sys-color-on-error: #690005;
+  --md-sys-color-error-container: #93000A;
+  --md-sys-color-on-error-container: #FFDAD6;
+
+  --md-sys-color-inverse-surface: #E4E3ED;
+  --md-sys-color-inverse-on-surface: #2F2E3B;
+  --md-sys-color-inverse-primary: #5845FF;
+
+  --ops-color-healthy: #6EE7B7;
+  --ops-color-healthy-container: #064E3B;
+  --ops-color-on-healthy-container: #D1FAE5;
+  --ops-color-warning: #FCD34D;
+  --ops-color-warning-container: #78350F;
+  --ops-color-on-warning-container: #FEF3C7;
+}
+
 /* ENB console surfaces. Keep this scoped: public dashboard themes are independent. */
 html[data-admin-shell-active="true"] {
   --background: #f9f8fc;
   --foreground: #1a1924;
   --card: #fff;
   --card-foreground: #1a1924;
-  --popover: #fff;
+  --popover: #edecf4;
   --popover-foreground: #1a1924;
   --primary: #5845ff;
   --primary-foreground: #fff;
@@ -15,7 +141,7 @@ html[data-admin-shell-active="true"] {
   --muted: #f3f2f8;
   --muted-foreground: #4d4b63;
   --border: #c5c3d5;
-  --input: #c5c3d5;
+  --input: #73708f;
   --ring: #5845ff;
   --radius: 1rem;
   --chart-1: var(--chart-series-1);
@@ -25,7 +151,7 @@ html[data-admin-shell-active="true"] {
   --chart-5: var(--chart-series-5);
   --chart-grid-line: rgba(115, 112, 143, .18);
   --chart-tooltip-bg: #dcdae7;
-  --chart-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --chart-mono: var(--font-mono);
 }
 
 html.dark[data-admin-shell-active="true"] {
@@ -44,67 +170,114 @@ html.dark[data-admin-shell-active="true"] {
   --muted: #282735;
   --muted-foreground: #bab8cc;
   --border: #434059;
-  --input: #434059;
+  --input: #8a87a1;
   --ring: #aca3ff;
   --chart-grid-line: rgba(186, 184, 204, .14);
   --chart-tooltip-bg: #323040;
 }
 
 html[data-admin-shell-active="true"],
-html[data-admin-shell-active="true"] [data-admin-shell] {
+html[data-admin-shell-active="true"] [data-admin-shell],
+[data-testid="admin-login-page"],
+[data-testid="install-guide"],
+[data-testid="migration-guide"] {
+  --accent-1: #f9f8fc;
+  --accent-8: #5845ff;
   --accent-9: #5845ff;
   --accent-10: #4633e5;
-  --accent-11: #4633c9;
-  --accent-8: #5845ff;
+  --accent-11: #10085e;
   --accent-a2: rgba(88, 69, 255, .08);
-  --accent-a3: rgba(88, 69, 255, .12);
-  --accent-a7: rgba(88, 69, 255, .48);
+  --accent-a3: #dfdbff;
+  --accent-a7: rgba(88, 69, 255, .42);
+  --accent-a8: rgba(88, 69, 255, .56);
   --gray-2: #f3f2f8;
+  --gray-3: #edecf4;
+  --gray-4: #e4e3ee;
+  --gray-5: #dcdae7;
+  --gray-8: #73708f;
+  --gray-9: #73708f;
   --gray-10: #4d4b63;
   --gray-11: #4d4b63;
   --gray-12: #1a1924;
+  --gray-a2: rgba(26, 25, 36, .04);
+  --gray-a3: rgba(26, 25, 36, .08);
+  --gray-a4: rgba(26, 25, 36, .12);
   --gray-a5: #c5c3d5;
+  --gray-a6: #c5c3d5;
+  --gray-a7: #73708f;
   --color-panel-solid: #fff;
-  --green-9: #0f8b5f;
-  --green-11: #0b7650;
-  --orange-9: #b45309;
-  --orange-11: #93420a;
-  --red-9: #ba1a1a;
-  --red-11: #a01515;
-  font-family: Inter, "Public Sans Variable", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  --green-9: #10b981;
+  --green-11: #065f46;
+  --orange-9: #f59e0b;
+  --orange-11: #92400e;
+  --orange-a3: #fef3c7;
+  --red-9: #f43f5e;
+  --red-11: #881337;
+  --red-a3: #ffe4e6;
+  --blue-9: #5845ff;
+  --blue-11: #10085e;
+  font-family: var(--font-sans);
 }
 
 html.dark[data-admin-shell-active="true"],
-html.dark[data-admin-shell-active="true"] [data-admin-shell] {
+html.dark[data-admin-shell-active="true"] [data-admin-shell],
+html.dark [data-testid="admin-login-page"],
+html.dark [data-testid="install-guide"],
+html.dark [data-testid="migration-guide"] {
+  --accent-1: #111118;
+  --accent-8: #aca3ff;
   --accent-9: #aca3ff;
   --accent-10: #bcb5ff;
-  --accent-11: #d1cbff;
-  --accent-8: #aca3ff;
+  --accent-11: #dfdbff;
   --accent-a2: rgba(172, 163, 255, .14);
-  --accent-a3: rgba(172, 163, 255, .24);
+  --accent-a3: #1d0eaa;
   --accent-a7: rgba(172, 163, 255, .48);
-  --gray-2: #282735;
+  --accent-a8: rgba(172, 163, 255, .6);
+  --gray-2: #181821;
+  --gray-3: #1f1e29;
+  --gray-4: #282735;
+  --gray-5: #323040;
+  --gray-8: #8a87a1;
+  --gray-9: #8a87a1;
   --gray-10: #bab8cc;
   --gray-11: #bab8cc;
   --gray-12: #e4e3ed;
+  --gray-a2: rgba(228, 227, 237, .05);
+  --gray-a3: rgba(228, 227, 237, .08);
+  --gray-a4: rgba(228, 227, 237, .12);
   --gray-a5: #434059;
+  --gray-a6: #434059;
+  --gray-a7: #8a87a1;
   --color-panel-solid: #1f1e29;
   --green-9: #6ee7b7;
-  --green-11: #6ee7b7;
+  --green-11: #d1fae5;
   --orange-9: #fcd34d;
-  --orange-11: #fcd34d;
+  --orange-11: #fef3c7;
+  --orange-a3: #78350f;
   --red-9: #ffb4ab;
-  --red-11: #ffb4ab;
+  --red-11: #ffdad6;
+  --red-a3: #93000a;
+  --blue-9: #9d92ff;
+  --blue-11: #dfdbff;
 }
 
+/* MD3 Tonal Surface Containers */
 html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-surface,
 html[data-admin-shell-active="true"] [data-admin-shell] .admin-responsive-table-wrap,
 html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list,
-html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-detail-card {
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-detail-card,
+html[data-admin-shell-active="true"] [data-admin-shell] [class*="rounded-md"][class*="bg-[var(--color-panel-solid)]"] {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--md-sys-shape-lg);
   box-shadow: none;
+  transition: border-color var(--md-sys-motion-duration-short) var(--md-sys-motion-easing-standard),
+    box-shadow var(--md-sys-motion-duration-short) var(--md-sys-motion-easing-standard);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-detail-card .km-admin-detail-card {
+  border-radius: var(--md-sys-shape-md);
+  background: var(--md-sys-color-surface-container-low);
 }
 
 html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .admin-responsive-table-wrap {
@@ -118,73 +291,272 @@ html[data-admin-shell-active="true"] [data-admin-shell] .admin-mobile-card-stack
   background: var(--muted);
 }
 
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-table-header {
+  color: var(--muted-foreground);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list-filters {
+  border-bottom-color: var(--border);
+}
+
 html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .admin-pagination,
 html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .km-admin-list-empty {
   background: var(--card);
 }
 
-html[data-admin-shell-active="true"] [data-admin-shell] .admin-table-header th,
-html[data-admin-shell-active="true"] [data-admin-shell] .km-table td,
-html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .km-admin-list-empty {
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-table-header th {
+  color: var(--muted-foreground);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-table td {
   color: var(--foreground);
 }
 
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .km-admin-list-empty {
+  color: var(--muted-foreground);
+}
+
+/* MD3 Primary Tabs */
 html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-sheet-tabs {
   background: transparent;
   border-bottom-color: var(--border);
 }
 
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-sheet-tabs .MuiTab-root {
+  color: var(--md-sys-color-on-surface-variant);
+  transition: color var(--md-sys-motion-duration-short) var(--md-sys-motion-easing-standard);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-sheet-tabs .MuiTab-root:hover {
+  color: var(--md-sys-color-on-surface);
+}
+
 html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-sheet-tabs .MuiTab-root.Mui-selected {
   color: var(--primary);
+  font-weight: 600;
 }
 
 html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-sheet-tabs .MuiTab-root.Mui-selected::after,
 html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-sheet-tabs [role="tab"][aria-selected="true"]::after,
 html[data-admin-shell-active="true"] [data-admin-shell] [data-admin-tab-motion-ready="true"]::after {
   background: var(--primary);
+  border-radius: 3px 3px 0 0;
+  transition:
+    width var(--md-sys-motion-duration-medium) var(--md-sys-motion-easing-emphasized),
+    transform var(--md-sys-motion-duration-medium) var(--md-sys-motion-easing-emphasized);
 }
 
+html[data-admin-shell-active="true"] [data-admin-shell] .km-theme-config-tabs-trigger {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-theme-config-tabs-trigger[data-state="active"] {
+  color: var(--md-sys-color-primary);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-theme-config-tabs-viewport::before {
+  background: linear-gradient(to right, var(--card) 30%, transparent);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-theme-config-tabs-viewport::after {
+  background: linear-gradient(to left, var(--card) 30%, transparent);
+}
+
+/* MD3 Button Group & Segmented Controls */
 html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-sheet-tabs.firewall-protection-tabs {
-  --protection-tab-active-bg: var(--card);
-  --protection-tab-active-color: var(--primary);
-  background: var(--muted);
+  --protection-tab-active-bg: var(--md-sys-color-secondary-container);
+  --protection-tab-active-color: var(--md-sys-color-on-secondary-container);
+  background: var(--md-sys-color-surface-container-high);
+  border-radius: var(--md-sys-shape-full);
+  border: 1px solid var(--md-sys-color-outline-variant);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-sheet-tabs.firewall-protection-tabs .MuiTab-root {
+  border-radius: var(--md-sys-shape-full);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-sheet-tabs.firewall-protection-tabs .MuiTab-root.Mui-selected,
+html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-sheet-tabs.firewall-protection-tabs .MuiTab-root.Mui-selected:hover {
+  box-shadow: none;
 }
 
 /* The segmented tab indicator is its selection surface, not an underline. */
-html[data-admin-shell-active="true"] [data-admin-shell] .admin-ping-loss-sheets .km-admin-sheet-tabs-actions [data-admin-tab-motion-ready="true"]::after {
-  background: var(--card);
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-ping-loss-sheets .km-admin-sheet-tabs-actions [role="tablist"] {
+  border-radius: var(--md-sys-shape-full);
+  background: var(--md-sys-color-surface-container-high);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  padding: 3px;
 }
 
-html[data-admin-shell-active="true"] [data-admin-shell] .km-dashboard-chip {
-  border-radius: 999px;
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-ping-loss-sheets .km-admin-sheet-tabs-actions [role="tab"] {
+  border-radius: var(--md-sys-shape-full);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-ping-loss-sheets .km-admin-sheet-tabs-actions [role="tab"][aria-selected="true"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  box-shadow: none;
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-ping-loss-sheets .km-admin-sheet-tabs-actions [data-admin-tab-motion-ready="true"]::after {
+  background: var(--md-sys-color-secondary-container);
+  border-radius: var(--md-sys-shape-full);
+  box-shadow: none;
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-ping-loss-sheets .km-admin-sheet-tabs-actions [data-admin-tab-motion-ready="true"] [role="tab"][aria-selected="true"],
+html[data-admin-shell-active="true"] [data-admin-shell] .admin-ping-loss-sheets .km-admin-sheet-tabs-actions [data-admin-tab-motion-ready="true"] .MuiTab-root.Mui-selected {
+  background-color: transparent;
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+html[data-admin-shell-active="true"] .admin-install-platforms.MuiToggleButtonGroup-root {
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-full);
+  background: var(--md-sys-color-surface-container-lowest);
+  padding: 3px;
+}
+
+html[data-admin-shell-active="true"] .admin-install-platforms .MuiToggleButton-root {
+  border-radius: var(--md-sys-shape-full) !important;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+html[data-admin-shell-active="true"] .admin-install-platforms .MuiToggleButton-root.Mui-selected,
+html[data-admin-shell-active="true"] .admin-install-platforms .MuiToggleButton-root.Mui-selected:hover {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  box-shadow: none;
+}
+
+html[data-admin-shell-active="true"] .scheduled-exec-choices button {
+  border-radius: var(--md-sys-shape-sm);
+  border-color: var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container-lowest);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+html[data-admin-shell-active="true"] .scheduled-exec-choices button.is-selected {
+  border-color: transparent;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  box-shadow: none;
+}
+
+/* MD3 Chips & Status Pills */
+html[data-admin-shell-active="true"] [data-admin-shell] .km-dashboard-chip,
+html[data-admin-shell-active="true"] .km-dashboard-chip {
+  border-radius: var(--md-sys-shape-full);
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  font-weight: 600;
+}
+
+html[data-admin-shell-active="true"] [data-admin-shell] .km-dashboard-chip--green,
+html[data-admin-shell-active="true"] .km-dashboard-chip--green {
+  background: var(--ops-color-healthy-container);
+  color: var(--ops-color-on-healthy-container);
 }
 
 /* Status keeps its meaning across themes; brand purple must not signal health. */
-html[data-admin-shell-active="true"] [data-admin-shell] .km-dashboard-chip--orange {
-  background: #fef3c7;
-  color: #451a03;
+html[data-admin-shell-active="true"] [data-admin-shell] .km-dashboard-chip--orange,
+html[data-admin-shell-active="true"] .km-dashboard-chip--orange {
+  background: var(--ops-color-warning-container);
+  color: var(--ops-color-on-warning-container);
 }
 
-html[data-admin-shell-active="true"] [data-admin-shell] .km-dashboard-chip--red {
-  background: #ffdad6;
-  color: #410002;
+html[data-admin-shell-active="true"] [data-admin-shell] .km-dashboard-chip--red,
+html[data-admin-shell-active="true"] .km-dashboard-chip--red {
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
 }
 
-html.dark[data-admin-shell-active="true"] [data-admin-shell] .km-dashboard-chip--orange {
-  background: #78350f;
-  color: #fef3c7;
+html[data-admin-shell-active="true"] [data-admin-shell] .km-dashboard-chip--muted,
+html[data-admin-shell-active="true"] .km-dashboard-chip--muted {
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-outline-variant);
 }
 
-html.dark[data-admin-shell-active="true"] [data-admin-shell] .km-dashboard-chip--red {
-  background: #93000a;
-  color: #ffdad6;
+/* MD3 Date Picker Popover (.km-expiry-calendar) */
+html[data-admin-shell-active="true"] .km-expiry-calendar {
+  border-radius: var(--md-sys-shape-xl);
+  background: var(--md-sys-color-surface-container-high);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  box-shadow: var(--md-sys-elevation-3);
+  padding: 16px;
 }
 
-html[data-admin-shell-active="true"] [data-admin-shell] .admin-node-table tbody td:nth-child(2),
-html[data-admin-shell-active="true"] [data-admin-shell] .admin-sortable-table tbody td:nth-child(2),
-html[data-admin-shell-active="true"] [data-admin-shell] .admin-selection-table tbody td:nth-child(2),
-html[data-admin-shell-active="true"] [data-admin-shell] .admin-primary-first-table tbody td:first-child {
-  background: var(--muted);
+html[data-admin-shell-active="true"] .km-expiry-calendar-day {
+  width: 34px;
+  height: 34px;
+  margin: 0 auto;
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+html[data-admin-shell-active="true"] .km-expiry-calendar-day:hover {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
+}
+
+html[data-admin-shell-active="true"] .km-expiry-calendar-day[data-selected="true"] {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  font-weight: 700;
+}
+
+/* MD3 Table Resizer, Reset & Pagination */
+html[data-admin-shell-active="true"] .admin-node-col-resize:hover::after,
+html[data-admin-shell-active="true"] .admin-node-table thead th:hover > .admin-node-col-resize::after,
+html[data-admin-shell-active="true"] .admin-nodemgt-record-table thead th:hover > .admin-node-col-resize::after,
+html[data-admin-shell-active="true"] .admin-node-col-resize.is-active::after {
+  background: var(--md-sys-color-primary);
+}
+
+html[data-admin-shell-active="true"] .admin-node-col-reset {
+  border-radius: var(--md-sys-shape-full);
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  font-weight: 600;
+  transition: background-color var(--md-sys-motion-duration-short) ease;
+}
+
+html[data-admin-shell-active="true"] .admin-node-col-reset:hover {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+
+html[data-admin-shell-active="true"] .admin-pagination-text,
+html[data-admin-shell-active="true"] .admin-pagination-size,
+html[data-admin-shell-active="true"] .admin-pagination-btn {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+html[data-admin-shell-active="true"] .admin-pagination-btn {
+  border-radius: 50%;
+}
+
+html[data-admin-shell-active="true"] .admin-pagination-btn:not(:disabled):hover {
+  color: var(--md-sys-color-primary);
+  background: color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent);
+}
+
+@media (max-width: 1023px) {
+  html[data-admin-shell-active="true"] [data-admin-shell] .admin-responsive-table tbody tr {
+    border-radius: var(--md-sys-shape-lg);
+    border-color: var(--border) !important;
+    background: var(--card);
+  }
+
+  html[data-admin-shell-active="true"] [data-admin-shell] .admin-node-table tbody td:nth-child(2),
+  html[data-admin-shell-active="true"] [data-admin-shell] .admin-sortable-table tbody td:nth-child(2),
+  html[data-admin-shell-active="true"] [data-admin-shell] .admin-selection-table tbody td:nth-child(2),
+  html[data-admin-shell-active="true"] [data-admin-shell] .admin-primary-first-table tbody td:first-child {
+    background: var(--muted);
+  }
 }
 
 html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .km-admin-node-list-filters .MuiOutlinedInput-root {
@@ -206,6 +578,51 @@ html.dark[data-admin-shell-active="true"] [data-admin-shell] .admin-table-header
 html[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .admin-pagination,
 html.dark[data-admin-shell-active="true"] [data-admin-shell] .km-admin-node-list .admin-pagination {
   border-top-color: var(--border);
+}
+
+/* MD3 Dialog & Sheet Refinements */
+html[data-admin-shell-active="true"] .km-node-config-identity {
+  border-radius: var(--md-sys-shape-full);
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+html .enb-mono.enb-mono,
+html[data-admin-shell-active="true"] .km-node-config-identity-ip,
+html[data-admin-shell-active="true"] td.km-log-col-ip,
+html[data-admin-shell-active="true"] .remote-exec-node-address code {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+html[data-admin-shell-active="true"] .admin-deployment-delivery {
+  border-radius: var(--md-sys-shape-md);
+  border-color: var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container);
+}
+
+/* MD3 Sonner Toast / Snackbar */
+html[data-admin-shell-active="true"] [data-sonner-toast][data-styled="true"],
+html:has([data-testid="admin-login-page"]) [data-sonner-toast][data-styled="true"],
+html:has([data-testid="install-guide"]) [data-sonner-toast][data-styled="true"],
+html.remote-terminal-open [data-sonner-toast][data-styled="true"] {
+  background: var(--md-sys-color-inverse-surface) !important;
+  color: var(--md-sys-color-inverse-on-surface) !important;
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 32%, transparent) !important;
+  border-radius: var(--md-sys-shape-xs) !important;
+  box-shadow: var(--md-sys-elevation-3) !important;
+}
+
+/* MD3 filter chips use the small (8px) shape; status pills stay fully rounded. */
+html[data-admin-shell-active="true"] .km-admin-filter-chip.MuiChip-root {
+  border-radius: var(--md-sys-shape-sm);
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+html[data-admin-shell-active="true"] .km-admin-filter-chip .MuiChip-deleteIcon {
+  color: var(--md-sys-color-on-secondary-container);
+  opacity: .72;
 }
 
 /* Shared Recharts chrome, including charts that do not use ChartContainer. */
@@ -238,7 +655,7 @@ html[data-admin-shell-active="true"] .recharts-tooltip-wrapper > div {
   color: var(--foreground) !important;
   border: 1px solid var(--border) !important;
   border-radius: 12px !important;
-  box-shadow: 0 4px 16px rgba(17, 17, 24, .08) !important;
+  box-shadow: var(--md-sys-elevation-2) !important;
   font-family: var(--chart-mono);
   font-variant-numeric: tabular-nums;
   font-size: 12px;

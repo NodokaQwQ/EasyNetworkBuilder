@@ -6,6 +6,7 @@
 
 - `lite-plus/`：Head 管理后端。
 - `lite-plus-web/`：管理前端。
+- `enb-theme/`：公共监控大屏 Material Design 3 主题（`ENB Material You`）。
 - `lite-plus-agent/`：Node，包含 Xray / sing-box 集成。
 - `deploy/updater/`：独立宿主机 Head 更新器。
 - `releases/`：官方稳定版本清单和发布说明。

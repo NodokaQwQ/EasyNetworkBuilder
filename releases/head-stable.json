@@ -35,10 +35,6 @@
       "platform": "linux/amd64",
       "channel": "stable",
       "rollback": "restore-data-v1",
-      "from_versions": [
-        "0.0.1"
-      ],
-      "published_at": "2026-11-27T08:57:13.656298Z",
       "notes": "# Head 0.0.2\n\n仅发布 Head，Node 仍为 0.0.1；不自动更新线上容器或移动 latest。\n\n## 修复\n\n- 物理默认出口与 IPv6 隧道（例如 `ipv6net`）并存时，跳过隧道并选择物理出口，不再整体拒绝部署。只有隧道或没有可识别 device-backed 默认出口时仍拒绝，不回退到统计所有网卡。\n- 将部署失败细分为网卡探测、已有非受管 Node、Compose 配置、镜像拉取及容器启动错误，仍不暴露原始命令或凭据。\n- 保留旧部署保护：旧 `~/enb-test` 不允许直接覆盖，不会自动迁移代理或删除旧数据。\n\n## 验证与兼容\n\n- Head 全仓测试通过（跳过四项外网 GeoIP 测试）、相关竞态测试、全仓 vet、更新器 17 项测试通过。\n- 修复后的网卡脚本在三台不同网络布局的测试设备上只读验证均选择预期出口；未重建远端 Node。\n- 镜像启动、安装门禁、嵌入前端、匿名拒绝、EasyTier CLI 检查通过。\n- 隔离真实 Compose 使用已初始化的 Head 0.0.1，验证宿主机更新器成功切换到 0.0.2、版本/hash/SQLite 就绪及安装状态保留；注入目标就绪失败后恢复旧镜像和停机数据快照。测试仅将 registry pull 替换为已验证的本地构建镜像，其余事务使用真实 Docker；发布时另行核对远端 manifest digest。\n- 允许来源仅 Head `0.0.1`，平台 `linux/amd64`，需要人工接入独立宿主机 updater 及受支持的本地 SQLite、`/app/data` 单 bind 布局。浏览器到宿主机完整更新链路、复杂代理业务和旧 `0.2.1-enb-*` 迁移未验收。\n"
     },
     {

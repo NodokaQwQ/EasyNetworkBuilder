@@ -76,12 +76,7 @@ const buttonSize = (size?: SpaceValue) => {
 
 const muiButtonVariant = (variant?: Variant) => {
   if (variant === "ghost" || variant === "text") return "text" as const;
-  if (
-    variant === "soft" ||
-    variant === "outline" ||
-    variant === "outlined" ||
-    variant === "surface"
-  ) {
+  if (variant === "outline" || variant === "outlined" || variant === "surface") {
     return "outlined" as const;
   }
   return "contained" as const;
@@ -92,7 +87,7 @@ const muiButtonColor = (color?: string, variant?: Variant) => {
   if (color === "green") return "success" as const;
   if (color === "orange") return "warning" as const;
   if (color === "blue") return "primary" as const;
-  if (color === "gray" || variant === "soft" || variant === "ghost") {
+  if (color === "gray" || variant === "soft" || variant === "tonal" || variant === "ghost") {
     return "inherit" as const;
   }
   return "primary" as const;
@@ -115,10 +110,21 @@ const commonActionButtonSx = {
   ...ADMIN_LIST_ACTION_SX,
   height: 36,
   minHeight: 36,
-  px: 1.75,
-  fontSize: 15,
+  px: 2,
+  fontSize: 14,
   fontWeight: 600,
   lineHeight: 1.35,
+} as const;
+
+const commonTonalButtonSx = {
+  ...commonActionButtonSx,
+  bgcolor: "var(--md-sys-color-secondary-container)",
+  color: "var(--md-sys-color-on-secondary-container)",
+  "&:hover": {
+    boxShadow: "none",
+    bgcolor:
+      "color-mix(in srgb, var(--md-sys-color-on-secondary-container) 10%, var(--md-sys-color-secondary-container))",
+  },
 } as const;
 
 const commonOutlineButtonSx = {
@@ -147,6 +153,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   void _highContrast;
   void _radius;
   void _loading;
+  const isTonal = (variant === "soft" || variant === "tonal") && (!color || color === "gray");
   const neutralOutline =
     muiButtonVariant(variant) === "outlined" && (!color || color === "gray");
   if (asChild && isValidElement(children)) {
@@ -178,7 +185,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       form={rest.form}
       data-text-action={buttonHasText(children) ? "true" : undefined}
       sx={[
-        neutralOutline ? commonOutlineButtonSx : commonActionButtonSx,
+        isTonal ? commonTonalButtonSx : neutralOutline ? commonOutlineButtonSx : commonActionButtonSx,
         layoutSx(rest),
       ]}
     >
@@ -229,15 +236,30 @@ export const IconButton = forwardRef<HTMLButtonElement, ButtonProps>(
         size={buttonSize(size)}
         onClick={rest.onClick}
         sx={{
-          borderRadius: "8px",
+          borderRadius: "50%",
           ...(color === "red"
             ? {
                 color: "error.main",
-                "&:hover": { color: "error.dark", bgcolor: "rgba(255, 86, 48, 0.08)" },
+                "&:hover": {
+                  color: "var(--md-sys-color-on-error-container)",
+                  bgcolor: "var(--md-sys-color-error-container)",
+                },
               }
             : {}),
-          ...(variant === "soft"
-            ? { bgcolor: "action.hover", "&:hover": { bgcolor: "action.selected" } }
+          ...(variant === "soft" || variant === "tonal"
+            ? {
+                bgcolor: "var(--md-sys-color-secondary-container)",
+                color: "var(--md-sys-color-on-secondary-container)",
+                "&:hover": {
+                  bgcolor:
+                    "color-mix(in srgb, var(--md-sys-color-on-secondary-container) 10%, var(--md-sys-color-secondary-container))",
+                },
+              }
+            : {}),
+          ...(variant === "outline" || variant === "outlined"
+            ? {
+                border: "1px solid var(--md-sys-color-outline)",
+              }
             : {}),
           ...layoutSx(rest),
         }}
@@ -272,39 +294,45 @@ export const Badge = ({
     sx={(theme) => {
       const tone = chipColor(color);
       const dark = theme.palette.mode === "dark";
-      const palette = {
-        success: {
-          background: dark ? "rgba(34, 197, 94, 0.20)" : "rgba(34, 197, 94, 0.12)",
-          foreground: dark ? "#86efac" : "#118d57",
-        },
-        error: {
-          background: dark ? "rgba(255, 86, 48, 0.20)" : "rgba(255, 86, 48, 0.12)",
-          foreground: dark ? "#ffab91" : "#b71d18",
-        },
-        warning: {
-          background: dark ? "rgba(255, 171, 0, 0.20)" : "rgba(255, 171, 0, 0.14)",
-          foreground: dark ? "#ffd666" : "#b76e00",
-        },
-        info: {
-          background: dark ? "rgba(24, 144, 255, 0.22)" : "rgba(24, 144, 255, 0.12)",
-          foreground: dark ? "#74caff" : "#0c68e9",
-        },
-        default: {
-          background: dark ? "rgba(145, 158, 171, 0.20)" : "rgba(145, 158, 171, 0.14)",
-          foreground: dark ? "#d7dde3" : "#454f5b",
-        },
-      }[tone];
+      const isTertiary = color === "pink" || color === "plum" || color === "crimson";
+      const palette = isTertiary
+        ? {
+            background: dark ? "#7C2765" : "#FAE8FF",
+            foreground: dark ? "#FCD9F3" : "#701A75",
+          }
+        : {
+            success: {
+              background: dark ? "#064E3B" : "#D1FAE5",
+              foreground: dark ? "#D1FAE5" : "#065F46",
+            },
+            error: {
+              background: dark ? "#93000A" : "#FFE4E6",
+              foreground: dark ? "#FFDAD6" : "#881337",
+            },
+            warning: {
+              background: dark ? "#78350F" : "#FEF3C7",
+              foreground: dark ? "#FEF3C7" : "#92400E",
+            },
+            info: {
+              background: dark ? "#1D0EAA" : "#DFDBFF",
+              foreground: dark ? "#DFDBFF" : "#10085E",
+            },
+            default: {
+              background: dark ? "#3A3663" : "#E0DEF2",
+              foreground: dark ? "#E0DEF2" : "#1D1B37",
+            },
+          }[tone];
       const soft = variant !== "outline" && variant !== "outlined" && variant !== "surface";
       return {
         height: 24,
-        borderRadius: "6px",
+        borderRadius: "9999px",
         border: soft ? 0 : undefined,
         bgcolor: soft ? palette.background : undefined,
         color: soft ? `${palette.foreground} !important` : undefined,
         fontWeight: 600,
         fontSize: 12,
         "& .MuiChip-label": {
-          px: 0.875,
+          px: 1.125,
           py: 0,
           display: "flex",
           alignItems: "center",
@@ -480,7 +508,7 @@ export const TextFieldRoot = forwardRef<HTMLInputElement, TextFieldRootProps>(
         sx={{
           ...layoutSx(rest),
           "& .MuiOutlinedInput-root": {
-            borderRadius: "8px",
+            borderRadius: "12px",
           },
         }}
       />
@@ -541,7 +569,7 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
         sx={{
           ...layoutSx(rest),
           "& .MuiOutlinedInput-root": {
-            borderRadius: "8px",
+            borderRadius: "12px",
             alignItems: "stretch",
           },
           "& textarea": {
@@ -657,14 +685,14 @@ const SelectRoot = ({
         }}
         renderValue={(selected) => {
           if (selected === "" || selected == null) {
-            return <span style={{ color: "#919EAB" }}>{placeholder || ""}</span>;
+            return <span style={{ color: "var(--md-sys-color-outline)" }}>{placeholder || ""}</span>;
           }
           return labels.get(String(selected)) ?? selected;
         }}
         sx={{
-          borderRadius: "8px",
+          borderRadius: "12px",
           fontWeight: 500,
-          fontSize: 15,
+          fontSize: 14,
         }}
       >
         {items.map((item) => (
@@ -741,13 +769,14 @@ const SegmentedRoot = ({
           }
         }}
         sx={{
+          borderRadius: "9999px",
           "& .MuiToggleButton-root": {
             textTransform: "none",
-            fontWeight: 700,
-            px: 1.5,
+            fontWeight: 600,
+            px: 1.75,
             py: 0.5,
-            fontSize: 13.5,
-            borderRadius: "8px",
+            fontSize: 13,
+            borderRadius: 0,
           },
         }}
       >
@@ -782,7 +811,7 @@ export const Progress = ({
       variant="determinate"
       value={Math.max(0, Math.min(100, value))}
       color={mapped === "default" ? "primary" : mapped}
-      sx={{ height: 8, borderRadius: 99, mt: className?.includes("mt-2") ? 1 : 0 }}
+      sx={{ height: 6, borderRadius: 9999, mt: className?.includes("mt-2") ? 1 : 0 }}
     />
   );
 };

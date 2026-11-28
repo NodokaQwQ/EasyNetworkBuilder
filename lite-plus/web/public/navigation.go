@@ -87,7 +87,7 @@ func parseThemeNavigation(data []byte) (ThemeNavigation, bool) {
 
 func bundledThemeNavigation(themeID string) ThemeNavigation {
 	switch strings.TrimSpace(themeID) {
-	case DefaultTheme, LegacyPublicTheme:
+	case DefaultTheme, EnbTheme, LegacyPublicTheme:
 		return ThemeNavigation{
 			serverDetailTemplate:  "/server/{uuid}",
 			serverNetworkTemplate: "/server/{uuid}?view=network",

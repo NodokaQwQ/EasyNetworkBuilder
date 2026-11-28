@@ -33,6 +33,10 @@ html.lite-standalone {
   }
 }
 
+@theme {
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
 @theme inline {
   --color-accent-1: var(--accent-1);
   --color-accent-2: var(--accent-2);
@@ -459,8 +463,8 @@ html[data-admin-shell-active="true"] .km-dashboard-chip--muted {
 
 .admin-mini-nav-menu.admin-mini-nav-slide {
   transition:
-    top 180ms cubic-bezier(0.22, 1, 0.36, 1),
-    left 180ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+    top 180ms cubic-bezier(0.2, 0, 0, 1),
+    left 180ms cubic-bezier(0.2, 0, 0, 1) !important;
 }
 
 .admin-node-actions > button {
@@ -2207,7 +2211,7 @@ html[data-admin-shell-active="true"] .km-settings-alert .MuiAlert-icon {
   background-position: center;
   background-size: 12px;
   pointer-events: none;
-  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .admin-pagination-size[aria-expanded="true"]::after {
@@ -2270,7 +2274,8 @@ html.dark .admin-pagination-btn {
 
 .km-admin-menu,
 .km-admin-filter-menu {
-  padding: 4px !important;
+  padding: 6px 0 !important;
+  border-radius: var(--md-sys-shape-xs, 4px) !important;
   overflow-x: hidden !important;
   overflow-y: auto !important;
   max-height: min(320px, calc(100dvh - 16px)) !important;
@@ -2402,7 +2407,7 @@ html[data-admin-shell-active="true"] .km-admin-node-list .admin-pagination {
   line-height: 22px;
   text-transform: none;
   gap: 8px;
-  transition: color 160ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: color 160ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .km-admin-sheet-tabs .MuiTab-root:hover,
@@ -2513,7 +2518,7 @@ html.dark .km-admin-sheet-tabs .MuiTab-root.Mui-selected::after {
   padding: 0 12px;
   border-radius: 6px;
   background: transparent;
-  transition: color 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: color 220ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .admin-ping-loss-sheets .km-admin-sheet-tabs-actions [role="tab"][aria-selected="true"] {
@@ -2685,8 +2690,8 @@ html.dark [data-admin-shell] .km-admin-detail-card .km-admin-detail-card {
   pointer-events: none;
   transform: translate3d(var(--admin-tab-highlight-x, 0px), 0, 0);
   transition:
-    width 220ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+    width 220ms cubic-bezier(0.2, 0, 0, 1),
+    transform 220ms cubic-bezier(0.2, 0, 0, 1);
   will-change: width, transform;
 }
 
@@ -2749,10 +2754,10 @@ html[data-admin-shell-active="true"] .admin-select-or-input-content:not([data-st
 [data-admin-shell] a[href^="/admin"],
 [data-admin-shell] [data-admin-mini-group] .MuiListItemButton-root {
   transition:
-    color 160ms cubic-bezier(0.22, 1, 0.36, 1),
-    background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 160ms cubic-bezier(0.2, 0, 0, 1),
+    background-color 160ms cubic-bezier(0.2, 0, 0, 1),
+    border-color 160ms cubic-bezier(0.2, 0, 0, 1),
+    box-shadow 160ms cubic-bezier(0.2, 0, 0, 1),
     transform 120ms ease-out;
 }
 

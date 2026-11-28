@@ -261,7 +261,7 @@ function isProxyOutbound(protocol: string) {
 
 const panelSx = {
   overflow: "hidden",
-  borderRadius: "8px",
+  borderRadius: "16px",
   borderColor: "divider",
   bgcolor: "background.paper",
   boxShadow: "none",
@@ -2169,9 +2169,18 @@ function MetricCard({
   loading?: boolean;
 }) {
   const colors = {
-    blue: { bg: "rgba(14, 134, 221, 0.12)", fg: "#0E86DD" },
-    green: { bg: "rgba(17, 141, 87, 0.12)", fg: "#118D57" },
-    orange: { bg: "rgba(255, 171, 0, 0.15)", fg: "#B76E00" },
+    blue: {
+      bg: "var(--md-sys-color-primary-container, #DFDBFF)",
+      fg: "var(--md-sys-color-on-primary-container, #10085E)",
+    },
+    green: {
+      bg: "var(--ops-color-healthy-container, #D1FAE5)",
+      fg: "var(--ops-color-on-healthy-container, #065F46)",
+    },
+    orange: {
+      bg: "var(--ops-color-warning-container, #FEF3C7)",
+      fg: "var(--ops-color-on-warning-container, #92400E)",
+    },
   }[tone];
   return (
     <Paper variant="outlined" sx={{ ...panelSx, minWidth: 0, minHeight: 124, p: { xs: 1.5, sm: 2 } }}>

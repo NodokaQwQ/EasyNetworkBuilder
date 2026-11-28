@@ -58,10 +58,11 @@ function HeaderStatus({ status }: { status: ServiceStatus }) {
         alignItems: "center",
         display: { xs: "none", sm: "flex" },
         minHeight: 32,
-        px: 1.25,
+        px: 1.5,
         border: 1,
         borderColor: "divider",
-        borderRadius: "6px",
+        borderRadius: "9999px",
+        bgcolor: "var(--md-sys-color-surface-container)",
         color: "text.secondary",
         whiteSpace: "nowrap",
       }}
@@ -87,7 +88,7 @@ function InstallHeader({ status }: { status: ServiceStatus }) {
         height: { xs: 56, sm: 64 },
         borderBottom: 1,
         borderColor: "divider",
-        bgcolor: "background.paper",
+        bgcolor: "var(--md-sys-color-surface-container-low, var(--card))",
       }}
     >
       <Stack
@@ -102,7 +103,7 @@ function InstallHeader({ status }: { status: ServiceStatus }) {
         <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
           <Box
             component="img"
-            src={getAppAssetUrl("assets/logo.png?v=lite-icon-0e86dd")}
+            src={getAppAssetUrl("assets/logo.png?v=enb-icon-5845ff")}
             alt={LITE_NAME}
             sx={{ width: 34, height: 34, objectFit: "contain" }}
           />
@@ -363,10 +364,7 @@ export default function InstallGuideShell({
         minHeight: "100dvh",
         pt: "var(--safe-area-top)",
         pb: "var(--safe-area-bottom)",
-        bgcolor:
-          theme.palette.mode === "light"
-            ? "#eef2f6"
-            : theme.palette.background.default,
+        bgcolor: "background.default",
         "& .MuiOutlinedInput-root:not(.MuiInputBase-multiline)": {
           minHeight: 44,
         },
@@ -392,12 +390,10 @@ export default function InstallGuideShell({
           elevation={0}
           sx={{
             overflow: "hidden",
+            borderRadius: "28px",
             border: 1,
             borderColor: "divider",
-            boxShadow:
-              theme.palette.mode === "light"
-                ? "0 10px 28px rgba(145, 158, 171, 0.13)"
-                : "0 10px 28px rgba(0, 0, 0, 0.2)",
+            boxShadow: "var(--md-sys-elevation-1)",
             minHeight: "calc(100dvh - 88px)",
             display: "grid",
             gridTemplateColumns: "minmax(0, 1fr)",
@@ -422,10 +418,7 @@ export default function InstallGuideShell({
               p: 3.25,
               borderRight: 1,
               borderColor: "divider",
-              bgcolor:
-                theme.palette.mode === "light"
-                  ? "#fbfcfd"
-                  : alpha(theme.palette.common.white, 0.018),
+              bgcolor: "var(--md-sys-color-surface-container-low, #F3F2F8)",
               [TABLET_QUERY]: { display: "flex", flexDirection: "column" },
             }}
           >
@@ -489,7 +482,7 @@ export default function InstallGuideShell({
                 <LinearProgress
                   variant="determinate"
                   value={((step + 1) / INSTALL_STEP_IDS.length) * 100}
-                  sx={{ mt: 1, height: 4, borderRadius: 2 }}
+                  sx={{ mt: 1, height: 6, borderRadius: "9999px" }}
                 />
               </Box>
             ) : null}
@@ -560,10 +553,7 @@ export default function InstallGuideShell({
               p: 3.25,
               borderLeft: 1,
               borderColor: "divider",
-              bgcolor:
-                theme.palette.mode === "light"
-                  ? "#fbfcfd"
-                  : alpha(theme.palette.common.white, 0.018),
+              bgcolor: "var(--md-sys-color-surface-container-low, #F3F2F8)",
               [DESKTOP_QUERY]: { display: "block" },
             }}
           >
@@ -583,7 +573,8 @@ export default function InstallGuideShell({
                   border: 1,
                   borderStyle: "dashed",
                   borderColor: "divider",
-                  borderRadius: "8px",
+                  borderRadius: "16px",
+                  bgcolor: "var(--md-sys-color-surface-container, #EDECF4)",
                 }}
               >
                 <Typography variant="subtitle2">
@@ -597,12 +588,19 @@ export default function InstallGuideShell({
                   disabled={restoreDisabled}
                   onClick={onRestore}
                   sx={{
-                    mt: 1.25,
-                    color: "primary.main",
+                    mt: 1.5,
+                    px: 1.5,
+                    py: 0.65,
+                    bgcolor: "var(--md-sys-color-primary-container, #DFDBFF)",
+                    color: "var(--md-sys-color-on-primary-container, #10085E)",
                     fontSize: 13,
                     fontWeight: 600,
                     gap: 0.75,
-                    borderRadius: "6px",
+                    borderRadius: "9999px",
+                    transition: "opacity 150ms cubic-bezier(0.2, 0, 0, 1)",
+                    "&:hover": {
+                      opacity: 0.9,
+                    },
                     "&:focus-visible": {
                       outline: `2px solid ${alpha(theme.palette.primary.main, 0.4)}`,
                       outlineOffset: 2,

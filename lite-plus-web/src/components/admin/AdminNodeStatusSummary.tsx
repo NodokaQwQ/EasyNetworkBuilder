@@ -63,7 +63,7 @@ export default function AdminNodeStatusSummary({
           {value === filter ? (
             <motion.span
               aria-hidden="true"
-              className="absolute inset-x-0 bottom-[-1px] -z-10 h-0.5 bg-[#1e293b]"
+              className="absolute inset-x-0 bottom-[-1px] -z-10 h-[3px] rounded-t-[3px] bg-[var(--md-sys-color-primary)]"
               layoutId={reduceMotion ? undefined : "admin-node-status-highlight"}
               initial={false}
               transition={

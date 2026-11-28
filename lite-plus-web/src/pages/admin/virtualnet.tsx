@@ -121,10 +121,10 @@ export default function VirtualNetwork() {
       <TableBody>{discovery?.peers.map(peer => {
         const profile = profiles.find(p => p.peer_id === peer.id);
         return <TableRow key={peer.id}>
-          <TableCell>{peer.hostname || peer.id}{peer.local && ` (${t("virtualnet.local")})`}<Typography variant="caption" sx={{ display: "block" }}>{peer.id}</Typography></TableCell>
-          <TableCell>{peer.ipv4 || "—"}<br />{peer.ipv6 || "—"}</TableCell>
-          <TableCell>{peer.local ? "—" : `${peer.hops} hop · ${peer.latency_ms} ms`}</TableCell>
-          <TableCell>{peer.version}</TableCell>
+          <TableCell>{peer.hostname || peer.id}{peer.local && ` (${t("virtualnet.local")})`}<Typography variant="caption" className="enb-mono" sx={{ display: "block" }}>{peer.id}</Typography></TableCell>
+          <TableCell className="enb-mono">{peer.ipv4 || "—"}<br />{peer.ipv6 || "—"}</TableCell>
+          <TableCell className="enb-mono">{peer.local ? "—" : `${peer.hops} hop · ${peer.latency_ms} ms`}</TableCell>
+          <TableCell className="enb-mono">{peer.version}</TableCell>
            <TableCell>{profile?.has_credentials ? `${profile.username}@${profile.address}:${profile.port}` : t("virtualnet.not_configured")}{profile?.node_uuid && <Typography variant="caption" sx={{ display: "block" }}>Node: {profile.node_uuid}</Typography>}{profile?.paused && <Typography variant="caption" color="warning.main">{t("virtualnet.paused")}</Typography>}</TableCell>
           <TableCell>{!peer.local && <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
             <Button disabled={busy} onClick={() => edit(peer)}>{t("virtualnet.configure")}</Button>

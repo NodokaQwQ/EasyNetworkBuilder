@@ -7,8 +7,6 @@ import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
 import Toolbar from "@mui/material/Toolbar";
-import Logout from "@mui/icons-material/Logout";
-import MenuIcon from "@mui/icons-material/Menu";
 import { useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -18,6 +16,10 @@ import { useAccount } from "@/contexts/AccountContext";
 import { preloadAdminRoute } from "@/routes";
 import { logout } from "./useAdminShell";
 import { ChromeIconButton, LanguageMenu, ThemeMenu } from "./ChromeActions";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const Logout = materialSymbol("Logout");
+const MenuIcon = materialSymbol("Menu");
 
 type AdminTopbarProps = {
   isMobile: boolean;
@@ -44,7 +46,12 @@ export default function AdminTopbar({
       position="sticky"
       color="inherit"
       sx={{
-         bgcolor: (theme) => theme.palette.mode === "light" ? "#F3F2F8" : "#181821",
+        bgcolor: (theme) =>
+          theme.palette.mode === "light"
+            ? "rgba(243, 242, 248, 0.88)"
+            : "rgba(24, 24, 33, 0.88)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
         backgroundImage: "none",
         color: "text.primary",
         boxShadow: "none",
@@ -135,23 +142,25 @@ export default function AdminTopbar({
                 elevation: 0,
                 sx: {
                   mt: 1,
-                  minWidth: 180,
+                  minWidth: 188,
                   py: 0.75,
-                  borderRadius: "8px",
-                  boxShadow:
-                    "0 0 2px 0 rgba(145, 158, 171, 0.24), 0 12px 24px -4px rgba(145, 158, 171, 0.16)",
+                  borderRadius: "var(--md-sys-shape-xs)",
+                  border: "1px solid",
+                  borderColor: "divider",
+                  bgcolor: "var(--md-sys-color-surface-container)",
+                  boxShadow: "var(--md-sys-elevation-2)",
                 },
               },
             }}
             transformOrigin={{ horizontal: "right", vertical: "top" }}
             anchorOrigin={{ horizontal: "right", vertical: "bottom" }}
           >
-            <MenuItem disabled sx={{ mx: 0.75, borderRadius: "8px", minHeight: 40 }}>
+            <MenuItem disabled sx={{ borderRadius: 0, minHeight: 40, fontWeight: 600 }}>
               {username}
             </MenuItem>
             <MenuItem
               data-testid="admin-account-security-menu-item"
-              sx={{ mx: 0.75, my: 0.25, borderRadius: "8px", minHeight: 40 }}
+              sx={{ borderRadius: 0, minHeight: 40 }}
               onMouseEnter={() => {
                 void preloadAdminRoute("/admin/settings/account-security");
               }}
@@ -166,23 +175,15 @@ export default function AdminTopbar({
             <MenuItem
               data-testid="admin-logout-menu-item"
               sx={{
-                mx: 0.75,
-                my: 0.25,
-                borderRadius: "8px",
+                borderRadius: 0,
                 minHeight: 40,
-                color: "#B71D18",
-                bgcolor: "rgba(255, 86, 48, 0.14)",
+                fontWeight: 600,
+                color: "var(--md-sys-color-on-error-container)",
+                bgcolor: "var(--md-sys-color-error-container)",
                 "&:hover": {
-                  color: "#8E1915",
-                  bgcolor: "rgba(255, 86, 48, 0.22)",
-                },
-                "html.dark &": {
-                  color: "#FF8A75",
-                  bgcolor: "rgba(255, 86, 48, 0.18)",
-                  "&:hover": {
-                    color: "#FFB4A7",
-                    bgcolor: "rgba(255, 86, 48, 0.26)",
-                  },
+                  color: "var(--md-sys-color-on-error-container)",
+                  bgcolor:
+                    "color-mix(in srgb, var(--md-sys-color-on-error-container) 12%, var(--md-sys-color-error-container))",
                 },
               }}
               onClick={() => {

@@ -1,0 +1,467 @@
+{
+  "package": "@material-symbols/svg-400",
+  "version": "0.49.0",
+  "style": "rounded",
+  "icons": {
+    "AccessTime": {
+      "symbol": "schedule",
+      "mode": "outline"
+    },
+    "AccountBalanceWallet": {
+      "symbol": "account_balance_wallet",
+      "mode": "toggle"
+    },
+    "AccountCircle": {
+      "symbol": "account_circle",
+      "mode": "toggle"
+    },
+    "Add": {
+      "symbol": "add",
+      "mode": "outline"
+    },
+    "AltRoute": {
+      "symbol": "alt_route",
+      "mode": "toggle"
+    },
+    "AlternateEmail": {
+      "symbol": "alternate_email",
+      "mode": "toggle"
+    },
+    "ArrowBack": {
+      "symbol": "arrow_back",
+      "mode": "outline"
+    },
+    "ArrowCircleRight": {
+      "symbol": "arrow_circle_right",
+      "mode": "toggle"
+    },
+    "ArrowDownward": {
+      "symbol": "arrow_downward",
+      "mode": "outline"
+    },
+    "ArrowForward": {
+      "symbol": "arrow_forward",
+      "mode": "outline"
+    },
+    "ArrowUpward": {
+      "symbol": "arrow_upward",
+      "mode": "outline"
+    },
+    "BarChart": {
+      "symbol": "bar_chart",
+      "mode": "toggle"
+    },
+    "Block": {
+      "symbol": "block",
+      "mode": "outline"
+    },
+    "Bolt": {
+      "symbol": "bolt",
+      "mode": "outline"
+    },
+    "CalendarMonth": {
+      "symbol": "calendar_month",
+      "mode": "outline"
+    },
+    "CallSplit": {
+      "symbol": "call_split",
+      "mode": "toggle"
+    },
+    "Cancel": {
+      "symbol": "cancel",
+      "mode": "outline"
+    },
+    "CellTower": {
+      "symbol": "cell_tower",
+      "mode": "outline"
+    },
+    "Chat": {
+      "symbol": "chat",
+      "mode": "toggle"
+    },
+    "Check": {
+      "symbol": "check",
+      "mode": "outline"
+    },
+    "CheckCircle": {
+      "symbol": "check_circle",
+      "mode": "outline"
+    },
+    "ChevronLeft": {
+      "symbol": "chevron_left",
+      "mode": "outline"
+    },
+    "ChevronRight": {
+      "symbol": "chevron_right",
+      "mode": "outline"
+    },
+    "Close": {
+      "symbol": "close",
+      "mode": "outline"
+    },
+    "Cloud": {
+      "symbol": "cloud",
+      "mode": "outline"
+    },
+    "CloudUpload": {
+      "symbol": "cloud_upload",
+      "mode": "outline"
+    },
+    "Code": {
+      "symbol": "code",
+      "mode": "toggle"
+    },
+    "ContentCopy": {
+      "symbol": "content_copy",
+      "mode": "outline"
+    },
+    "ContentPaste": {
+      "symbol": "content_paste",
+      "mode": "toggle"
+    },
+    "CreateNewFolder": {
+      "symbol": "create_new_folder",
+      "mode": "outline"
+    },
+    "CreditCard": {
+      "symbol": "credit_card",
+      "mode": "outline"
+    },
+    "DarkMode": {
+      "symbol": "dark_mode",
+      "mode": "outline"
+    },
+    "Dashboard": {
+      "symbol": "dashboard",
+      "mode": "toggle"
+    },
+    "Delete": {
+      "symbol": "delete",
+      "mode": "outline"
+    },
+    "Description": {
+      "symbol": "description",
+      "mode": "toggle"
+    },
+    "Devices": {
+      "symbol": "devices",
+      "mode": "outline"
+    },
+    "Dns": {
+      "symbol": "dns",
+      "mode": "toggle"
+    },
+    "Download": {
+      "symbol": "download",
+      "mode": "outline"
+    },
+    "DragIndicator": {
+      "symbol": "drag_indicator",
+      "mode": "outline"
+    },
+    "Edit": {
+      "symbol": "edit",
+      "mode": "outline"
+    },
+    "Error": {
+      "symbol": "error",
+      "mode": "outline"
+    },
+    "ExpandMore": {
+      "symbol": "keyboard_arrow_down",
+      "mode": "outline"
+    },
+    "FilterList": {
+      "symbol": "filter_list",
+      "mode": "outline"
+    },
+    "FilterListOff": {
+      "symbol": "filter_list_off",
+      "mode": "outline"
+    },
+    "Fingerprint": {
+      "symbol": "fingerprint",
+      "mode": "outline"
+    },
+    "Folder": {
+      "symbol": "folder",
+      "mode": "outline"
+    },
+    "FolderCopy": {
+      "symbol": "folder_copy",
+      "mode": "toggle"
+    },
+    "GppGood": {
+      "symbol": "verified_user",
+      "mode": "toggle"
+    },
+    "Group": {
+      "symbol": "group",
+      "mode": "toggle"
+    },
+    "History": {
+      "symbol": "history",
+      "mode": "outline"
+    },
+    "Home": {
+      "symbol": "home",
+      "mode": "toggle"
+    },
+    "Hub": {
+      "symbol": "hub",
+      "mode": "toggle"
+    },
+    "Image": {
+      "symbol": "image",
+      "mode": "outline"
+    },
+    "Info": {
+      "symbol": "info",
+      "mode": "outline"
+    },
+    "InsertDriveFile": {
+      "symbol": "draft",
+      "mode": "outline"
+    },
+    "KeyboardReturn": {
+      "symbol": "keyboard_return",
+      "mode": "outline"
+    },
+    "KeyboardTab": {
+      "symbol": "keyboard_tab",
+      "mode": "outline"
+    },
+    "Layers": {
+      "symbol": "layers",
+      "mode": "outline"
+    },
+    "LightMode": {
+      "symbol": "light_mode",
+      "mode": "outline"
+    },
+    "Link": {
+      "symbol": "link",
+      "mode": "outline"
+    },
+    "LocalFireDepartment": {
+      "symbol": "local_fire_department",
+      "mode": "toggle"
+    },
+    "Lock": {
+      "symbol": "lock",
+      "mode": "outline"
+    },
+    "Logout": {
+      "symbol": "logout",
+      "mode": "outline"
+    },
+    "Memory": {
+      "symbol": "memory",
+      "mode": "outline"
+    },
+    "Menu": {
+      "symbol": "menu",
+      "mode": "outline"
+    },
+    "MenuBook": {
+      "symbol": "menu_book",
+      "mode": "toggle"
+    },
+    "MoreHoriz": {
+      "symbol": "more_horiz",
+      "mode": "toggle"
+    },
+    "NorthEast": {
+      "symbol": "north_east",
+      "mode": "outline"
+    },
+    "NoteAdd": {
+      "symbol": "note_add",
+      "mode": "outline"
+    },
+    "Notifications": {
+      "symbol": "notifications",
+      "mode": "toggle"
+    },
+    "NotificationsActive": {
+      "symbol": "notifications_active",
+      "mode": "toggle"
+    },
+    "NotificationsOff": {
+      "symbol": "notifications_off",
+      "mode": "outline"
+    },
+    "OpenInNew": {
+      "symbol": "open_in_new",
+      "mode": "outline"
+    },
+    "Palette": {
+      "symbol": "palette",
+      "mode": "toggle"
+    },
+    "Payments": {
+      "symbol": "payments",
+      "mode": "outline"
+    },
+    "Person": {
+      "symbol": "person",
+      "mode": "outline"
+    },
+    "PhotoCamera": {
+      "symbol": "photo_camera",
+      "mode": "outline"
+    },
+    "PlayArrow": {
+      "symbol": "play_arrow",
+      "mode": "outline"
+    },
+    "PlaylistAddCheck": {
+      "symbol": "playlist_add_check",
+      "mode": "outline"
+    },
+    "PowerOff": {
+      "symbol": "power_off",
+      "mode": "toggle"
+    },
+    "Public": {
+      "symbol": "public",
+      "mode": "toggle"
+    },
+    "QrCode2": {
+      "symbol": "qr_code_2",
+      "mode": "outline"
+    },
+    "Refresh": {
+      "symbol": "refresh",
+      "mode": "outline"
+    },
+    "Remove": {
+      "symbol": "remove",
+      "mode": "outline"
+    },
+    "RotateRight": {
+      "symbol": "rotate_right",
+      "mode": "outline"
+    },
+    "Save": {
+      "symbol": "save",
+      "mode": "outline"
+    },
+    "Schedule": {
+      "symbol": "schedule",
+      "mode": "toggle"
+    },
+    "Search": {
+      "symbol": "search",
+      "mode": "outline"
+    },
+    "SearchOff": {
+      "symbol": "search_off",
+      "mode": "outline"
+    },
+    "SelectAll": {
+      "symbol": "select_all",
+      "mode": "outline"
+    },
+    "Send": {
+      "symbol": "send",
+      "mode": "toggle"
+    },
+    "Settings": {
+      "symbol": "settings",
+      "mode": "toggle"
+    },
+    "ShowChart": {
+      "symbol": "show_chart",
+      "mode": "toggle"
+    },
+    "Shuffle": {
+      "symbol": "shuffle",
+      "mode": "outline"
+    },
+    "Speed": {
+      "symbol": "speed",
+      "mode": "toggle"
+    },
+    "Star": {
+      "symbol": "star",
+      "mode": "fill"
+    },
+    "StarBorder": {
+      "symbol": "star",
+      "mode": "outline"
+    },
+    "Stop": {
+      "symbol": "stop",
+      "mode": "outline"
+    },
+    "Storage": {
+      "symbol": "storage",
+      "mode": "toggle"
+    },
+    "Storefront": {
+      "symbol": "storefront",
+      "mode": "toggle"
+    },
+    "SwapVert": {
+      "symbol": "swap_vert",
+      "mode": "outline"
+    },
+    "Terminal": {
+      "symbol": "terminal",
+      "mode": "toggle"
+    },
+    "Timer": {
+      "symbol": "timer",
+      "mode": "outline"
+    },
+    "Translate": {
+      "symbol": "translate",
+      "mode": "outline"
+    },
+    "TrendingUp": {
+      "symbol": "trending_up",
+      "mode": "toggle"
+    },
+    "Tune": {
+      "symbol": "tune",
+      "mode": "outline"
+    },
+    "Upload": {
+      "symbol": "upload",
+      "mode": "outline"
+    },
+    "ViewSidebar": {
+      "symbol": "view_sidebar",
+      "mode": "outline"
+    },
+    "ViewStream": {
+      "symbol": "view_stream",
+      "mode": "outline"
+    },
+    "Visibility": {
+      "symbol": "visibility",
+      "mode": "outline"
+    },
+    "VisibilityOff": {
+      "symbol": "visibility_off",
+      "mode": "outline"
+    },
+    "VpnKey": {
+      "symbol": "vpn_key",
+      "mode": "outline"
+    },
+    "WarningAmber": {
+      "symbol": "warning",
+      "mode": "outline"
+    },
+    "Wifi": {
+      "symbol": "wifi",
+      "mode": "outline"
+    },
+    "WifiOff": {
+      "symbol": "wifi_off",
+      "mode": "toggle"
+    }
+  }
+}

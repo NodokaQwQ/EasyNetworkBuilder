@@ -38,7 +38,7 @@ export default function GroupsPanel({ groups, uuid, ready, disabled, onCreate, o
           <AdminListSearch value={query} onChange={(value) => { setQuery(value); pager.setPage(1); }} placeholder={text("search_groups")} />
           <Button variant="contained" startIcon={<Plus size={16} />} sx={ADMIN_LIST_ACTION_SX} disabled={disabled} onClick={onCreate}>{text("create_group")}</Button>
         </Stack></AdminListFiltersBar>
-        {!filtered.length ? <ProtectionEmptyState icon={<Users size={28} />}>{search ? t("common.no_results") : text("groups_empty")}</ProtectionEmptyState> : <Box sx={{ p: { xs: 1, sm: 2 }, display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 1.5, alignItems: "start" }}>{pager.pageItems.map((group) => <Box key={group.id} sx={{ border: 1, borderColor: "divider", borderRadius: "8px", minWidth: 0, overflow: "hidden" }}>
+        {!filtered.length ? <ProtectionEmptyState icon={<Users size={28} />}>{search ? t("common.no_results") : text("groups_empty")}</ProtectionEmptyState> : <Box sx={{ p: { xs: 1, sm: 2 }, display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 1.5, alignItems: "start" }}>{pager.pageItems.map((group) => <Box key={group.id} sx={{ border: 1, borderColor: "divider", borderRadius: "16px", minWidth: 0, overflow: "hidden" }}>
           <Stack direction="row" spacing={1} useFlexGap sx={{ p: 2, alignItems: "flex-start", flexWrap: "wrap" }}>
             <Box sx={{ display: "flex", color: "primary.main", mt: 0.25 }}><Users size={20} /></Box>
             <Box sx={{ flex: "1 1 150px", minWidth: 0 }}>
@@ -55,7 +55,7 @@ export default function GroupsPanel({ groups, uuid, ready, disabled, onCreate, o
             </Box>
           </Stack>
           <Box sx={{ px: 2, pb: 1.5 }}><Button size="small" startIcon={<ChevronRight size={16} style={{ transform: expanded[group.id] ? "rotate(90deg)" : undefined }} />} aria-expanded={Boolean(expanded[group.id])} aria-controls={`${listID}-${group.id}`} onClick={() => setExpanded((current) => ({ ...current, [group.id]: !current[group.id] }))}>{text(expanded[group.id] ? "group_collapse_members" : "group_expand_members")}</Button></Box>
-          <Collapse in={Boolean(expanded[group.id])} unmountOnExit><Box id={`${listID}-${group.id}`} role="region" aria-label={`${text("group_members")} ${group.name}`} tabIndex={0} sx={{ mx: 2, mb: 1.5, maxHeight: 320, overflowY: "auto", overscrollBehavior: "contain", border: 1, borderColor: "divider", borderRadius: "8px" }}>
+          <Collapse in={Boolean(expanded[group.id])} unmountOnExit><Box id={`${listID}-${group.id}`} role="region" aria-label={`${text("group_members")} ${group.name}`} tabIndex={0} sx={{ mx: 2, mb: 1.5, maxHeight: 320, overflowY: "auto", overscrollBehavior: "contain", border: 1, borderColor: "divider", borderRadius: "12px" }}>
             {!group.members?.length ? <Typography variant="body2" color="text.secondary" sx={{ p: 1.5 }}>{text("group_no_members")}</Typography> : group.members.map((member, index) => <Box key={member.uuid} sx={{ p: 1.5, display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "minmax(0, 1fr) auto" }, gap: 1, alignItems: "center", borderTop: index ? 1 : 0, borderColor: "divider" }}>
               <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
                 <Box sx={{ display: "flex", color: "text.secondary", flexShrink: 0 }}><Server size={17} /></Box>

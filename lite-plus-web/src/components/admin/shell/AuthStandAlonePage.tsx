@@ -19,6 +19,7 @@ export const authFieldSx = (theme: Theme) => {
   return {
     "& .MuiOutlinedInput-root": {
       minHeight: 60,
+      borderRadius: "12px",
       bgcolor: fill,
       "& input": {
         px: 2,
@@ -41,18 +42,21 @@ export const authFieldSx = (theme: Theme) => {
 
 export const authPrimaryButtonSx = {
   mt: 0.25,
-  minHeight: 56,
-  borderRadius: "8px",
-  bgcolor: "#1C252E",
-  color: "#fff",
+  minHeight: 52,
+  borderRadius: "9999px",
+  bgcolor: "primary.main",
+  color: "primary.contrastText",
   fontSize: 15,
   fontWeight: 700,
   touchAction: "manipulation",
-  "&:hover": { bgcolor: "#141B22" },
+  "&:hover": {
+    bgcolor: "primary.main",
+    filter: "brightness(0.95)",
+  },
   "&.Mui-disabled": {
-    bgcolor: "#1C252E",
-    color: "#fff",
-    opacity: 0.48,
+    bgcolor: "primary.main",
+    color: "primary.contrastText",
+    opacity: 0.38,
   },
 } as const;
 
@@ -104,7 +108,7 @@ function AuthToolbar() {
         <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
           <Box
             component="img"
-            src={getAppAssetUrl("assets/logo.png?v=lite-icon-0e86dd")}
+            src={getAppAssetUrl("assets/logo.png?v=enb-icon-5845ff")}
             alt=""
             sx={{ width: compact ? 32 : 38, height: compact ? 32 : 38, objectFit: "contain" }}
           />
@@ -149,7 +153,7 @@ export default function AuthStandAlonePage({
         overflowX: "hidden",
         overflowY: "auto",
         WebkitOverflowScrolling: "touch",
-        bgcolor: "background.paper",
+        bgcolor: "background.default",
         "&::before": {
           content: '""',
           position: "absolute",
@@ -157,8 +161,8 @@ export default function AuthStandAlonePage({
           pointerEvents: "none",
           background:
             theme.palette.mode === "dark"
-              ? "radial-gradient(ellipse 80% 55% at 12% 8%, rgba(7, 141, 238, 0.22), transparent 58%), radial-gradient(ellipse 70% 50% at 92% 6%, rgba(255, 171, 0, 0.1), transparent 52%), radial-gradient(ellipse 60% 45% at 78% 92%, rgba(0, 184, 217, 0.12), transparent 55%)"
-              : "radial-gradient(ellipse 80% 55% at 12% 8%, rgba(7, 141, 238, 0.18), transparent 58%), radial-gradient(ellipse 70% 50% at 92% 6%, rgba(255, 171, 0, 0.16), transparent 52%), radial-gradient(ellipse 60% 45% at 78% 92%, rgba(0, 184, 217, 0.14), transparent 55%)",
+              ? "radial-gradient(ellipse 80% 55% at 12% 8%, rgba(172, 163, 255, 0.16), transparent 58%), radial-gradient(ellipse 70% 50% at 92% 6%, rgba(242, 166, 222, 0.10), transparent 52%), radial-gradient(ellipse 60% 45% at 78% 92%, rgba(88, 69, 255, 0.14), transparent 55%)"
+              : "radial-gradient(ellipse 80% 55% at 12% 8%, rgba(88, 69, 255, 0.12), transparent 58%), radial-gradient(ellipse 70% 50% at 92% 6%, rgba(217, 70, 239, 0.08), transparent 52%), radial-gradient(ellipse 60% 45% at 78% 92%, rgba(85, 79, 135, 0.10), transparent 55%)",
         },
       })}
     >
@@ -186,12 +190,12 @@ export default function AuthStandAlonePage({
             return {
               width: "100%",
               maxWidth: 484,
-              borderRadius: "8px",
-              border: dark ? "1px solid rgba(145, 158, 171, 0.40)" : 0,
-              bgcolor: dark ? "rgba(255, 255, 255, 0.04)" : undefined,
+              borderRadius: "28px",
+              border: dark ? "1px solid #434059" : "1px solid #C5C3D5",
+              bgcolor: dark ? "#1F1E29" : "#FFFFFF",
               boxShadow: dark
-                ? "0 2px 4px rgba(0, 0, 0, 0.40), 0 24px 48px rgba(0, 0, 0, 0.36)"
-                : "0 2px 4px rgba(28, 37, 46, 0.04), 0 20px 48px rgba(28, 37, 46, 0.10)",
+                ? "0 4px 8px 3px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.36)"
+                : "0 4px 8px 3px rgba(26, 25, 36, 0.06), 0 1px 3px rgba(26, 25, 36, 0.08)",
             };
           }}
         >
@@ -199,7 +203,7 @@ export default function AuthStandAlonePage({
             <Box sx={{ mb: { xs: 3, sm: 5 }, textAlign: "center" }}>
               <Box
                 component="img"
-                src={getAppAssetUrl("assets/logo.png?v=lite-icon-0e86dd")}
+                src={getAppAssetUrl("assets/logo.png?v=enb-icon-5845ff")}
                 alt=""
                 sx={{
                   display: "block",

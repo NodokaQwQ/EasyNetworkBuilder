@@ -645,7 +645,7 @@ const ExecContent = () => {
                             sx={{
                                 "& .MuiOutlinedInput-root": {
                                     height: 40,
-                                    borderRadius: "8px",
+                                    borderRadius: "12px",
                                     bgcolor: "background.paper",
                                 },
                             }}
@@ -656,7 +656,7 @@ const ExecContent = () => {
                             className="w-full sm:w-auto"
                             onClick={() => void executeCommand(false)}
                             disabled={executing || !command.trim() || selectedNodes.length === 0 || (!hasGrant && (twoFaEnabled ? !twoFaCode.trim() : !passwordInput.trim()))}
-                            sx={{ minWidth: 120, height: 40, borderRadius: "8px", textTransform: "none", fontWeight: 600 }}
+                            sx={{ minWidth: 120, height: 40, borderRadius: "9999px", textTransform: "none", fontWeight: 600 }}
                         >
                             {executing ? (
                                 <>
@@ -676,7 +676,7 @@ const ExecContent = () => {
                                 sx={{
                                     minWidth: 140,
                                     height: 40,
-                                    borderRadius: "8px",
+                                    borderRadius: "9999px",
                                     textTransform: "none",
                                     fontWeight: 600,
                                     color: "text.primary",

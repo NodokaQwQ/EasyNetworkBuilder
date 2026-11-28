@@ -25,24 +25,26 @@
 .scheduled-exec-choices button {
   min-width: 72px;
   height: 36px;
-  padding: 0 14px;
-  border: 1px solid var(--gray-a7);
-  border-radius: 8px;
+  padding: 0 16px;
+  border: 1px solid var(--md-sys-color-outline, var(--gray-a7));
+  border-radius: 9999px;
   background: transparent;
   color: inherit;
   font-size: 14px;
   font-weight: 600;
   line-height: 1;
+  transition: background-color 180ms cubic-bezier(0.2, 0, 0, 1), color 180ms cubic-bezier(0.2, 0, 0, 1), border-color 180ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .scheduled-exec-choices button.is-selected {
-  border-color: #078dee;
-  background: transparent;
-  box-shadow: 0 0 0 3px rgba(7, 141, 238, 0.1);
+  border-color: var(--md-sys-color-outline, #73708F);
+  background: var(--md-sys-color-secondary-container, #E0DEF2);
+  color: var(--md-sys-color-on-secondary-container, #1D1B37);
+  box-shadow: none;
 }
 
 html.dark .scheduled-exec-choices button.is-selected {
-  box-shadow: 0 0 0 3px rgba(7, 141, 238, 0.16);
+  box-shadow: none;
 }
 
 .scheduled-exec-interval-input {
@@ -139,11 +141,11 @@ html.dark .scheduled-exec-choices button.is-selected {
 }
 
 .remote-exec-node-status.is-online {
-  color: #22c55e;
+  color: var(--ops-color-healthy, #10b981);
 }
 
 .remote-exec-node-status.is-offline {
-  color: #ff5630;
+  color: var(--md-sys-color-error, #f43f5e);
 }
 
 .remote-exec-node-addresses {
@@ -170,7 +172,7 @@ html.dark .scheduled-exec-choices button.is-selected {
   min-width: 0;
   overflow: hidden;
   color: var(--gray-11);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   font-size: 0.8125rem;
   text-overflow: ellipsis;
   white-space: nowrap;

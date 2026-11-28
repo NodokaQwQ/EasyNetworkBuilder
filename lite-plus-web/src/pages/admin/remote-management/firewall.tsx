@@ -1,7 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
-import ChevronLeft from "@mui/icons-material/ChevronLeft";
 import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
 import IconButton from "@mui/material/IconButton";
@@ -84,6 +83,9 @@ import { useAdminTabParam } from "@/hooks/useAdminTabParam";
 import { NODE_OFFLINE, NODE_ONLINE } from "@/theme/brand";
 import { servicePorts, type ServicePort } from "./firewall/protection/model";
 import { prefetchProtectionView } from "./firewall/protection/prefetch";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const ChevronLeft = materialSymbol("ChevronLeft");
 
 const loadServiceProtection = () => import("./firewall/protection");
 const ServiceProtectionSection = lazy(loadServiceProtection);
@@ -912,8 +914,8 @@ function FirewallContent() {
                   height: 22,
                   fontWeight: 600,
                   fontSize: 12,
-                  color: online ? "#fff" : "var(--red-11)",
-                  bgcolor: online ? "#22C55E" : "var(--red-a3)",
+                  color: online ? "var(--ops-color-on-healthy-container)" : "var(--red-11)",
+                  bgcolor: online ? "var(--ops-color-healthy-container)" : "var(--red-a3)",
                   visibility: online == null ? "hidden" : undefined,
                 }}
               />
@@ -1290,7 +1292,7 @@ function FirewallContent() {
                     gap: 1.25,
                     px: 1.5,
                     py: 1.25,
-                    borderRadius: "8px",
+                    borderRadius: "12px",
                     cursor: rule.adoptable ? "pointer" : "default",
                     opacity: rule.adoptable ? 1 : 0.72,
                   }}
@@ -1707,14 +1709,23 @@ function FirewallPolicyPort({
 function deliveryStatusChipSx(status: string) {
   switch (status) {
     case "applied":
-      return { color: "#fff", bgcolor: "#22C55E" };
+      return {
+        color: "var(--ops-color-on-healthy-container, #065F46)",
+        bgcolor: "var(--ops-color-healthy-container, #D1FAE5)",
+      };
     case "failed":
     case "unsupported":
-      return { color: "var(--red-11)", bgcolor: "var(--red-a3)" };
+      return {
+        color: "var(--md-sys-color-on-error-container, #881337)",
+        bgcolor: "var(--md-sys-color-error-container, #FFE4E6)",
+      };
     case "sent":
     case "pending":
     case "queued":
-      return { color: "#0B5CAB", bgcolor: "rgba(7, 141, 238, 0.12)" };
+      return {
+        color: "var(--md-sys-color-on-primary-container, #10085E)",
+        bgcolor: "var(--md-sys-color-primary-container, #DFDBFF)",
+      };
     default:
       return { color: "text.secondary", bgcolor: "action.hover" };
   }
@@ -1990,7 +2001,7 @@ function FirewallNodeAddresses({ node }: { node: NodeDetail }) {
       {addresses.length > 0 ? addresses.map(([type, address]) => (
         <div key={type} className="flex min-w-0 items-center gap-1 overflow-hidden" title={address}>
           <span className="min-w-0 truncate whitespace-nowrap tabular-nums">
-            {type} {type === "IPv6" ? compactIPv6(address) : address}
+            {type} <span className="enb-mono">{type === "IPv6" ? compactIPv6(address) : address}</span>
           </span>
         </div>
       )) : <span className="tabular-nums">--</span>}

@@ -1035,3 +1035,94 @@ func TestRetiredRegisterPOSTReturns404(t *testing.T) {
 		t.Fatal("unknown GET /api path should keep the previous SPA fallback, not a new API 404")
 	}
 }
+
+func TestEnsureBundledThemesInstallsEnbThemeAlongsideLiteTheme(t *testing.T) {
+	for _, embeddedPath := range []string{
+		"bundledThemes/enb-theme/Lite-theme.json",
+		"bundledThemes/enb-theme/preview.png",
+		"bundledThemes/enb-theme/dist/index.html",
+	} {
+		if _, err := fs.ReadFile(PublicFS, embeddedPath); err != nil {
+			t.Fatalf("missing embedded %s: %v", embeddedPath, err)
+		}
+	}
+
+	t.Chdir(t.TempDir())
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.SetDb(db)
+
+	if err := EnsureBundledThemes(); err != nil {
+		t.Fatal(err)
+	}
+	active, err := config.GetAs[string](config.ThemeKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active != DefaultTheme {
+		t.Fatalf("active theme = %q, want %q", active, DefaultTheme)
+	}
+	if !IsLocalThemeUsable(DefaultTheme) {
+		t.Fatal("bundled Lite-Theme was not installed")
+	}
+	if !IsLocalThemeUsable(EnbTheme) {
+		t.Fatal("bundled ENB Material You theme was not installed")
+	}
+
+	if err := config.SetMany(map[string]any{
+		config.ThemeKey:       EnbTheme,
+		config.SitenameKey:    "Nodoka-Network",
+		config.DescriptionKey: "服务器与节点监控网站",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	nav := ActiveThemeNavigation()
+	if got := nav.ServerDetailURL("node-1", 0); got != "/server/node-1" {
+		t.Fatalf("ENB ServerDetailURL(node-1, 0) = %q, want /server/node-1", got)
+	}
+	if got := nav.ServerDetailURL("node-1", 7); got != "/server/node-1?ping_task=7" {
+		t.Fatalf("ENB ServerDetailURL(node-1, 7) = %q, want /server/node-1?ping_task=7", got)
+	}
+
+	router := gin.New()
+	Static(router.Group("/"), router.NoRoute)
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: LanguageCookieName, Value: "zh-CN"})
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET / with enb-theme status = %d, want 200", recorder.Code)
+	}
+	body := recorder.Body.String()
+	for _, want := range []string{
+		`<html lang="zh-CN">`,
+		`<title>Nodoka-Network</title>`,
+		`服务器与节点监控网站`,
+		`#F9F8FC`,
+		`#111118`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("rendered enb-theme HTML missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, `#161C24`) {
+		t.Fatalf("rendered enb-theme HTML overwrote MD3 theme-color sync with legacy dark hex:\n%s", body)
+	}
+
+	// Removing enb-theme after initial bundle migration should respect user deletion.
+	if err := config.Set(config.ThemeKey, DefaultTheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(DataDir, ThemesDir, EnbTheme)); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureBundledThemes(); err != nil {
+		t.Fatal(err)
+	}
+	if IsLocalThemeUsable(EnbTheme) {
+		t.Fatal("deleted enb-theme was unexpectedly reinstalled after migration completed")
+	}
+}

@@ -13,14 +13,11 @@ import Divider from "@mui/material/Divider";
 import Link from "@mui/material/Link";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
-import ArrowForward from "@mui/icons-material/ArrowForward";
-import OpenInNew from "@mui/icons-material/OpenInNew";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
 
-import { LITE_BLUE, LITE_BLUE_HOVER } from "@/theme/brand";
 import { GITHUB_ALERT_LABELS, remarkGithubAlerts } from "@/utils/githubMarkdown";
 import {
   formatReleaseVersion,
@@ -31,13 +28,17 @@ import {
   type UpdatePhase,
   type VersionInfo,
 } from "./adminShellModel";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const ArrowForward = materialSymbol("ArrowForward");
+const OpenInNew = materialSymbol("OpenInNew");
 
 const ALERT_TONES: Record<string, { light: string; dark: string }> = {
-  note: { light: "#0969da", dark: "#58a6ff" },
-  tip: { light: "#1a7f37", dark: "#3fb950" },
-  important: { light: "#8250df", dark: "#a371f7" },
-  warning: { light: "#9a6700", dark: "#d4a72c" },
-  caution: { light: "#cf222e", dark: "#f85149" },
+  note: { light: "#5845FF", dark: "#ACA3FF" },
+  tip: { light: "#10B981", dark: "#6EE7B7" },
+  important: { light: "#D946EF", dark: "#F2A6DE" },
+  warning: { light: "#F59E0B", dark: "#FCD34D" },
+  caution: { light: "#F43F5E", dark: "#FFB4AB" },
 };
 
 const markdownComponents: Components = {
@@ -103,11 +104,11 @@ const markdownComponents: Components = {
             const color = theme.palette.mode === "dark" ? tone.dark : tone.light;
             return {
               mt: 1.5,
-              px: 1.5,
+              px: 1.75,
               py: 1.25,
               borderLeft: `4px solid ${color}`,
-              borderRadius: "6px",
-              bgcolor: `${color}14`,
+              borderRadius: "12px",
+              bgcolor: `${color}16`,
               color,
               "& .MuiTypography-root": { color: "text.primary", mt: 0.5 },
               "& .MuiTypography-root:first-of-type": { mt: 0.75 },
@@ -167,8 +168,9 @@ const markdownComponents: Components = {
         mb: 0,
         overflowX: "auto",
         p: 1.5,
-        borderRadius: "8px",
-        bgcolor: "action.hover",
+        borderRadius: "12px",
+        bgcolor: "var(--md-sys-color-surface-container-high)",
+        fontFamily: "var(--font-mono)",
         fontSize: 13,
         lineHeight: 1.55,
         "& code": { px: 0, bgcolor: "transparent" },
@@ -181,11 +183,11 @@ const markdownComponents: Components = {
     <Box
       component="code"
       sx={{
-        px: 0.5,
-        borderRadius: "4px",
-        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+        px: 0.6,
+        borderRadius: "6px",
+        fontFamily: "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)",
         fontSize: "0.85em",
-        bgcolor: "action.hover",
+        bgcolor: "var(--md-sys-color-surface-container-high)",
       }}
     >
       {children}
@@ -261,9 +263,10 @@ export default function UpdateReleaseDialog({
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
-            borderRadius: "8px",
-            boxShadow:
-              "0 0 2px 0 rgba(145, 158, 171, 0.24), 0 12px 24px -4px rgba(145, 158, 171, 0.16)",
+            borderRadius: "28px",
+            border: "1px solid",
+            borderColor: "divider",
+            boxShadow: "var(--md-sys-elevation-3)",
           },
         },
       }}
@@ -285,6 +288,7 @@ export default function UpdateReleaseDialog({
             size="small"
             variant="outlined"
             label={formatVersion(currentVersion, versionInfo?.hash) || "—"}
+            sx={{ fontFamily: "var(--font-mono)" }}
           />
           <ArrowForward sx={{ fontSize: 16, color: "text.disabled" }} />
           <Chip
@@ -292,8 +296,9 @@ export default function UpdateReleaseDialog({
             label={formatReleaseVersion(latestRelease) || "—"}
             sx={{
               fontWeight: 700,
-              color: LITE_BLUE,
-              bgcolor: "rgba(7, 141, 238, 0.10)",
+              fontFamily: "var(--font-mono)",
+              color: "var(--md-sys-color-on-primary-container)",
+              bgcolor: "var(--md-sys-color-primary-container)",
               "& .MuiChip-label": { px: 1.25 },
             }}
           />
@@ -348,6 +353,7 @@ export default function UpdateReleaseDialog({
         {canSelfUpdate ? (
           <Button
             variant="contained"
+            color="primary"
             onClick={onUpdate}
             disabled={!confirmed || updatePhase !== "idle"}
             startIcon={
@@ -355,10 +361,6 @@ export default function UpdateReleaseDialog({
                 <CircularProgress size={16} color="inherit" />
               )
             }
-            sx={{
-              bgcolor: LITE_BLUE,
-              "&:hover": { bgcolor: LITE_BLUE_HOVER },
-            }}
           >
             {updatePhase === "preparing"
               ? t("common.self_update_preparing", "正在下载并校验")

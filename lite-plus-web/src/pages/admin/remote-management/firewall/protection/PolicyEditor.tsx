@@ -77,7 +77,7 @@ export default function PolicyEditor({ open, policy, isNew, ports, sources, grou
   >
     <Stack spacing={2} sx={{ minWidth: 0, pb: 0.5 }}>
       <Typography variant="body2" color="text.secondary">{text("editor_help")}</Typography>
-      <Box aria-label={text("effect_preview")} sx={{ p: 1.5, borderRadius: "8px", bgcolor: "action.hover", overflowWrap: "anywhere" }}>
+      <Box aria-label={text("effect_preview")} sx={{ p: 1.5, borderRadius: "12px", bgcolor: "var(--md-sys-color-surface-container-low, #F3F2F8)", overflowWrap: "anywhere" }}>
         <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
           <Typography variant="body2" sx={{ fontWeight: 600 }}>{draft.protocol === "both" ? "TCP/UDP" : draft.protocol.toUpperCase()} {draft.port || "—"}</Typography>
           <Chip size="small" color={mode === "observe" ? "info" : "success"} label={text(mode)} />

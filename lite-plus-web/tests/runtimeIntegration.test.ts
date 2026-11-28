@@ -107,6 +107,6 @@ test("load alert configuration requests own a bootstrap state", () => {
 
 test("deep routes use an origin-root favicon before backend rewriting", () => {
   const html = readFileSync("index.html", "utf8");
-  assert.match(html, /rel="shortcut icon" href="\/favicon\.png\?v=lite-icon-0e86dd"/);
+  assert.match(html, /rel="shortcut icon" href="\/favicon\.png\?v=enb-icon-5845ff"/);
   assert.doesNotMatch(html, /href="favicon\.ico"/);
 });

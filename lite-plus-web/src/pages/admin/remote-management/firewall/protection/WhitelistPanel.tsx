@@ -43,12 +43,12 @@ export default function WhitelistPanel({ addresses, disabled, busy, onSave }: Pr
         <Button variant="contained" startIcon={<Plus size={16} />} sx={ADMIN_LIST_ACTION_SX} disabled={disabled} onClick={() => { setDraft(""); setAdding(true); }}>{text("add_whitelist")}</Button>
       </Stack></AdminListFiltersBar>
       {!filtered.length ? <ProtectionEmptyState icon={<Shield size={28} />}>{query.trim() ? t("common.no_results") : text("whitelist_empty")}</ProtectionEmptyState> : mobile ? <AdminMobileCardStack>{pager.pageItems.map((ip) => <AdminMobileListCard key={ip}
-        title={<Typography variant="body2" sx={{ fontWeight: 600, overflowWrap: "anywhere" }}>{ip}</Typography>}
+        title={<Typography variant="body2" className="enb-mono" sx={{ fontWeight: 600, overflowWrap: "anywhere" }}>{ip}</Typography>}
         headerExtra={family(ip)} cells={[]} actions={removeAction(ip)} />)}</AdminMobileCardStack> : <Table container={false} className="admin-responsive-table" style={{ tableLayout: "fixed" }}>
         <colgroup><col /><col style={{ width: 112 }} /></colgroup>
         <TableHeader><TableRow><TableHead>{text("whitelist")}</TableHead><TableHead style={{ textAlign: "center" }}>{t("common.action")}</TableHead></TableRow></TableHeader>
         <TableBody>{pager.pageItems.map((ip) => <TableRow key={ip}>
-          <TableCell><Stack direction="row" spacing={1.5} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap", py: 0.5 }}><Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", overflowWrap: "anywhere" }}>{ip}</Typography>{family(ip)}</Stack></TableCell>
+          <TableCell><Stack direction="row" spacing={1.5} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap", py: 0.5 }}><Typography variant="body2" className="enb-mono" sx={{ overflowWrap: "anywhere" }}>{ip}</Typography>{family(ip)}</Stack></TableCell>
           <TableCell style={{ textAlign: "center" }}>{removeAction(ip)}</TableCell>
         </TableRow>)}</TableBody>
       </Table>}

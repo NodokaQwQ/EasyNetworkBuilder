@@ -1,51 +1,56 @@
 import type { SvgIconComponent } from "@mui/icons-material";
 import type { SvgIconProps } from "@mui/material/SvgIcon";
-import AccountBalanceWalletOutlined from "@mui/icons-material/AccountBalanceWalletOutlined";
-import AccountCircleOutlined from "@mui/icons-material/AccountCircleOutlined";
-import AlternateEmailOutlined from "@mui/icons-material/AlternateEmailOutlined";
-import AltRouteOutlined from "@mui/icons-material/AltRouteOutlined";
-import ArrowCircleRightOutlined from "@mui/icons-material/ArrowCircleRightOutlined";
-import BarChartOutlined from "@mui/icons-material/BarChartOutlined";
-import CallSplitOutlined from "@mui/icons-material/CallSplitOutlined";
-import ChatOutlined from "@mui/icons-material/ChatOutlined";
-import CodeOutlined from "@mui/icons-material/CodeOutlined";
-import DashboardOutlined from "@mui/icons-material/DashboardOutlined";
-import DescriptionOutlined from "@mui/icons-material/DescriptionOutlined";
-import DnsOutlined from "@mui/icons-material/DnsOutlined";
-import GppGoodOutlined from "@mui/icons-material/GppGoodOutlined";
-import GroupOutlined from "@mui/icons-material/GroupOutlined";
-import HomeOutlined from "@mui/icons-material/HomeOutlined";
-import HubOutlined from "@mui/icons-material/HubOutlined";
-import LocalFireDepartmentOutlined from "@mui/icons-material/LocalFireDepartmentOutlined";
-import MenuBookOutlined from "@mui/icons-material/MenuBookOutlined";
-import MoreHoriz from "@mui/icons-material/MoreHoriz";
-import NotificationsActiveOutlined from "@mui/icons-material/NotificationsActiveOutlined";
-import NotificationsOutlined from "@mui/icons-material/NotificationsOutlined";
-import PaletteOutlined from "@mui/icons-material/PaletteOutlined";
-import PowerOffOutlined from "@mui/icons-material/PowerOffOutlined";
-import PublicOutlined from "@mui/icons-material/PublicOutlined";
-import SettingsOutlined from "@mui/icons-material/SettingsOutlined";
-import ShowChartOutlined from "@mui/icons-material/ShowChartOutlined";
-import SpeedOutlined from "@mui/icons-material/SpeedOutlined";
-import StorageOutlined from "@mui/icons-material/StorageOutlined";
-import SendOutlined from "@mui/icons-material/SendOutlined";
-import ScheduleOutlined from "@mui/icons-material/ScheduleOutlined";
-import StorefrontOutlined from "@mui/icons-material/StorefrontOutlined";
-import TerminalOutlined from "@mui/icons-material/TerminalOutlined";
-import TrendingUpOutlined from "@mui/icons-material/TrendingUpOutlined";
-import WifiOffOutlined from "@mui/icons-material/WifiOffOutlined";
 import { createElement, type SVGProps } from "react";
+import { materialSymbol, type MaterialSymbolComponent } from "@/theme/MaterialSymbol";
+
+const AccountBalanceWalletOutlined = materialSymbol("AccountBalanceWallet");
+const AccountCircleOutlined = materialSymbol("AccountCircle");
+const AlternateEmailOutlined = materialSymbol("AlternateEmail");
+const AltRouteOutlined = materialSymbol("AltRoute");
+const ArrowCircleRightOutlined = materialSymbol("ArrowCircleRight");
+const BarChartOutlined = materialSymbol("BarChart");
+const CallSplitOutlined = materialSymbol("CallSplit");
+const ChatOutlined = materialSymbol("Chat");
+const CodeOutlined = materialSymbol("Code");
+const DashboardOutlined = materialSymbol("Dashboard");
+const DescriptionOutlined = materialSymbol("Description");
+const DnsOutlined = materialSymbol("Dns");
+const GppGoodOutlined = materialSymbol("GppGood");
+const GroupOutlined = materialSymbol("Group");
+const HomeOutlined = materialSymbol("Home");
+const HubOutlined = materialSymbol("Hub");
+const LocalFireDepartmentOutlined = materialSymbol("LocalFireDepartment");
+const MenuBookOutlined = materialSymbol("MenuBook");
+const MoreHoriz = materialSymbol("MoreHoriz");
+const NotificationsActiveOutlined = materialSymbol("NotificationsActive");
+const NotificationsOutlined = materialSymbol("Notifications");
+const PaletteOutlined = materialSymbol("Palette");
+const PowerOffOutlined = materialSymbol("PowerOff");
+const PublicOutlined = materialSymbol("Public");
+const SettingsOutlined = materialSymbol("Settings");
+const ShowChartOutlined = materialSymbol("ShowChart");
+const SpeedOutlined = materialSymbol("Speed");
+const StorageOutlined = materialSymbol("Storage");
+const SendOutlined = materialSymbol("Send");
+const ScheduleOutlined = materialSymbol("Schedule");
+const StorefrontOutlined = materialSymbol("Storefront");
+const TerminalOutlined = materialSymbol("Terminal");
+const TrendingUpOutlined = materialSymbol("TrendingUp");
+const WifiOffOutlined = materialSymbol("WifiOff");
 
 export type AdminIconProps = SVGProps<SVGSVGElement> & {
   size?: number | string;
   strokeWidth?: number;
+  /** Material Symbols FILL 1 for selected states; ignored by icons without a fill variant. */
+  filled?: boolean;
 };
 
-export function wrapMuiIcon(Icon: SvgIconComponent) {
-  function WrappedIcon({ size, color, ...props }: AdminIconProps) {
+export function wrapMuiIcon(Icon: SvgIconComponent | MaterialSymbolComponent) {
+  function WrappedIcon({ size, color, filled, ...props }: AdminIconProps) {
     const fontSize = size == null || size === "" ? 18 : Number(size) || 18;
-    return createElement(Icon, {
+    return createElement(Icon as SvgIconComponent, {
       ...props,
+      ...(filled ? { filled } : {}),
       sx: {
         fontSize,
         width: "1em",

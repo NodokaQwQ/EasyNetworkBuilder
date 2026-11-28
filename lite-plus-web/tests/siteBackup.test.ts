@@ -115,7 +115,7 @@ test("favicon preview is centered without site-name copy", () => {
 
 test("favicon restore confirmation shows current and default square icons", () => {
   assert.match(source, /confirmReset[\s\S]{0,80}settings\.custom\.favicon_default/);
-  assert.match(source, /favicon\.png\?v=lite-icon-0e86dd/);
+  assert.match(source, /favicon\.png\?v=enb-icon-5845ff/);
   assert.match(source, /settings\.site\.reset_favicon_hint/);
   assert.match(source, /borderRadius: "16px"/);
   assert.doesNotMatch(source, /<Avatar[\s\S]*favicon/);

@@ -58,7 +58,7 @@ test("restore entry is rendered only for the welcome step", () => {
 test("installation shell uses the current Lite icon and explicit responsive ranges", () => {
   assert.match(
     shellSource,
-    /assets\/logo\.png\?v=lite-icon-0e86dd/,
+    /assets\/logo\.png\?v=enb-icon-5845ff/,
   );
   assert.doesNotMatch(shellSource, />L<\/Box>/);
   assert.match(shellSource, /min-width: 768px/);

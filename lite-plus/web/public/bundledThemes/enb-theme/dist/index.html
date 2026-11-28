@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="A simple server monitor tool." />
+    <meta name="theme-color" content="#F9F8FC" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="icon" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <title>Lite-Plus</title>
+    <script>
+      (function () {
+        try {
+          var key = "vite-ui-theme";
+          var stored = localStorage.getItem(key);
+          var isDark =
+            stored === "dark" ||
+            ((!stored || stored === "system") &&
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var root = document.documentElement;
+          root.classList.remove("light", "dark");
+          root.classList.add(isDark ? "dark" : "light");
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", isDark ? "#111118" : "#F9F8FC");
+        } catch (e) {
+          document.documentElement.classList.add("light");
+        }
+      })();
+    </script>
+    <script data-lite-theme-color-sync>
+      (function () {
+        try {
+          var light = "#F9F8FC";
+          var dark = "#111118";
+          var applying = false;
+          var isDark = function () {
+            var r = document.documentElement;
+            var b = document.body;
+            return (
+              r.classList.contains("dark") ||
+              r.getAttribute("data-theme") === "dark" ||
+              !!(b && (b.classList.contains("dark") || b.getAttribute("data-theme") === "dark"))
+            );
+          };
+          var apply = function (replaceTag) {
+            if (applying || !document.head) return;
+            var hex = isDark() ? dark : light;
+            var cur = document.querySelector('meta[name="theme-color"]');
+            if (cur && (cur.getAttribute("content") || "").toLowerCase() === hex.toLowerCase()) return;
+            applying = true;
+            if (!replaceTag && cur) {
+              cur.setAttribute("content", hex);
+              applying = false;
+              return;
+            }
+            document.querySelectorAll('meta[name="theme-color"]').forEach(function (el) {
+              el.remove();
+            });
+            var m = document.createElement("meta");
+            m.setAttribute("name", "theme-color");
+            m.setAttribute("content", hex);
+            document.head.appendChild(m);
+            applying = false;
+          };
+          var watch = function (node) {
+            if (!node) return;
+            new MutationObserver(function () {
+              apply(1);
+            }).observe(node, { attributes: true, attributeFilter: ["class", "data-theme"] });
+          };
+          apply(0);
+          watch(document.documentElement);
+          if (document.body) watch(document.body);
+          else
+            document.addEventListener(
+              "DOMContentLoaded",
+              function () {
+                apply(0);
+                watch(document.body);
+              },
+              { once: true }
+            );
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      :root, html.light {
+        color-scheme: light;
+        --enb-boot-bg: #F9F8FC;
+      }
+      html.dark {
+        color-scheme: dark;
+        --enb-boot-bg: #111118;
+      }
+      html, body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--enb-boot-bg);
+      }
+    </style>
+    <script type="module" crossorigin src="/assets/index.Z31mimDI.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor.dcLckZw_.js">
+    <link rel="modulepreload" crossorigin href="/assets/charts.BBHOpceM.js">
+    <link rel="stylesheet" crossorigin href="/assets/index.HJ99dQBo.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

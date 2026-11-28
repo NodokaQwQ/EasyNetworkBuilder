@@ -3,6 +3,8 @@ import { ThemeProvider } from "@mui/material/styles";
 import { useMemo, type ReactNode } from "react";
 
 import { createAppTheme } from "./createAppTheme";
+import "@fontsource-variable/inter";
+import "@fontsource-variable/jetbrains-mono";
 import "@fontsource-variable/public-sans";
 
 type MuiAppProviderProps = {

@@ -173,7 +173,13 @@ function DropdownItem({
         onSelect?.({ preventDefault() {} } as Event);
         ctx?.setAnchor(null);
       }}
-      sx={color === "orange" || color === "red" ? { color: "warning.main" } : undefined}
+      sx={
+        color === "red"
+          ? { color: "error.main" }
+          : color === "orange"
+            ? { color: "warning.main" }
+            : undefined
+      }
     >
       {children}
     </MenuItem>
@@ -274,7 +280,7 @@ function PopoverContent({
           style,
           onMouseEnter,
           onMouseLeave,
-          sx: { p: 1, borderRadius: "8px", mt: 0.5 },
+          sx: { p: 1.25, borderRadius: "12px", mt: 0.75 },
         },
       }}
     >

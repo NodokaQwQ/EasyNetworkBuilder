@@ -44,7 +44,7 @@ export default function SourceEditor({ source, suggestedSshPath, suggestedSshPor
         <Typography variant="body2" color="text.secondary">{text(draft.format === "sshd" ? "ssh_log_help" : "log_help")}</Typography>
         {draft.deploy_mode === "proxy" && draft.format !== "sshd" ? <Callout.Root color="orange"><Callout.Text>{text("proxy_save_help")}</Callout.Text></Callout.Root> : null}
         {previewError ? <Callout.Root color="red" role="alert"><Callout.Text>{previewError}</Callout.Text></Callout.Root> : null}
-        {preview ? <Box role="status" sx={{ p: 1.5, bgcolor: "action.hover", borderRadius: "8px", overflowWrap: "anywhere" }}>
+        {preview ? <Box role="status" sx={{ p: 1.5, bgcolor: "var(--md-sys-color-surface-container-low, #F3F2F8)", borderRadius: "12px", overflowWrap: "anywhere" }}>
           <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>{text("preview")}</Typography>
           {preview.length ? preview.map((item, index) => <Typography key={index} variant="body2">{[formatProtectionDateTime(item.ts) || item.ts, item.ip, item.method, item.path, item.status ?? item.error].filter((value) => value !== undefined && value !== "").join(" · ")}</Typography>) : <Typography variant="body2">{text("preview_empty")}</Typography>}
         </Box> : null}

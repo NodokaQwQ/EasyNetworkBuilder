@@ -10,7 +10,10 @@ const FullPageLoading = () => {
       align="center"
       justify="center"
       gap="3"
-      style={{ minHeight: "100dvh", backgroundColor: "var(--accent-1)" }}
+      style={{
+        minHeight: "100dvh",
+        backgroundColor: "var(--md-sys-color-surface, var(--accent-1))",
+      }}
     >
       <Spinner size="3" />
       <Text size="2" color="gray">

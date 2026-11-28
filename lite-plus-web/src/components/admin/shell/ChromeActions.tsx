@@ -3,7 +3,6 @@ import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
-import Translate from "@mui/icons-material/Translate";
 import { Check, Moon, Sun } from "@/components/admin/muiIcons";
 import { useContext, useState, type ComponentType, type MouseEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,6 +12,9 @@ import { ThemeContext } from "@/contexts/ThemeContext";
 import { useSystemTheme } from "@/hooks/useSystemTheme";
 import { changeUiLanguage, preloadUiLocales } from "@/i18n/config";
 import { ADMIN_UI_LANGUAGES } from "@/utils/language";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const Translate = materialSymbol("Translate");
 
 const languages = ADMIN_UI_LANGUAGES;
 
@@ -20,13 +22,15 @@ const menuPaper = {
   elevation: 0,
   sx: {
     mt: 1,
-    minWidth: 180,
+    minWidth: 184,
     maxWidth: "calc(100vw - 24px)",
     py: 0.75,
-    borderRadius: "8px",
+    borderRadius: "var(--md-sys-shape-xs)",
+    border: "1px solid",
+    borderColor: "divider",
+    bgcolor: "var(--md-sys-color-surface-container)",
     overflow: "visible",
-    boxShadow:
-      "0 0 2px 0 rgba(145, 158, 171, 0.24), 0 12px 24px -4px rgba(145, 158, 171, 0.16)",
+    boxShadow: "var(--md-sys-elevation-2)",
   },
 } as const;
 
@@ -102,10 +106,10 @@ function ChromeMenuItem({
       selected={selected}
       onClick={onClick}
       sx={{
-        mx: 0.75,
-        my: 0.25,
-        px: 1.5,
-        borderRadius: "8px",
+        mx: 0,
+        my: 0,
+        px: 1.75,
+        borderRadius: 0,
         minHeight: 40,
         fontSize: 14,
         fontWeight: selected ? 700 : 500,

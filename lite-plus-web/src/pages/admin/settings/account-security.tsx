@@ -15,7 +15,6 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import PhotoCameraOutlined from "@mui/icons-material/PhotoCameraOutlined";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -101,6 +100,9 @@ import {
   serializeCredential,
   toPasskeyCreateOptions,
 } from "@/utils/webauthn";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const PhotoCameraOutlined = materialSymbol("PhotoCamera");
 
 const ACCOUNT_PANELS = [
   "account",
@@ -241,7 +243,7 @@ export default function AccountSecuritySettings() {
           gap: { xs: 2, md: 2.5 },
           overflow: "visible",
           boxShadow: "none",
-          borderRadius: "8px",
+          borderRadius: "16px",
         }}
       >
         <Stack
@@ -407,7 +409,7 @@ export default function AccountSecuritySettings() {
         />
       </Box>
 
-      <Paper variant="outlined" sx={{ px: { xs: 2.5, md: 3 }, boxShadow: "none", borderRadius: "8px" }}>
+      <Paper variant="outlined" sx={{ px: { xs: 2.5, md: 3 }, boxShadow: "none", borderRadius: "16px" }}>
         <SettingsDetailRow
           large
           icon={<Code size={24} />}
@@ -1225,7 +1227,7 @@ function SignInMethodsPanel({
         }
         border={false}
       />
-      <Box sx={(theme) => ({ mt: 2, bgcolor: settingsNeutralBg(theme), px: 1.6, borderRadius: "8px" })}>
+      <Box sx={(theme) => ({ mt: 2, bgcolor: settingsNeutralBg(theme), px: 1.6, borderRadius: "12px" })}>
         <SettingsDetailRow
           icon={<Settings size={21} />}
           title={t("account.site_login_rules_title", "站点登录规则")}

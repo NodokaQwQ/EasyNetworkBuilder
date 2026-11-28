@@ -33,7 +33,7 @@ export const AdminMobileListCard = React.forwardRef<
       onClick={onClick}
       sx={[
         {
-          borderRadius: "8px",
+          borderRadius: "16px",
           overflow: "hidden",
           borderColor: "divider",
           cursor: onClick ? "pointer" : undefined,

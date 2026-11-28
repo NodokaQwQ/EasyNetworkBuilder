@@ -143,7 +143,7 @@ test("account menu reserves the destructive treatment for logout", () => {
   assert.match(source, /avatarUrl \|\| undefined/);
   assert.match(
     source,
-    /data-testid="admin-logout-menu-item"[\s\S]*?bgcolor: "rgba\(255, 86, 48, 0\.14\)"[\s\S]*?<Logout/,
+    /data-testid="admin-logout-menu-item"[\s\S]*?bgcolor: "var\(--md-sys-color-error-container[\s\S]*?<Logout/,
   );
   assert.doesNotMatch(
     source,

@@ -291,7 +291,7 @@ function DashboardRankingDialog({
             maxWidth: 960,
             m: 2,
             maxHeight: "88vh",
-            borderRadius: "8px",
+            borderRadius: "28px",
             overflow: "hidden",
             display: "flex",
             flexDirection: "column",

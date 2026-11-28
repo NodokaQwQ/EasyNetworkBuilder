@@ -11,8 +11,6 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import StarOutline from "@mui/icons-material/StarBorder";
-import Star from "@mui/icons-material/Star";
 import { toast } from "sonner";
 import {
   AdminListFiltersBar,
@@ -29,6 +27,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { nodemgtErrorMessage, nodemgtWarningMessage } from "./inboundToOutbound";
 import { emptyNodemgtTemplates, hasNodemgtTemplates, type NodemgtTemplateList } from "./prefetch";
 import { TEMPLATE_CLIENTS } from "./subscriptionClients";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const StarOutline = materialSymbol("StarBorder");
+const Star = materialSymbol("Star");
 
 type Template = { id: string; name: string; kind: string; content: string; revision?: number };
 type Row = { id: string; name?: string; username?: string; user_id?: string };
@@ -48,8 +50,9 @@ const codeSx = {
   minHeight: 220,
   maxHeight: "40vh",
   overflow: "auto",
-  bgcolor: "action.hover",
-  borderRadius: "8px",
+  bgcolor: "var(--md-sys-color-surface-container-low, #F3F2F8)",
+  borderRadius: "12px",
+  fontFamily: "var(--font-mono)",
   fontSize: 12,
   lineHeight: 1.7,
   whiteSpace: "pre-wrap",
@@ -534,7 +537,7 @@ export default function SubscriptionTemplates({
                 value={draft.content}
                 disabled={busy}
                 onChange={(e) => updateDraft({ ...draft, content: e.target.value })}
-                slotProps={{ htmlInput: { "aria-label": t("nodemgt.tpl_content"), spellCheck: false, style: { fontFamily: "monospace", fontSize: 12, lineHeight: 1.7 } } }}
+                slotProps={{ htmlInput: { "aria-label": t("nodemgt.tpl_content"), spellCheck: false, style: { fontFamily: "var(--font-mono, monospace)", fontSize: 12, lineHeight: 1.7 } } }}
               />
             ) : (
               <Box component="pre" sx={codeSx}>{draft.content}</Box>
@@ -594,7 +597,7 @@ export default function SubscriptionTemplates({
             {assignmentClients.map((client) => {
               const current = data.templates.find((row) => row.id === currentBinding(client));
               return (
-                <Stack key={client} direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ p: 1.5, bgcolor: "action.hover", borderRadius: "8px", justifyContent: "space-between" }}>
+                <Stack key={client} direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ p: 1.5, bgcolor: "var(--md-sys-color-surface-container-low, #F3F2F8)", borderRadius: "12px", justifyContent: "space-between" }}>
                   <Typography sx={{ fontSize: 13.5 }}>{clientLabel(client)}</Typography>
                   <Typography color="text.secondary" sx={{ fontSize: 13.5 }}>{current?.name || inheritedTemplate(client)}</Typography>
                 </Stack>

@@ -42,7 +42,7 @@ export default function SettingsFeatureCard({
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        borderRadius: "8px",
+        borderRadius: "16px",
         border: "1px solid",
         borderColor: "divider",
         boxShadow: "none",
@@ -80,12 +80,15 @@ export default function SettingsFeatureCard({
               height: 26,
               fontWeight: 600,
               flexShrink: 0,
-              color: chipTone === "success" ? "success.main" : "primary.main",
+              color:
+                chipTone === "success"
+                  ? "var(--ops-color-on-healthy-container)"
+                  : "var(--md-sys-color-on-primary-container)",
               bgcolor: (theme: { palette: { mode: string } }) =>
                 chipTone === "success"
                   ? theme.palette.mode === "dark"
-                    ? "#214234"
-                    : "#E8F7EE"
+                    ? "#064E3B"
+                    : "#D1FAE5"
                   : settingsSoftBg(theme as never),
             }}
           />

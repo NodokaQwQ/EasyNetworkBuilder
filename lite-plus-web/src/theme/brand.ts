@@ -3,9 +3,9 @@ export const LITE_BLUE = "#5845FF";
 export const LITE_BLUE_HOVER = "#4633E5";
 export const LITE_BLUE_SOFT = "rgba(88, 69, 255, 0.10)";
 export const LITE_BLUE_SOFT_STRONG = "rgba(88, 69, 255, 0.16)";
-/** Same online/offline marks as the MUI server list. */
-export const NODE_ONLINE = "#22C55E";
-export const NODE_OFFLINE = "#FF5630";
+/** Same online/offline marks as the MUI server list (MD3 Ops semantic tokens). */
+export const NODE_ONLINE = "#10B981";
+export const NODE_OFFLINE = "#F43F5E";
 export const LITE_NAME = "Lite-Plus";
 /** Mobile header wordmark only. Do not use this for sitename or other copy. */
 export const LITE_NAME_MOBILE = "Lite-Plus";

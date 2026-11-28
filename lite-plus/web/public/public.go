@@ -39,6 +39,7 @@ const (
 	ThemesDir          = "theme"
 	FaviconFile        = "favicon.ico"
 	DefaultTheme       = "lite-theme"
+	EnbTheme           = "enb-theme"
 	LegacyPublicTheme  = "nezha"
 	LegacyDefaultTheme = "default"
 	LegacyLiteTheme    = "lite-theme-default"
@@ -52,6 +53,10 @@ const (
 const themeBundleMigrationKey = "theme_bundle_migration_v1"
 
 const currentThemeBundleMigration = 12
+
+const enbThemeBundleMigrationKey = "enb_theme_bundle_migration_v1"
+
+const currentEnbThemeBundleMigration = 1
 
 const adminApplicationTitle = "Lite-Plus Monitor"
 
@@ -578,19 +583,39 @@ func embeddedThemeVersion(root string) string {
 	return ""
 }
 
-func refreshBundledLiteThemeIfNewer() error {
-	if !IsLocalThemeUsable(DefaultTheme) {
+func refreshBundledThemeIfNewer(embeddedRoot, themeID, label string) error {
+	if !IsLocalThemeUsable(themeID) {
 		return nil
 	}
-	embedded := embeddedThemeVersion("bundledThemes/Lite-theme")
-	installed := localThemeVersion(DefaultTheme)
+	embedded := embeddedThemeVersion(embeddedRoot)
+	installed := localThemeVersion(themeID)
 	if embedded == "" || !themeVersionNewer(embedded, installed) {
 		return nil
 	}
-	if err := installEmbeddedThemeWithReplace("bundledThemes/Lite-theme", DefaultTheme, true); err != nil {
-		return fmt.Errorf("refresh bundled Lite-Theme: %w", err)
+	if err := installEmbeddedThemeWithReplace(embeddedRoot, themeID, true); err != nil {
+		return fmt.Errorf("refresh bundled %s: %w", label, err)
 	}
 	return nil
+}
+
+func refreshBundledLiteThemeIfNewer() error {
+	return refreshBundledThemeIfNewer("bundledThemes/Lite-theme", DefaultTheme, "Lite-Theme")
+}
+
+func ensureBundledEnbTheme() error {
+	enbMigrated, err := config.GetAs[int](enbThemeBundleMigrationKey, 0)
+	if err != nil {
+		return err
+	}
+	if enbMigrated < currentEnbThemeBundleMigration {
+		if _, statErr := fs.Stat(PublicFS, "bundledThemes/enb-theme/dist/index.html"); statErr == nil {
+			if err := installEmbeddedThemeWithReplace("bundledThemes/enb-theme", EnbTheme, true); err != nil {
+				return fmt.Errorf("install bundled ENB theme: %w", err)
+			}
+		}
+		return nil
+	}
+	return refreshBundledThemeIfNewer("bundledThemes/enb-theme", EnbTheme, "ENB-Theme")
 }
 
 func localThemeFallback() string {
@@ -657,9 +682,13 @@ func EnsureBundledThemes() error {
 			currentTheme = DefaultTheme
 		}
 	}
+	if err := ensureBundledEnbTheme(); err != nil {
+		return err
+	}
 	return config.SetMany(map[string]any{
-		config.ThemeKey:         currentTheme,
-		themeBundleMigrationKey: currentThemeBundleMigration,
+		config.ThemeKey:            currentTheme,
+		themeBundleMigrationKey:    currentThemeBundleMigration,
+		enbThemeBundleMigrationKey: currentEnbThemeBundleMigration,
 	})
 }
 

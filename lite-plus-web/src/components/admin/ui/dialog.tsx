@@ -5,7 +5,6 @@ import DialogContentText from "@mui/material/DialogContentText";
 import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
-import Close from "@mui/icons-material/Close";
 import {
   Children,
   cloneElement,
@@ -23,6 +22,9 @@ import { useTranslation } from "react-i18next";
 
 import { dialogContainerNoFadeSx, dialogPaperVisibility } from "@/theme/dialogCloseMotion";
 import { isComponentType, spaceToPx } from "./shared";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const Close = materialSymbol("Close");
 
 type DialogContextValue = {
   open: boolean;
@@ -243,12 +245,12 @@ function DialogRoot({
               width: "calc(100% - 32px)",
               maxWidth: paperMaxWidth ?? 480,
               m: 2,
-              borderRadius: "8px",
+              borderRadius: "28px",
               ...(mobileSheet ? {
                 width: { xs: "100%", sm: "calc(100% - 32px)" },
                 maxWidth: { xs: "100%", sm: paperMaxWidth ?? 480 },
                 m: { xs: 0, sm: 2 },
-                borderRadius: { xs: "12px 12px 0 0", sm: "8px" },
+                borderRadius: { xs: "28px 28px 0 0", sm: "28px" },
                 maxHeight: { xs: "calc(100dvh - 24px)", sm: "calc(100% - 64px)" },
                 pb: { xs: "env(safe-area-inset-bottom)", sm: 0 },
               } : {}),
@@ -256,6 +258,23 @@ function DialogRoot({
           },
         }}
       >
+        {mobileSheet ? (
+          <Box
+            aria-hidden="true"
+            sx={{
+              display: { xs: "block", sm: "none" },
+              width: 36,
+              height: 4,
+              borderRadius: 9999,
+              bgcolor: "var(--md-sys-color-outline)",
+              opacity: 0.45,
+              mx: "auto",
+              mt: 1.5,
+              mb: -1.5,
+              flexShrink: 0,
+            }}
+          />
+        ) : null}
         {body}
       </MuiDialog>
     </DialogContext.Provider>
@@ -390,7 +409,7 @@ function CalloutRoot({
       severity={calloutSeverity(color)}
       icon={icon === undefined ? undefined : (icon as ReactElement)}
       sx={{
-        borderRadius: "8px",
+        borderRadius: "16px",
         mt: rest.mt ? spaceToPx(rest.mt) : undefined,
       }}
     >

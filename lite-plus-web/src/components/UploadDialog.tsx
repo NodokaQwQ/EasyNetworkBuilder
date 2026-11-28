@@ -67,15 +67,31 @@ function formatUploadDetail(state: UploadProgressState) {
 
 function UploadStageIcon({ state }: { state: UploadProgressState }) {
   if (state.stage === "completed") {
-    return <CheckCircle2 size={20} className="text-green-600" />;
+    return (
+      <CheckCircle2
+        size={20}
+        style={{ color: "var(--ops-color-healthy, #10B981)" }}
+      />
+    );
   }
   if (state.stage === "failed") {
-    return <XCircle size={20} className="text-red-600" />;
+    return (
+      <XCircle
+        size={20}
+        style={{ color: "var(--md-sys-color-error, #F43F5E)" }}
+      />
+    );
   }
   if (state.indeterminate) {
     return <Spinner size="2" />;
   }
-  return <LoaderCircle size={20} className="animate-spin text-blue-600" />;
+  return (
+    <LoaderCircle
+      size={20}
+      className="animate-spin"
+      style={{ color: "var(--md-sys-color-primary, #5845FF)" }}
+    />
+  );
 }
 
 const UploadDialog: React.FC<UploadDialogProps> = ({
@@ -169,16 +185,25 @@ const UploadDialog: React.FC<UploadDialogProps> = ({
             justify="center"
             className={
               uploadActive
-                ? "border-2 border-dashed border-gray-200 rounded-lg p-8 text-center opacity-60 cursor-not-allowed"
-                : "border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-gray-400 transition-colors"
+                ? "p-8 text-center opacity-60 cursor-not-allowed"
+                : "p-8 text-center cursor-pointer transition-colors"
             }
+            style={{
+              borderRadius: "16px",
+              border: "2px dashed var(--md-sys-color-outline-variant, #C5C3D5)",
+              backgroundColor: "var(--md-sys-color-surface-container-low, #F3F2F8)",
+            }}
             onDrop={handleDrop}
             onDragOver={handleDragOver}
             onClick={() => {
               if (!uploadActive) inputRef.current?.click();
             }}
           >
-            <UploadIcon size={48} className="mx-auto text-gray-400 mb-4" />
+            <UploadIcon
+              size={44}
+              className="mx-auto mb-4"
+              style={{ color: "var(--md-sys-color-primary, #5845FF)" }}
+            />
             {dragDropText ? (
               <Text size="3" weight="medium">{dragDropText}</Text>
             ) : null}
@@ -216,25 +241,35 @@ const UploadDialog: React.FC<UploadDialogProps> = ({
                 <Box
                   className={
                     normalizedState.indeterminate
-                      ? "relative w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden"
-                      : "w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden"
+                      ? "relative w-full rounded-full h-2 overflow-hidden"
+                      : "w-full rounded-full h-2 overflow-hidden"
                   }
+                  style={{
+                    backgroundColor:
+                      normalizedState.stage === "completed"
+                        ? "var(--ops-color-healthy-container, #D1FAE5)"
+                        : normalizedState.stage === "failed"
+                          ? "var(--md-sys-color-error-container, #FFE4E6)"
+                          : "var(--md-sys-color-primary-container, #DFDBFF)",
+                  }}
                 >
                   <Box
                     className={
                       normalizedState.indeterminate
-                        ? "absolute inset-y-0 left-0 w-2/5 rounded-full bg-gradient-to-r from-blue-500 via-blue-400 to-blue-500 km-upload-indeterminate-bar"
-                        : normalizedState.stage === "completed"
-                          ? "h-full rounded-full bg-gradient-to-r from-green-500 to-green-600 transition-[width] duration-150 ease-out"
+                        ? "absolute inset-y-0 left-0 w-2/5 rounded-full km-upload-indeterminate-bar"
+                        : "h-full rounded-full transition-[width] duration-150 ease-out"
+                    }
+                    style={{
+                      backgroundColor:
+                        normalizedState.stage === "completed"
+                          ? "var(--ops-color-healthy, #10B981)"
                           : normalizedState.stage === "failed"
-                            ? "h-full rounded-full bg-gradient-to-r from-red-500 to-red-600 transition-[width] duration-150 ease-out"
-                            : "h-full rounded-full bg-gradient-to-r from-blue-500 to-blue-600 transition-[width] duration-150 ease-out"
-                    }
-                    style={
-                      typeof progressValue === "number"
+                            ? "var(--md-sys-color-error, #F43F5E)"
+                            : "var(--md-sys-color-primary, #5845FF)",
+                      ...(typeof progressValue === "number"
                         ? { width: `${progressValue}%` }
-                        : undefined
-                    }
+                        : undefined),
+                    }}
                   />
                 </Box>
 

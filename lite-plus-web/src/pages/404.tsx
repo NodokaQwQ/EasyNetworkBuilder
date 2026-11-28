@@ -34,7 +34,7 @@ export default function NotFound() {
       >
         <Box
           component="img"
-          src={getAppAssetUrl("assets/logo.png?v=lite-icon-0e86dd")}
+          src={getAppAssetUrl("assets/logo.png?v=enb-icon-5845ff")}
           alt={LITE_NAME}
           sx={{ width: 64, height: 64, mb: 1, objectFit: "contain" }}
         />

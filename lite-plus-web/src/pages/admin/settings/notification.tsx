@@ -351,7 +351,7 @@ const NotificationSettings = () => {
                 width: "100%",
                 border: "1px solid",
                 borderColor: "divider",
-                borderRadius: "8px",
+                borderRadius: "12px",
                 overflow: "hidden",
               }}
             >

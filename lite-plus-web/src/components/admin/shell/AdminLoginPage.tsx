@@ -8,8 +8,6 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import useMediaQuery from "@mui/material/useMediaQuery";
-import VisibilityOutlined from "@mui/icons-material/VisibilityOutlined";
-import VisibilityOffOutlined from "@mui/icons-material/VisibilityOffOutlined";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -27,6 +25,10 @@ import {
   serializeCredential,
 } from "@/utils/webauthn";
 import AuthStandAlonePage, { authFieldSx, authPrimaryButtonSx } from "./AuthStandAlonePage";
+import { materialSymbol } from "@/theme/MaterialSymbol";
+
+const VisibilityOutlined = materialSymbol("Visibility");
+const VisibilityOffOutlined = materialSymbol("VisibilityOff");
 
 function AdminLoginForm() {
   const { account, loading, error, refresh } = useAccount();
@@ -287,7 +289,12 @@ function AdminLoginForm() {
             onClick={() => void handlePasskeyLogin()}
             sx={
               passwordLoginEnabled
-                ? { minHeight: 52, color: "text.primary", borderColor: "divider" }
+                ? {
+                    minHeight: 52,
+                    borderRadius: "9999px",
+                    color: "text.primary",
+                    borderColor: "var(--md-sys-color-outline)",
+                  }
                 : authPrimaryButtonSx
             }
           >
@@ -314,7 +321,12 @@ function AdminLoginForm() {
                 onClick={() => {
                   window.location.assign(sameOriginApiPath("/api/oauth"));
                 }}
-                sx={{ minHeight: 52, color: "text.primary", borderColor: "divider" }}
+                sx={{
+                  minHeight: 52,
+                  borderRadius: "9999px",
+                  color: "text.primary",
+                  borderColor: "var(--md-sys-color-outline)",
+                }}
               >
                 {t("login.login_with", { provider: oauthProvider })}
               </Button>

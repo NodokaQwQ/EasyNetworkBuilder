@@ -8,16 +8,16 @@ const metricCardBackgroundDark = getAppAssetUrl(
 );
 
 export const metricCardSurfaceSx = {
-  backgroundColor: "#FBFCFD",
+  backgroundColor: "#F3F2F8",
   "html.dark &": {
-    backgroundColor: "#26313C",
+    backgroundColor: "#282735",
   },
 } as const;
 
 export const metricCardSx = {
-  "--metric-label-color": "#919EAB",
-  "--metric-value-color": "#1C252E",
-  "--metric-empty-color": "#B6C0C9",
+  "--metric-label-color": "#4D4B63",
+  "--metric-value-color": "#1A1924",
+  "--metric-empty-color": "#73708F",
   overflow: "hidden",
   ...metricCardSurfaceSx,
   backgroundImage: `url("${metricCardBackgroundLight}")`,
@@ -26,9 +26,9 @@ export const metricCardSx = {
   backgroundSize: "auto 100%",
   "html.dark &": {
     ...metricCardSurfaceSx["html.dark &"],
-    "--metric-label-color": "#AEB9C4",
-    "--metric-value-color": "#F4F6F8",
-    "--metric-empty-color": "#7C8996",
+    "--metric-label-color": "#BAB8CC",
+    "--metric-value-color": "#E4E3ED",
+    "--metric-empty-color": "#8A87A1",
     backgroundImage: `url("${metricCardBackgroundDark}")`,
   },
 } as const;
@@ -38,6 +38,6 @@ export const usageMetricCardSx = {
   backgroundColor: "#FFFFFF",
   "html.dark &": {
     ...metricCardSx["html.dark &"],
-    backgroundColor: "#212B36",
+    backgroundColor: "#1F1E29",
   },
 } as const;

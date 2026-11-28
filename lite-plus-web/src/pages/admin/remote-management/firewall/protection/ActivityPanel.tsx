@@ -84,14 +84,14 @@ export default function ActivityPanel({ view, disabled, refreshing, onRefresh, o
         <Button variant="outlined" startIcon={<RefreshCw size={16} />} disabled={refreshing} onClick={onRefresh} sx={{ ...ADMIN_LIST_OUTLINE_SX, ml: { sm: "auto" } }}>{t("firewall.refresh")}</Button>
       </Stack></AdminListFiltersBar>
       {!filtered.length ? <ProtectionEmptyState icon={<Activity size={28} />}>{query || kind !== "all" ? t("common.no_results") : text("activity_empty")}</ProtectionEmptyState> : mobile ? <AdminMobileCardStack>{pager.pageItems.map((row) => <AdminMobileListCard key={row.key}
-        title={<Typography variant="body2" sx={{ fontWeight: 600, overflowWrap: "anywhere" }}>{row.ip || "—"}</Typography>}
+        title={<Typography variant="body2" className="enb-mono" sx={{ fontWeight: 600, overflowWrap: "anywhere" }}>{row.ip || "—"}</Typography>}
         headerExtra={badge(row)} cells={[
           [text("record_reason"), <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>{reasonLabel(row.reason)}</Typography>],
           [text("service_info"), serviceCell(row)], [text("source_node"), sourceCell(row)], [text(row.expiresAt ? "expires_at" : "record_time"), timeCell(row, false)],
         ]} actions={row.ban ? action(row) : undefined} />)}</AdminMobileCardStack> : <Table container={false} className="admin-responsive-table" style={{ tableLayout: "fixed" }}>
         <TableHeader><TableRow>{[text("ban_ip"), text("record_reason"), text("service_info"), text("source_node"), text("record_time")].map((label) => <TableHead key={label}>{label}</TableHead>)}<TableHead style={{ textAlign: "center" }}>{t("common.action")}</TableHead></TableRow></TableHeader>
         <TableBody>{pager.pageItems.map((row) => <TableRow key={row.key}>
-          <TableCell><Stack spacing={0.75} sx={{ alignItems: "flex-start", py: 0.75 }}><Typography variant="body2" sx={{ fontWeight: 600, overflowWrap: "anywhere", whiteSpace: "normal" }}>{row.ip || "—"}</Typography>{badge(row)}</Stack></TableCell>
+          <TableCell><Stack spacing={0.75} sx={{ alignItems: "flex-start", py: 0.75 }}><Typography variant="body2" className="enb-mono" sx={{ fontWeight: 600, overflowWrap: "anywhere", whiteSpace: "normal" }}>{row.ip || "—"}</Typography>{badge(row)}</Stack></TableCell>
           <TableCell style={{ whiteSpace: "normal", overflowWrap: "anywhere" }}>{reasonLabel(row.reason)}</TableCell>
           <TableCell>{serviceCell(row)}</TableCell><TableCell>{sourceCell(row)}</TableCell><TableCell>{timeCell(row)}</TableCell><TableCell style={{ whiteSpace: "normal", textAlign: "center" }}>{action(row)}</TableCell>
         </TableRow>)}</TableBody>

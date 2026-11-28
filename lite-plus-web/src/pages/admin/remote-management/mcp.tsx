@@ -163,7 +163,7 @@ const MCP_USER_MANUAL_URL = "https://nuomiiiii.github.io/Lite-document/remote/mc
 const CARD_SX = {
   border: "1px solid",
   borderColor: "divider",
-  borderRadius: "8px",
+  borderRadius: "16px",
   px: { xs: 2, md: 2.5 },
   py: 2,
   bgcolor: "background.paper",
@@ -178,7 +178,7 @@ const FIELD_SX = {
   px: 1.5,
   border: "1px solid",
   borderColor: "divider",
-  borderRadius: "8px",
+  borderRadius: "12px",
   bgcolor: "background.paper",
   minWidth: 0,
 };
@@ -190,12 +190,12 @@ const DURATION_INPUT_SX = {
   height: 40,
   border: "1px solid",
   borderColor: "divider",
-  borderRadius: "8px",
+  borderRadius: "12px",
   bgcolor: "background.paper",
   overflow: "hidden",
   "&:focus-within": {
-    borderColor: LITE_BLUE,
-    boxShadow: `0 0 0 1px ${LITE_BLUE}`,
+    borderColor: "primary.main",
+    boxShadow: "inset 0 0 0 1px var(--md-sys-color-primary, #5845FF)",
   },
 };
 
@@ -869,39 +869,28 @@ function NodeUnavailableBadge({
     <Chip
       size="small"
       label={label}
-      sx={(theme) => {
-        const dark = theme.palette.mode === "dark";
-        return {
-          mt: 0,
-          ml: 0,
-          height: "auto",
-          maxWidth: "none",
-          flexShrink: 0,
-          borderRadius: "6px",
-          fontWeight: 600,
-          bgcolor: agent
-            ? dark
-              ? "rgba(255, 171, 0, 0.20)"
-              : "rgba(255, 171, 0, 0.16)"
-            : dark
-              ? "rgba(145, 158, 171, 0.22)"
-              : "rgba(145, 158, 171, 0.16)",
-          color: agent
-            ? dark
-              ? "#ffd666"
-              : "#b76e00"
-            : dark
-              ? "#d7dde3"
-              : "#454f5b",
-          "& .MuiChip-label": {
-            display: "block",
-            whiteSpace: "nowrap",
-            px: 0.875,
-            py: 0.25,
-            lineHeight: "16px",
-            fontSize: 11,
-          },
-        };
+      sx={{
+        mt: 0,
+        ml: 0,
+        height: "auto",
+        maxWidth: "none",
+        flexShrink: 0,
+        borderRadius: "9999px",
+        fontWeight: 600,
+        bgcolor: agent
+          ? "var(--ops-color-warning-container, #FEF3C7)"
+          : "var(--md-sys-color-surface-container-high, #E4E3EE)",
+        color: agent
+          ? "var(--ops-color-on-warning-container, #92400E)"
+          : "var(--md-sys-color-on-surface-variant, #4D4B63)",
+        "& .MuiChip-label": {
+          display: "block",
+          whiteSpace: "nowrap",
+          px: 0.875,
+          py: 0.25,
+          lineHeight: "16px",
+          fontSize: 11,
+        },
       }}
     />
   );
@@ -1043,8 +1032,7 @@ function DurationField({
             height: 40,
             width: { xs: 64, sm: 76 },
             flexShrink: 0,
-            bgcolor: (theme) =>
-              theme.palette.mode === "dark" ? "action.hover" : "#F4F6F8",
+            bgcolor: "var(--md-sys-color-surface-container-low, #F3F2F8)",
             "& .MuiSelect-select": {
               py: 0,
               pl: 1,
