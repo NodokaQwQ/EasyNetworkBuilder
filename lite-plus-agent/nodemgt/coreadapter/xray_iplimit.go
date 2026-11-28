@@ -1,6 +1,7 @@
 package coreadapter
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -110,7 +111,6 @@ func (ls *xrayLinkSession) Close() error {
 }
 
 func (d *ipLimitDispatcher) Dispatch(ctx context.Context, dest xnet.Destination) (*transport.Link, error) {
-	restoreXraySystemDialer()
 	release, ok := d.hold(ctx)
 	if !ok {
 		return nil, fmt.Errorf("user denied")
@@ -133,7 +133,6 @@ func (d *ipLimitDispatcher) Dispatch(ctx context.Context, dest xnet.Destination)
 }
 
 func (d *ipLimitDispatcher) DispatchLink(ctx context.Context, dest xnet.Destination, link *transport.Link) error {
-	restoreXraySystemDialer()
 	release, ok := d.hold(ctx)
 	if !ok {
 		if link != nil {
@@ -635,10 +634,11 @@ func captureXraySystemDialer(inst *xraycore.Instance) {
 	liveXrayDialer.dc = dc
 	liveXrayDialer.om = om
 	liveXrayDialer.mu.Unlock()
-	internet.InitSystemDialer(dc, om)
 }
 
 func restoreXraySystemDialer() {
+	// Used after constructing an auxiliary Xray instance in linked tests. Never
+	// call per connection: upstream's process-global dialer fields are not atomic.
 	liveXrayDialer.mu.Lock()
 	dc, om := liveXrayDialer.dc, liveXrayDialer.om
 	liveXrayDialer.mu.Unlock()
@@ -649,12 +649,21 @@ func restoreXraySystemDialer() {
 }
 
 func startXrayInstance(raw []byte, policy *policyEngine) (*xraycore.Instance, error) {
-	inst, err := xraycore.StartInstance("json", raw)
+	config, err := xraycore.LoadConfig("json", bytes.NewReader(raw))
 	if err != nil {
 		return nil, err
 	}
-	captureXraySystemDialer(inst)
+	inst, err := xraycore.New(config)
+	if err != nil {
+		return nil, err
+	}
+	// Install wrappers before Start exposes listeners to concurrent connections.
 	wrapXrayDispatcher(inst, policy)
+	captureXraySystemDialer(inst)
+	if err := inst.Start(); err != nil {
+		_ = inst.Close()
+		return nil, err
+	}
 	return inst, nil
 }
 

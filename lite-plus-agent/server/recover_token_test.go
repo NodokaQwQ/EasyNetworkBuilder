@@ -51,14 +51,22 @@ func TestSetTaskLogDoesNotStartRecoveryBeforeToken(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	StartTaskRecovery(ctx)
+	done := make(chan struct{})
+	go func() { defer close(done); recoverLoop(ctx, store) }()
+	t.Cleanup(func() { cancel(); <-done })
 	time.Sleep(80 * time.Millisecond)
 	if uploads.Load() != 0 {
 		t.Fatal("recovery uploaded before Token was set")
 	}
 
+	// Production sets identity before starting recovery. Stop and join the
+	// empty-identity phase before changing the shared startup configuration.
+	cancel()
+	<-done
 	flags.Token = "ready-token"
+	ctx, cancel = context.WithCancel(context.Background())
+	done = make(chan struct{})
+	go func() { defer close(done); recoverLoop(ctx, store) }()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if uploads.Load() > 0 {
