@@ -4,7 +4,7 @@ Head、Node 的 ENB 正式版本分别从 **0.0.1** 起步。旧 Lite/ENB 测试
 
 ## 文件与发现
 
-- Head `0.0.5` 发布准备中，稳定可发现版本以 `head-stable.json` 为准；版本与验证边界见 [0.0.5.md](0.0.5.md)。不自动安装宿主机 updater 或更新线上。Node 仍为 `0.0.1`。
+- 最新 Head 为 `0.0.5`，允许来源仅 `0.0.4`；版本与验证边界见 [0.0.5.md](0.0.5.md)。镜像 `docker.io/nodokaqwq/enb:head-v0.0.5`，Linux/amd64，源码 `520a701b343f38b3ab29de49fbb5574533ede3e1`，不可变 digest `sha256:b7aae6defda23e5753f9c0645454d9dc8b5deaabe77446214fa009765c99c89e`。不自动安装宿主机 updater 或更新线上，不移动 latest。Node 仍为 `0.0.1`。
 
 - `versions.json`：下一次构建的 Head/Node 版本，各自递增。
 - `head-stable.json` / `node-stable.json`：已发布、已验证镜像目录，最新版本优先。
