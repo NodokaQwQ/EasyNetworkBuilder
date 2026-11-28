@@ -143,7 +143,7 @@ const ServerRow: React.FC<{
     setSaving(true);
     // 收集需要更新的任务（ membership 发生变化 ）
     const toUpdate = pingTasks
-      .filter((task) => task.id !== undefined)
+      .filter((task) => task.id !== undefined && !task.return_route_task_id)
       .filter((task) => {
         const hasBefore = !!task.clients?.includes(nodeUuid);
         const hasAfter = selectedIds.includes(String(task.id));
@@ -223,7 +223,7 @@ const ServerRow: React.FC<{
           <Selector
             value={selectedIds}
             onChange={setSelectedIds}
-            items={[...pingTasks.filter((task) => task.id !== undefined)]}
+            items={[...pingTasks.filter((task) => task.id !== undefined && !task.return_route_task_id)]}
             getId={(task) => String(task.id)}
             getLabel={(task) => (
               <span className="text-sm">

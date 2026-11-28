@@ -69,6 +69,9 @@ func DeletePingTask(id []uint) error {
 	if len(id) == 0 {
 		return fmt.Errorf("ping task id is required")
 	}
+	if err := ensurePingTaskNotManaged(dbcore.GetDBInstance(), id); err != nil {
+		return err
+	}
 	metricstore.BlockPingTaskWrites(id)
 	deleted := false
 	defer func() {
@@ -160,6 +163,9 @@ func editPingTasks(db *gorm.DB, tasks []*models.PingTask) ([]metricstore.PingAss
 		for _, task := range tasks {
 			if task == nil || task.Id == 0 {
 				return fmt.Errorf("ping task ID is required")
+			}
+			if err := ensurePingTaskNotManaged(tx, []uint{task.Id}); err != nil {
+				return err
 			}
 			var existing models.PingTask
 			if err := tx.Select("id", "clients", "type", "target").Where("id = ?", task.Id).First(&existing).Error; err != nil {

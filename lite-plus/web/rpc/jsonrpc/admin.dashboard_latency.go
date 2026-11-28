@@ -3,6 +3,7 @@ package jsonrpc
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,12 +15,14 @@ import (
 )
 
 type dashboardLatencyPoint struct {
-	Time    time.Time `json:"time"`
-	Average float64   `json:"average"`
+	Time     time.Time `json:"time"`
+	Average  float64   `json:"average"`
+	LossRate float64   `json:"loss_rate"`
 }
 
 type dashboardLatencySummary struct {
 	Average       float64                          `json:"average"`
+	AverageLoss   float64                          `json:"average_loss"`
 	Targets       int                              `json:"targets"`
 	Points        []dashboardLatencyPoint          `json:"points"`
 	Ranking       []dashboardLatencyRankItem       `json:"ranking"`
@@ -64,66 +67,147 @@ func loadDashboardLatency(ctx context.Context, clientList []models.Client, pingT
 		return result, fmt.Errorf("metric store is not initialized")
 	}
 	start := now.Add(-6 * time.Hour)
-	interval := store.CompatibleSeriesIntervalForMetric(ctx, metricstore.MetricPingLatency, start, now, time.Hour)
-	series, err := store.DashboardSeries(ctx, metric.AggregateQuery{
-		Query: metric.Query{
-			MetricName: metricstore.MetricPingLatency,
-			Start:      start,
-			End:        now,
-			Order:      metric.OrderAsc,
+	interval := store.CompatibleSeriesIntervalForMetric(ctx, metricstore.MetricPingLatency, start, now, 15*time.Minute)
+	batch, err := store.DashboardSeriesBatch(ctx, []metric.AggregateQuery{
+		{
+			Query: metric.Query{
+				MetricName: metricstore.MetricPingLatency,
+				Start:      start,
+				End:        now,
+				Order:      metric.OrderAsc,
+			},
+			Aggregation:                   metric.AggAvg,
+			Interval:                      interval,
+			PreserveSeries:                true,
+			ClosedBucketsFromMatchingTier: true,
 		},
-		Aggregation:                   metric.AggAvg,
-		Interval:                      interval,
-		PreserveSeries:                true,
-		ClosedBucketsFromMatchingTier: true,
+		{
+			Query: metric.Query{
+				MetricName: metricstore.MetricPingLoss,
+				Start:      start,
+				End:        now,
+				Order:      metric.OrderAsc,
+			},
+			Aggregation:                   metric.AggAvg,
+			Interval:                      interval,
+			PreserveSeries:                true,
+			ClosedBucketsFromMatchingTier: true,
+		},
 	}, now)
 	if err != nil {
-		return result, fmt.Errorf("query six-hour latency window: %w", err)
+		return result, fmt.Errorf("query six-hour latency and packet loss window: %w", err)
+	}
+	var latencySeries, lossSeries []metric.AggregatePoint
+	if len(batch) > 0 {
+		latencySeries = batch[0]
+	}
+	if len(batch) > 1 {
+		lossSeries = batch[1]
 	}
 
-	clientsByID := make(map[string]models.Client, len(clientList))
+	result.Ranking = summarizeDashboardLatencyRanking(clientList, pingTasks, latencySeries, rankingLimit)
+	points, avgLat, avgLoss := summarizeDashboardLatencyAndLossPoints(clientList, latencySeries, lossSeries)
+	result.Points = points
+	result.Average = avgLat
+	result.AverageLoss = avgLoss
+	return result, nil
+}
+
+func summarizeDashboardLatencyAndLossPoints(
+	clientList []models.Client,
+	latencySeries, lossSeries []metric.AggregatePoint,
+) ([]dashboardLatencyPoint, float64, float64) {
+	clientsByID := make(map[string]struct{}, len(clientList))
 	for _, client := range clientList {
-		clientsByID[client.UUID] = client
+		clientsByID[client.UUID] = struct{}{}
 	}
-	buckets := make(map[time.Time]dashboardLatencyBucket)
-	for _, point := range series {
-		if point.Count <= 0 || point.Value < 0 {
+	type combinedBucket struct {
+		latSum    float64
+		latCount  int
+		lossSum   float64
+		lossCount int
+	}
+	buckets := make(map[time.Time]combinedBucket)
+	for _, point := range latencySeries {
+		if point.Count <= 0 {
 			continue
 		}
 		if _, ok := clientsByID[point.EntityID]; !ok {
 			continue
 		}
-		weighted := point.Value * float64(point.Count)
 		bucketTime := point.Bucket.UTC()
-		bucket := buckets[bucketTime]
-		bucket.Sum += weighted
-		bucket.Count += point.Count
-		buckets[bucketTime] = bucket
+		b := buckets[bucketTime]
+		if point.Value < 0 {
+			// Sentinel fallback if lossSeries was empty
+			if len(lossSeries) == 0 {
+				b.lossSum += float64(point.Count)
+				b.lossCount += point.Count
+			}
+		} else {
+			b.latSum += point.Value * float64(point.Count)
+			b.latCount += point.Count
+			if len(lossSeries) == 0 {
+				b.lossCount += point.Count
+			}
+		}
+		buckets[bucketTime] = b
 	}
-	result.Ranking = summarizeDashboardLatencyRanking(clientList, pingTasks, series, rankingLimit)
+	for _, point := range lossSeries {
+		if point.Count <= 0 || math.IsNaN(point.Value) || math.IsInf(point.Value, 0) {
+			continue
+		}
+		if _, ok := clientsByID[point.EntityID]; !ok {
+			continue
+		}
+		ratio := math.Max(0, math.Min(1, point.Value))
+		bucketTime := point.Bucket.UTC()
+		b := buckets[bucketTime]
+		b.lossSum += ratio * float64(point.Count)
+		b.lossCount += point.Count
+		buckets[bucketTime] = b
+	}
 
 	times := make([]time.Time, 0, len(buckets))
 	for bucketTime := range buckets {
 		times = append(times, bucketTime)
 	}
 	sort.Slice(times, func(i, j int) bool { return times[i].Before(times[j]) })
-	result.Points = make([]dashboardLatencyPoint, 0, len(times))
-	var total float64
-	var count int
+
+	points := make([]dashboardLatencyPoint, 0, len(times))
+	var totalLatSum, totalLossSum float64
+	var totalLatCount, totalLossCount int
 	for _, bucketTime := range times {
-		bucket := buckets[bucketTime]
-		if bucket.Count <= 0 {
+		b := buckets[bucketTime]
+		if b.latCount <= 0 && b.lossCount <= 0 {
 			continue
 		}
-		average := metricstore.RoundLatencyMS(bucket.Sum / float64(bucket.Count))
-		result.Points = append(result.Points, dashboardLatencyPoint{Time: bucketTime, Average: average})
-		total += bucket.Sum
-		count += bucket.Count
+		avgLat := 0.0
+		if b.latCount > 0 {
+			avgLat = metricstore.RoundLatencyMS(b.latSum / float64(b.latCount))
+			totalLatSum += b.latSum
+			totalLatCount += b.latCount
+		}
+		lossPct := 0.0
+		if b.lossCount > 0 {
+			lossPct = metricstore.RoundLatencyMS(b.lossSum / float64(b.lossCount) * 100)
+			totalLossSum += b.lossSum
+			totalLossCount += b.lossCount
+		}
+		points = append(points, dashboardLatencyPoint{
+			Time:     bucketTime,
+			Average:  avgLat,
+			LossRate: lossPct,
+		})
 	}
-	if count > 0 {
-		result.Average = metricstore.RoundLatencyMS(total / float64(count))
+	overallLat := 0.0
+	if totalLatCount > 0 {
+		overallLat = metricstore.RoundLatencyMS(totalLatSum / float64(totalLatCount))
 	}
-	return result, nil
+	overallLoss := 0.0
+	if totalLossCount > 0 {
+		overallLoss = metricstore.RoundLatencyMS(totalLossSum / float64(totalLossCount) * 100)
+	}
+	return points, overallLat, overallLoss
 }
 
 func summarizeDashboardLatencyRanking(clientList []models.Client, taskList []models.PingTask, series []metric.AggregatePoint, rankingLimit int) []dashboardLatencyRankItem {

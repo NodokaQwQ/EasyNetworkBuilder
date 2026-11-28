@@ -34,11 +34,17 @@ type dashboardServerSummary struct {
 	OfflineNodes []dashboardOfflineNode `json:"offline_nodes"`
 }
 
+type dashboardTrafficServerMeta struct {
+	UUID string `json:"uuid"`
+	Name string `json:"name"`
+}
+
 type dashboardTrafficDay struct {
-	Day      string `json:"day"`
-	Up       int64  `json:"up"`
-	Down     int64  `json:"down"`
-	Billable int64  `json:"billable"`
+	Day      string           `json:"day"`
+	Up       int64            `json:"up"`
+	Down     int64            `json:"down"`
+	Billable int64            `json:"billable"`
+	ByServer map[string]int64 `json:"by_server,omitempty"`
 }
 
 type dashboardTrafficHour struct {
@@ -71,9 +77,10 @@ type dashboardTrafficSummary struct {
 	DailyAverageUp       int64                      `json:"daily_average_up"`
 	DailyAverageDown     int64                      `json:"daily_average_down"`
 	DailyAverageBillable int64                      `json:"daily_average_billable"`
-	Hourly               []dashboardTrafficHour     `json:"hourly"`
-	Daily                []dashboardTrafficDay      `json:"daily"`
-	Ranking              []dashboardTrafficRankItem `json:"ranking"`
+	Hourly               []dashboardTrafficHour       `json:"hourly"`
+	Daily                []dashboardTrafficDay        `json:"daily"`
+	Servers              []dashboardTrafficServerMeta `json:"servers,omitempty"`
+	Ranking              []dashboardTrafficRankItem   `json:"ranking"`
 	HistoryReady         bool                       `json:"history_ready"`
 	Error                string                     `json:"error,omitempty"`
 }
@@ -522,6 +529,7 @@ func summarizeDashboardTraffic(clientList []models.Client, rows []models.Traffic
 	}
 
 	seen := make(map[string]struct{}, len(rows))
+	serverTotals := make(map[string]int64, len(clientList))
 	for _, row := range rows {
 		client, ok := clientsByID[row.Client]
 		day := daysByKey[row.Day]
@@ -535,7 +543,15 @@ func summarizeDashboardTraffic(clientList []models.Client, rows []models.Traffic
 		day.Up += usage.Up
 		day.Down += usage.Down
 		if client.Price > 0 {
-			day.Billable += trafficledger.BillableUsage(client.TrafficLimitType, usage.Up, usage.Down)
+			billable := trafficledger.BillableUsage(client.TrafficLimitType, usage.Up, usage.Down)
+			day.Billable += billable
+			if billable > 0 {
+				if day.ByServer == nil {
+					day.ByServer = make(map[string]int64)
+				}
+				day.ByServer[client.UUID] += billable
+				serverTotals[client.UUID] += billable
+			}
 		}
 		seen[row.Client+"\x00"+row.Day] = struct{}{}
 	}
@@ -556,6 +572,13 @@ func summarizeDashboardTraffic(clientList []models.Client, rows []models.Traffic
 		}
 		if todayDay != nil {
 			todayDay.Billable += billable
+			if billable > 0 {
+				if todayDay.ByServer == nil {
+					todayDay.ByServer = make(map[string]int64)
+				}
+				todayDay.ByServer[client.UUID] += billable
+				serverTotals[client.UUID] += billable
+			}
 		}
 		summary.TodayUp += usage.Up
 		summary.TodayDown += usage.Down
@@ -581,6 +604,22 @@ func summarizeDashboardTraffic(clientList []models.Client, rows []models.Traffic
 		summary.Hourly[hour].Up += summary.Hourly[hour-1].Up
 		summary.Hourly[hour].Down += summary.Hourly[hour-1].Down
 	}
+
+	for _, client := range clientList {
+		if client.Price > 0 && serverTotals[client.UUID] > 0 {
+			summary.Servers = append(summary.Servers, dashboardTrafficServerMeta{
+				UUID: client.UUID,
+				Name: dashboardNodeName(client),
+			})
+		}
+	}
+	sort.SliceStable(summary.Servers, func(i, j int) bool {
+		left, right := serverTotals[summary.Servers[i].UUID], serverTotals[summary.Servers[j].UUID]
+		if left != right {
+			return left > right
+		}
+		return summary.Servers[i].Name < summary.Servers[j].Name
+	})
 
 	expectedRows := len(clientList) * (trafficledger.DashboardHistoryDays - 1)
 	summary.HistoryReady = len(seen) == expectedRows

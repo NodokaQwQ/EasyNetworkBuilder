@@ -73,6 +73,7 @@ import { nodeTrafficType, trafficUsed } from "@/utils/trafficAccounting";
 import { formatBytes, isNegativeByteInput, stringToBytes } from "@/utils/unitHelper";
 import { billingSaveFailedToast } from "@/utils/billingI18n";
 import { createRandomId } from "@/utils/randomId";
+import { finishTrafficReset } from "@/utils/nodeBilling";
 import { LITE_BLUE, LITE_BLUE_SOFT_STRONG } from "@/theme/brand";
 import { getAdminMenuProps } from "@/components/admin/adminMenu";
 import {
@@ -179,6 +180,8 @@ function cycleLabel(days: number, t: (key: string, fallback: string) => string) 
   if (days === 184) return t("common.semi_annual", "半年付");
   if (days === 365) return t("admin.nodeDetail.payYearly", "年付");
   if (days === 730) return t("common.biennial", "两年付");
+  if (days === 1095) return t("common.triennial", "三年付");
+  if (days === 1825) return t("common.quinquennial", "五年付");
   if (days === -1) return t("common.once", "一次性");
   return t("common.monthly", "月付");
 }
@@ -900,18 +903,24 @@ function NodeDetailPageBody() {
   );
 }
 
-function BillingPanel({ node, onSaved }: { node: NodeDetail; onSaved: () => void }) {
+export function BillingPanel({ node, onSaved, onBusyChange }: { node: NodeDetail; onSaved: () => void; onBusyChange?: (busy: boolean) => void }) {
   const { t } = useTranslation();
   const [saving, setSaving] = useState(false);
   const [cycleEl, setCycleEl] = useState<null | HTMLElement>(null);
   const [trafficResetOpen, setTrafficResetOpen] = useState(false);
   const [ipChangeOpen, setIpChangeOpen] = useState(false);
   const [oneTimeFeeOpen, setOneTimeFeeOpen] = useState(false);
-  const [currency] = useState(
-    currencyForDisplay(node.currency || ""),
-  );
+  const currency = currencyForDisplay(node.currency || "");
   const [billingCycle, setBillingCycle] = useState(String(node.billing_cycle || 30));
   const [autoRenewal, setAutoRenewal] = useState(Boolean(node.auto_renewal));
+  useEffect(() => {
+    setBillingCycle(String(node.billing_cycle || 30));
+    setAutoRenewal(Boolean(node.auto_renewal));
+  }, [node.billing_cycle, node.auto_renewal]);
+  useEffect(() => {
+    onBusyChange?.(saving || trafficResetOpen || ipChangeOpen || oneTimeFeeOpen);
+    return () => onBusyChange?.(false);
+  }, [saving, trafficResetOpen, ipChangeOpen, oneTimeFeeOpen, onBusyChange]);
   const expiryTimezone = normalizeExpiryTimezone(node.expiry_timezone);
   const displayPrice = node.price;
   const displayCycle = Number(node.billing_cycle) || 0;
@@ -934,6 +943,8 @@ function BillingPanel({ node, onSaved }: { node: NodeDetail; onSaved: () => void
       { label: t("common.semi_annual", "半年付"), value: "184" },
       { label: t("admin.nodeDetail.payYearly", "年付"), value: "365" },
       { label: t("common.biennial", "两年付"), value: "730" },
+      { label: t("common.triennial", "三年付"), value: "1095" },
+      { label: t("common.quinquennial", "五年付"), value: "1825" },
       { label: t("common.once", "一次性"), value: "-1" },
     ],
     [t],
@@ -970,13 +981,14 @@ function BillingPanel({ node, onSaved }: { node: NodeDetail; onSaved: () => void
         body: JSON.stringify(payload),
       });
       const text = await response.text();
-      let body: { message?: string } | null = null;
+      let body: { message?: string; status?: string } | null = null;
       try {
         body = text ? JSON.parse(text) : null;
       } catch {
         body = null;
       }
       const followUp = billingSaveFollowUp(response.ok);
+      if (body?.status === "error") throw new Error(body.message || `HTTP ${response.status}`);
       if (!followUp.ok) {
         throw new Error(body?.message || text || `HTTP ${response.status}`);
       }
@@ -1088,6 +1100,7 @@ function BillingPanel({ node, onSaved }: { node: NodeDetail; onSaved: () => void
               {t("admin.nodeDetail.renewNow", "提前续费")}
             </Button>
             <Button
+              disabled={saving}
               startIcon={<ArrowRight size={17} />}
               onClick={() => setTrafficResetOpen(true)}
               sx={actionSx(primaryTonalBg, primaryTonalFg)}
@@ -1107,12 +1120,14 @@ function BillingPanel({ node, onSaved }: { node: NodeDetail; onSaved: () => void
                 : t("admin.nodeTable.autoRenewal", "自动续费")}
             </Button>
             <Button
+              disabled={saving}
               onClick={() => setIpChangeOpen(true)}
               sx={actionSx(primaryTonalBg, primaryTonalFg)}
             >
               {t("admin.nodeDetail.recordTrafficReset", "更换IP")}
             </Button>
             <Button
+              disabled={saving}
               onClick={() => setOneTimeFeeOpen(true)}
               sx={actionSx(healthyTonalBg, healthyTonalFg)}
             >
@@ -1195,14 +1210,20 @@ function TrafficResetCostDialog({
   const [allowance, setAllowance] = useState("");
   const [saving, setSaving] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState(() => createRandomId());
+  const [expenseRecorded, setExpenseRecorded] = useState(false);
+  const [originalAllowance, setOriginalAllowance] = useState(node.traffic_reset_allowance ?? 0);
   const currencyPrefix = currencyForDisplay(node.currency || "");
 
   useEffect(() => {
     if (!open) return;
     setAmount("");
     setAllowance(formatBytes(node.traffic_reset_allowance ?? 0));
+    setOriginalAllowance(node.traffic_reset_allowance ?? 0);
+    setExpenseRecorded(false);
     setIdempotencyKey(createRandomId());
-  }, [open, node.traffic_reset_allowance]);
+    // Polling must not erase drafts or rotate the key after an expense succeeded.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const submit = async () => {
     if (!amount.trim()) return;
@@ -1211,28 +1232,32 @@ function TrafficResetCostDialog({
       return;
     }
     const nextAllowance = stringToBytes(allowance);
-    if (nextAllowance < 0) {
+    if (!/^\s*\d+(?:\.\d+)?\s*(?:b|kb|kib|mb|mib|gb|gib|tb|tib|pb|pib)?\s*$/i.test(allowance) || !Number.isSafeInteger(nextAllowance) || nextAllowance < 0) {
       toast.error(t("admin.nodeEdit.trafficResetAllowanceNonNegative", "重置流量额度不能为负数"));
+      return;
+    }
+    if (nextAllowance > 0 && !(Number(node.traffic_reset_day) >= 1 && Number(node.traffic_reset_day) <= 31)) {
+      toast.error(t("admin.nodeEdit.trafficResetDayRequired"));
       return;
     }
     setSaving(true);
     try {
-      await billingRequest(`/api/admin/client/${node.uuid}/billing/traffic-reset`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: amount.trim(),
-          currency: "",
-          idempotency_key: idempotencyKey,
-        }),
-      });
-      if (nextAllowance !== (node.traffic_reset_allowance ?? 0)) {
-        await fetch(`/api/admin/client/${node.uuid}/edit`, {
+      await finishTrafficReset({
+        client: node.uuid,
+        allowance: nextAllowance,
+        originalAllowance,
+        expenseRecorded,
+        onExpenseRecorded: () => setExpenseRecorded(true),
+        recordExpense: () => billingRequest(`/api/admin/client/${node.uuid}/billing/traffic-reset`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ traffic_reset_allowance: nextAllowance }),
-        });
-      }
+          body: JSON.stringify({
+            amount: amount.trim(),
+            currency: "",
+            idempotency_key: idempotencyKey,
+          }),
+        }),
+      });
       toast.success(t("admin.nodeDetail.trafficResetSaved", "流量重置费用已计入账单"));
       onSaved();
     } catch (error) {
@@ -1260,6 +1285,7 @@ function TrafficResetCostDialog({
             <AdminTextField.Root
               autoFocus
               required
+              disabled={saving || expenseRecorded}
               value={amount}
               placeholder="0.00"
               inputMode="decimal"
@@ -1273,6 +1299,7 @@ function TrafficResetCostDialog({
           <div>
             <FieldLabel>{t("admin.nodeEdit.trafficResetAllowance", "重置流量额度")}</FieldLabel>
             <AdminTextField.Root
+              disabled={saving}
               value={allowance}
               onChange={(event) => {
                 const next = event.target.value;
@@ -1289,10 +1316,13 @@ function TrafficResetCostDialog({
               }}
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              {t("admin.nodeEdit.trafficResetAllowance_description", "同一计费周期可多次调整；与原流量限额相加，并在下个重置日自动归零。")}
+              {t("admin.nodeDetail.trafficResetCumulativeHint", "填写本周期累计额外额度（不是本次新增量）；仅记账请保持原值。此额度与套餐限额相加，下个重置日归零，不会清除实际用量。")}
             </p>
           </div>
         </Flex>
+        {expenseRecorded ? <Typography role="status" variant="body2" sx={{ mt: 2 }}>
+          {t("admin.nodeDetail.trafficResetPartial", "费用已记账，但额度尚未更新成功。请在此窗口重试；不会重复记账。若关闭窗口，请到节点编辑中单独调整额度，勿再次记账。")}
+        </Typography> : null}
         <Flex gap="2" justify="end" className="km-node-dialog-actions">
           <AdminDialog.Close>
             <AdminButton variant="soft" color="gray" disabled={saving}>
@@ -1300,7 +1330,7 @@ function TrafficResetCostDialog({
             </AdminButton>
           </AdminDialog.Close>
           <AdminButton disabled={saving || !amount.trim()} onClick={() => void submit()}>
-            {t("common.confirm", "确认")}
+            {expenseRecorded ? t("admin.nodeDetail.retryTrafficAllowance", "重试更新额度") : t("common.confirm", "确认")}
           </AdminButton>
         </Flex>
       </AppDialogContent>
@@ -1422,7 +1452,9 @@ function OneTimeFeeDialog({
     setNote("");
     setCurrency(currencyForDisplay(node.currency || "$") || "$");
     setIdempotencyKey(createRandomId());
-  }, [open, node.currency]);
+    // Keep the draft and idempotency key stable while the list refreshes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const submit = async () => {
     if (!amount.trim()) return;

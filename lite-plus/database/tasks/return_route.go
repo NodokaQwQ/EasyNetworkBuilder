@@ -74,6 +74,7 @@ type ReturnRouteTaskBatchEdit struct {
 	ExpectedLine                       string `json:"expected_line"`
 	Protocol                           string `json:"protocol"`
 	Interval                           int    `json:"interval"`
+	PingInterval                       int    `json:"ping_interval"`
 	SwitchConfirm                      int    `json:"switch_confirm"`
 	RecoveryConfirm                    int    `json:"recovery_confirm"`
 	Cooldown                           int    `json:"cooldown"`
@@ -173,6 +174,9 @@ func normalizeReturnRouteTaskFields(task *models.ReturnRouteTask) error {
 	if task.Interval < 60 || task.Interval > 86400 {
 		return fmt.Errorf("interval must be between 60 and 86400 seconds")
 	}
+	if err := validateReturnRoutePingInterval(task.PingInterval, task.Interval); err != nil {
+		return err
+	}
 	if task.SwitchConfirm < 1 || task.SwitchConfirm > 20 || task.RecoveryConfirm < 1 || task.RecoveryConfirm > 20 {
 		return fmt.Errorf("confirmation counts must be between 1 and 20")
 	}
@@ -187,9 +191,6 @@ func normalizeMainlandPingAssociation(db *gorm.DB, task *models.ReturnRouteTask)
 		task.MainlandReachabilityPingTaskID = nil
 	}
 	if task.MainlandReachabilityPingTaskID == nil {
-		if task.MainlandReachabilityEnabled {
-			return fmt.Errorf("开启疑似被墙判定时需选择辅助延迟监测任务")
-		}
 		return nil
 	}
 	var ping models.PingTask
@@ -198,6 +199,9 @@ func normalizeMainlandPingAssociation(db *gorm.DB, task *models.ReturnRouteTask)
 			return fmt.Errorf("辅助延迟监测任务不存在")
 		}
 		return err
+	}
+	if ping.ReturnRouteTaskID != nil && *ping.ReturnRouteTaskID == task.Id {
+		return nil // The owned monitor is synchronized after this edit.
 	}
 	if !ping.AppliesToClient(task.Client) {
 		return fmt.Errorf("辅助延迟监测任务未分配给当前服务器")
@@ -225,7 +229,7 @@ func AddReturnRouteTask(task *models.ReturnRouteTask) (uint, bool, error) {
 	if err := ensureReturnRouteTaskSlotFree(db, *task, nil); err != nil {
 		return 0, false, err
 	}
-	if err := db.Create(task).Error; err != nil {
+	if err := createReturnRouteTask(db, task); err != nil {
 		return 0, false, err
 	}
 	_ = evaluateMainlandReachability(dbcore.GetDBInstance(), task.Client, task.IPVersion, *task, time.Now().UTC())
@@ -236,12 +240,26 @@ func AddReturnRouteTask(task *models.ReturnRouteTask) (uint, bool, error) {
 	return task.Id, dispatched, nil
 }
 
+func createReturnRouteTask(db *gorm.DB, task *models.ReturnRouteTask) error {
+	requested := *task
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(task).Error; err != nil {
+			return err
+		}
+		requested.Id = task.Id
+		*task = requested
+		if err := tx.Model(task).Updates(returnRouteTaskColumnUpdates(*task)).Error; err != nil {
+			return err
+		}
+		return syncReturnRoutePing(tx, task)
+	})
+}
+
 func EditReturnRouteTask(task *models.ReturnRouteTask) error {
 	if err := editReturnRouteTask(dbcore.GetDBInstance(), task); err != nil {
 		return err
 	}
-	_ = ReloadReturnRouteSchedule()
-	return nil
+	return ReloadReturnRouteSchedule()
 }
 
 func editReturnRouteTask(db *gorm.DB, task *models.ReturnRouteTask) error {
@@ -258,12 +276,13 @@ func editReturnRouteTask(db *gorm.DB, task *models.ReturnRouteTask) error {
 	if err := db.First(&previous, task.Id).Error; err != nil {
 		return err
 	}
-	result := db.Model(&models.ReturnRouteTask{}).Where("id = ?", task.Id).Updates(returnRouteTaskColumnUpdates(*task))
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.ReturnRouteTask{}).Where("id = ?", task.Id).Updates(returnRouteTaskColumnUpdates(*task)).Error; err != nil {
+			return err
+		}
+		return syncReturnRoutePing(tx, task)
+	}); err != nil {
+		return err
 	}
 	now := time.Now().UTC()
 	_ = recomputeMainlandReachabilityKeys(db, mainlandKeysFromTasks([]models.ReturnRouteTask{previous, *task}), now)
@@ -279,7 +298,7 @@ func returnRouteTaskColumnUpdates(task models.ReturnRouteTask) map[string]any {
 		"name": task.Name, "client": task.Client, "carrier": task.Carrier,
 		"region": task.Region, "target": task.Target, "ip_version": task.IPVersion,
 		"expected_line": task.ExpectedLine, "protocol": task.Protocol,
-		"interval": task.Interval, "switch_confirm": task.SwitchConfirm,
+		"interval": task.Interval, "ping_interval": task.PingInterval, "switch_confirm": task.SwitchConfirm,
 		"recovery_confirm": task.RecoveryConfirm, "cooldown": task.Cooldown,
 		"notify": task.Notify, "notify_recovery": task.NotifyRecovery, "enabled": task.Enabled,
 		"mainland_reachability_enabled":         task.MainlandReachabilityEnabled,
@@ -293,8 +312,7 @@ func EditReturnRouteTasksBatch(params ReturnRouteTaskBatchEdit) error {
 	if err := editReturnRouteTasksBatch(dbcore.GetDBInstance(), params); err != nil {
 		return err
 	}
-	_ = ReloadReturnRouteSchedule()
-	return nil
+	return ReloadReturnRouteSchedule()
 }
 
 func editReturnRouteTasksBatch(db *gorm.DB, params ReturnRouteTaskBatchEdit) error {
@@ -316,7 +334,7 @@ func editReturnRouteTasksBatch(db *gorm.DB, params ReturnRouteTaskBatchEdit) err
 			Id: current.Id, Name: current.Name, Client: current.Client,
 			Carrier: params.Carrier, Region: params.Region, Target: params.Target,
 			IPVersion: params.IPVersion, ExpectedLine: params.ExpectedLine,
-			Protocol: params.Protocol, Interval: params.Interval,
+			Protocol: params.Protocol, Interval: params.Interval, PingInterval: params.PingInterval,
 			SwitchConfirm: params.SwitchConfirm, RecoveryConfirm: params.RecoveryConfirm,
 			Cooldown: params.Cooldown, Notify: params.Notify,
 			NotifyRecovery: params.NotifyRecovery, Enabled: params.Enabled,
@@ -361,7 +379,7 @@ func editReturnRouteTasksBatch(db *gorm.DB, params ReturnRouteTaskBatchEdit) err
 	updates := map[string]any{
 		"carrier": params.Carrier, "region": params.Region, "target": params.Target,
 		"ip_version": params.IPVersion, "expected_line": params.ExpectedLine,
-		"protocol": params.Protocol, "interval": params.Interval,
+		"protocol": params.Protocol, "interval": params.Interval, "ping_interval": params.PingInterval,
 		"switch_confirm": params.SwitchConfirm, "recovery_confirm": params.RecoveryConfirm,
 		"cooldown": params.Cooldown, "notify": params.Notify,
 		"notify_recovery": params.NotifyRecovery, "enabled": params.Enabled,
@@ -370,7 +388,21 @@ func editReturnRouteTasksBatch(db *gorm.DB, params ReturnRouteTaskBatchEdit) err
 		"mainland_reachability_recovery_notify": params.MainlandReachabilityRecoveryNotify,
 		"mainland_reachability_ping_task_id":    pingID,
 	}
-	if err := db.Model(&models.ReturnRouteTask{}).Where("id IN ?", ids).Updates(updates).Error; err != nil {
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.ReturnRouteTask{}).Where("id IN ?", ids).Updates(updates).Error; err != nil {
+			return err
+		}
+		var updated []models.ReturnRouteTask
+		if err := tx.Where("id IN ?", ids).Find(&updated).Error; err != nil {
+			return err
+		}
+		for i := range updated {
+			if err := syncReturnRoutePing(tx, &updated[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 	keys := mainlandKeysFromTasks(existing)
@@ -451,16 +483,31 @@ func uniqueReturnRouteTaskIDs(ids []uint) []uint {
 }
 
 func DeleteReturnRouteTasks(ids []uint) error {
+	if err := deleteReturnRouteTasks(dbcore.GetDBInstance(), ids); err != nil {
+		return err
+	}
+	return ReloadReturnRouteSchedule()
+}
+
+func deleteReturnRouteTasks(db *gorm.DB, ids []uint) error {
 	if len(ids) == 0 {
 		return fmt.Errorf("task id is required")
 	}
-	db := dbcore.GetDBInstance()
 	var existing []models.ReturnRouteTask
 	if err := db.Where("id IN ?", ids).Find(&existing).Error; err != nil {
 		return err
 	}
 	keys := mainlandKeysFromTasks(existing)
 	err := db.Transaction(func(tx *gorm.DB) error {
+		var pingIDs []uint
+		if err := tx.Model(&models.PingTask{}).Where("return_route_task_id IN ?", ids).Pluck("id", &pingIDs).Error; err != nil {
+			return err
+		}
+		if len(pingIDs) > 0 {
+			if err := deletePingTaskRows(tx, pingIDs); err != nil {
+				return err
+			}
+		}
 		if err := tx.Where("task_id IN ?", ids).Delete(&models.ReturnRouteEvent{}).Error; err != nil {
 			return err
 		}
@@ -481,7 +528,6 @@ func DeleteReturnRouteTasks(ids []uint) error {
 	})
 	if err == nil {
 		_ = recomputeMainlandReachabilityKeys(db, keys, time.Now().UTC())
-		_ = ReloadReturnRouteSchedule()
 	}
 	return err
 }
@@ -881,6 +927,10 @@ func SaveReturnRouteResult(client string, result v2.RouteResultParams) error {
 	}
 	if !task.Enabled || task.Client != client {
 		return fmt.Errorf("return route task is not assigned to this client")
+	}
+	if (result.Target != "" && !strings.EqualFold(strings.TrimSpace(result.Target), task.Target)) ||
+		(result.IPVersion != 0 && result.IPVersion != task.IPVersion) {
+		return fmt.Errorf("stale return route result: target configuration has changed")
 	}
 	defer utils.FinishReturnRouteProbe(task.Id)
 	now := result.FinishedAt.UTC()
@@ -1439,6 +1489,16 @@ func hasCN2BackboneAfter(hops []returnRouteSignature, index int, rules *compiled
 }
 
 func ReloadReturnRouteSchedule() error {
+	db := dbcore.GetDBInstance()
+	if err := reconcileReturnRoutePings(db); err != nil {
+		return err
+	}
+	if err := applyReturnRoutePingDefaults(db); err != nil {
+		return err
+	}
+	if err := ReloadPingSchedule(); err != nil {
+		return err
+	}
 	list, err := GetEnabledReturnRouteTasks()
 	if err != nil {
 		return err

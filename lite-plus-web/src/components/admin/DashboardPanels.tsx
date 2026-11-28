@@ -25,8 +25,6 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import {
-  Area,
-  AreaChart,
   CartesianGrid,
   Line,
   LineChart,
@@ -40,15 +38,20 @@ import {
   useAdminPagination,
 } from "@/components/admin/AdminPagination";
 import { ChartContainer } from "@/components/ui/chart";
-import ChartGradient from "@/components/admin/ChartGradient";
-import { CHART_COLORS } from "@/theme/chartPalette";
+import { CHART_COLORS, chartSeriesColor } from "@/theme/chartPalette";
 import {
+  buildTrafficSeriesChartRows,
+  DASHBOARD_TOTAL_SERIES_KEY,
+  dashboardTrafficAxisWidth,
   type DashboardAlertKind,
   type DashboardAlertSummary,
   type DashboardChartsData,
   type DashboardData,
   type DashboardDatabaseStatus,
   type DashboardResourceRankItem,
+  type DashboardTrafficDirection,
+  type DashboardTrafficGranularity,
+  type DashboardTrafficSeriesResponse,
   SUMMARY_FOOTER_CLASS,
   syncSummaryFooters,
 } from "@/utils/dashboard";
@@ -69,8 +72,11 @@ import {
 import {
   getDashboardChartsSnapshot,
   getDashboardSnapshot,
+  getDashboardTrafficSeriesSnapshot,
+  prefetchDashboardTrafficSeries,
   requestDashboard,
   requestDashboardCharts,
+  requestDashboardTrafficSeries,
 } from "@/utils/dashboardApi";
 
 export {
@@ -626,65 +632,157 @@ export function LatencyPanel({
   const points = React.useMemo(
     () => (charts?.latency.points ?? []).map((point) => ({
       ...point,
+      loss_rate: Number(point.loss_rate ?? 0),
       label: new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(new Date(point.time)),
     })),
     [charts?.latency.points, locale],
   );
+  const averageLoss = React.useMemo(() => {
+    if (typeof charts?.latency.average_loss === "number") {
+      return charts.latency.average_loss;
+    }
+    if (points.length === 0) return 0;
+    return points.reduce((sum, p) => sum + p.loss_rate, 0) / points.length;
+  }, [charts?.latency.average_loss, points]);
+
   return (
-    <section className="min-h-[148px] km-admin-surface p-3">
+    <section className="@container min-h-[168px] km-admin-surface p-3">
       <PanelHeader
         title={t("admin_dashboard.latency_overview")}
         description={t("admin_dashboard.latency_overview_hint")}
         trailing={(
-          <span className="mt-0.5 flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
+          <span className="mt-0.5 flex shrink-0 flex-wrap items-center gap-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <span className="size-2 rounded-sm" style={{ background: CHART_COLORS.inbound }} />
               {t("admin_dashboard.average_latency")}
             </span>
+            <span className="flex items-center gap-1.5">
+              <span className="size-2 rounded-sm" style={{ background: CHART_COLORS.outbound }} />
+              {t("admin_dashboard.average_packet_loss")}
+            </span>
           </span>
         )}
       />
-      <div className="grid min-h-[78px] grid-cols-1 items-center gap-3 md:grid-cols-[17rem_minmax(0,1fr)]">
-        <div className="grid grid-cols-3 divide-x">
-          {[
-            [charts ? `${charts.latency.average.toFixed(2)} ms` : "-", t("admin_dashboard.average_latency"), "text-foreground"],
-            [charts?.latency.targets ?? "-", t("admin_dashboard.monitor_targets"), "text-[var(--accent-11)]"],
-            [warningCount, t("admin_dashboard.packet_loss_alerts"), "text-[var(--orange-11)]"],
-          ].map(([value, label, color], index) => (
-            <div key={String(label)} className={index === 0 ? "pr-3" : "px-3"}>
-              <div className={`text-xl font-semibold leading-none tabular-nums ${color}`}>{value}</div>
-              <div className="mt-1.5 text-[11px] text-muted-foreground">{label}</div>
-            </div>
-          ))}
-        </div>
-        {requestError || charts?.latency.error ? (
-          <div className="flex h-[78px] items-center justify-center text-xs text-[var(--red-11)]">
-            {t("admin_dashboard.data_unavailable")}
+
+      <div className="mb-3 grid grid-cols-2 divide-x border-b border-[var(--gray-a4)] pb-3 @min-[38rem]:grid-cols-4">
+        {[
+          [charts ? `${charts.latency.average.toFixed(2)} ms` : "-", t("admin_dashboard.average_latency"), "text-foreground"],
+          [charts ? `${averageLoss.toFixed(2)}%` : "-", t("admin_dashboard.average_packet_loss"), averageLoss >= 5 ? "text-[var(--red-11)]" : averageLoss > 0.5 ? "text-[var(--orange-11)]" : "text-[var(--green-11)]"],
+          [charts?.latency.targets ?? "-", t("admin_dashboard.monitor_targets"), "text-[var(--accent-11)]"],
+          [warningCount, t("admin_dashboard.packet_loss_alerts"), "text-[var(--orange-11)]"],
+        ].map(([value, label, color], index) => (
+          <div key={String(label)} className={index === 0 ? "pr-3" : "px-3"}>
+            <div className={`text-xl font-semibold leading-none tabular-nums ${color}`}>{value}</div>
+            <div className="mt-1.5 text-[11px] text-muted-foreground">{label}</div>
           </div>
-        ) : charts ? (
-          <ChartContainer
-            config={{ average: { label: t("admin_dashboard.average_latency"), color: CHART_COLORS.inbound } }}
-            className="h-[78px] w-full aspect-auto"
-          >
-            <LineChart data={points} margin={{ top: 3, right: 3, left: 0, bottom: 0 }}>
-              <CartesianGrid vertical={false} strokeDasharray="3 3" />
-              <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={44} />
-              <YAxis hide domain={["auto", "auto"]} />
-              <Tooltip
-                content={({ active, payload, label }) => active && payload?.length ? (
-                  <div className="rounded-md border bg-background px-3 py-2 text-xs shadow-sm">
-                    <div className="text-muted-foreground">{label}</div>
-                    <div className="mt-1 font-medium">{Number(payload[0]?.value ?? 0).toFixed(2)} ms</div>
-                  </div>
-                ) : null}
-              />
-              <Line type="monotone" dataKey="average" stroke="var(--color-average)" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} />
-            </LineChart>
-          </ChartContainer>
-        ) : (
-          <Skeleton className="h-[78px] w-full" />
-        )}
+        ))}
       </div>
+
+      {requestError || charts?.latency.error ? (
+        <div className="flex h-[132px] items-center justify-center text-xs text-[var(--red-11)]">
+          {t("admin_dashboard.data_unavailable")}
+        </div>
+      ) : charts ? (
+        <div className="grid grid-cols-1 gap-4 @min-[44rem]:grid-cols-2">
+          {/* Left Line Chart: Average Latency (ms) */}
+          <div className="min-w-0 rounded-xl bg-[var(--gray-a2)] p-2.5">
+            <div className="mb-1.5 flex items-center justify-between text-xs">
+              <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+                <span className="size-2 rounded-full" style={{ background: CHART_COLORS.inbound }} />
+                {t("admin_dashboard.average_latency")} (ms)
+              </span>
+              <span className="font-semibold tabular-nums text-muted-foreground">
+                {charts.latency.average.toFixed(2)} ms
+              </span>
+            </div>
+            <ChartContainer
+              config={{ average: { label: t("admin_dashboard.average_latency"), color: CHART_COLORS.inbound } }}
+              className="h-[132px] w-full aspect-auto"
+            >
+              <LineChart data={points} margin={{ top: 4, right: 6, left: 0, bottom: 0 }}>
+                <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={36} />
+                <YAxis
+                  width={44}
+                  tickLine={false}
+                  axisLine={false}
+                  domain={["auto", "auto"]}
+                  tickFormatter={(v) => `${Math.round(Number(v))}ms`}
+                />
+                <Tooltip
+                  content={({ active, payload, label }) => active && payload?.length ? (
+                    <div className="rounded-md border bg-background px-3 py-2 text-xs shadow-sm">
+                      <div className="text-muted-foreground">{label}</div>
+                      <div className="mt-1 font-medium tabular-nums" style={{ color: CHART_COLORS.inbound }}>
+                        {t("admin_dashboard.average_latency")}: {Number(payload[0]?.value ?? 0).toFixed(2)} ms
+                      </div>
+                    </div>
+                  ) : null}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="average"
+                  stroke="var(--color-average)"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 3.5 }}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ChartContainer>
+          </div>
+
+          {/* Right Line Chart: Packet Loss Rate (%) */}
+          <div className="min-w-0 rounded-xl bg-[var(--gray-a2)] p-2.5">
+            <div className="mb-1.5 flex items-center justify-between text-xs">
+              <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+                <span className="size-2 rounded-full" style={{ background: CHART_COLORS.outbound }} />
+                {t("admin_dashboard.average_packet_loss")} (%)
+              </span>
+              <span className="font-semibold tabular-nums text-muted-foreground">
+                {averageLoss.toFixed(2)}%
+              </span>
+            </div>
+            <ChartContainer
+              config={{ loss_rate: { label: t("admin_dashboard.average_packet_loss"), color: CHART_COLORS.outbound } }}
+              className="h-[132px] w-full aspect-auto"
+            >
+              <LineChart data={points} margin={{ top: 4, right: 6, left: 0, bottom: 0 }}>
+                <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={36} />
+                <YAxis
+                  width={40}
+                  tickLine={false}
+                  axisLine={false}
+                  domain={[0, (dataMax: number) => Math.min(100, Math.max(5, Math.ceil((dataMax || 0) * 1.15)))]}
+                  tickFormatter={(v) => `${Number(v).toFixed(0)}%`}
+                />
+                <Tooltip
+                  content={({ active, payload, label }) => active && payload?.length ? (
+                    <div className="rounded-md border bg-background px-3 py-2 text-xs shadow-sm">
+                      <div className="text-muted-foreground">{label}</div>
+                      <div className="mt-1 font-medium tabular-nums" style={{ color: CHART_COLORS.outbound }}>
+                        {t("admin_dashboard.average_packet_loss")}: {Number(payload[0]?.value ?? 0).toFixed(2)}%
+                      </div>
+                    </div>
+                  ) : null}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="loss_rate"
+                  stroke="var(--color-loss_rate)"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 3.5 }}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ChartContainer>
+          </div>
+        </div>
+      ) : (
+        <Skeleton className="h-[132px] w-full" />
+      )}
     </section>
   );
 }
@@ -1029,17 +1127,113 @@ function ResourceRankingBody({
   );
 }
 
+const TRAFFIC_GRANULARITY_TABS: Array<{
+  id: DashboardTrafficGranularity;
+  labelKey: string;
+}> = [
+  { id: "1h", labelKey: "admin_dashboard.granularity_1h" },
+  { id: "6h", labelKey: "admin_dashboard.granularity_6h" },
+  { id: "12h", labelKey: "admin_dashboard.granularity_12h" },
+  { id: "1d", labelKey: "admin_dashboard.granularity_1d" },
+  { id: "7d", labelKey: "admin_dashboard.granularity_7d" },
+];
+
 export function TrafficTrendPanel({
   charts,
   error,
   axisWidth,
+  accountKey = "authenticated",
+  locale = "zh-CN",
 }: {
   charts: DashboardChartsData | null;
   error: string | null;
   axisWidth: number;
+  accountKey?: string;
+  locale?: string;
 }) {
   const { t } = useTranslation();
-  const gradientId = React.useId().replace(/:/g, "");
+  const [granularity, setGranularity] = React.useState<DashboardTrafficGranularity>("1h");
+  const [direction, setDirection] = React.useState<DashboardTrafficDirection>("total");
+  const [showFleetTotal, setShowFleetTotal] = React.useState<boolean>(false);
+  const [hiddenServers, setHiddenServers] = React.useState<Set<string>>(() => new Set());
+  const [hoveredKey, setHoveredKey] = React.useState<string | null>(null);
+  const [seriesResp, setSeriesResp] = React.useState<DashboardTrafficSeriesResponse | null>(
+    () => getDashboardTrafficSeriesSnapshot("1h", accountKey),
+  );
+  const [seriesLoading, setSeriesLoading] = React.useState<boolean>(
+    () => getDashboardTrafficSeriesSnapshot("1h", accountKey) === null,
+  );
+  const [seriesError, setSeriesError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const cached = getDashboardTrafficSeriesSnapshot(granularity, accountKey);
+    if (cached) {
+      setSeriesResp(cached);
+      setSeriesLoading(false);
+    } else {
+      setSeriesLoading(true);
+    }
+    setSeriesError(null);
+
+    void requestDashboardTrafficSeries(granularity, accountKey, Boolean(charts?.generated_at))
+      .then((next) => {
+        if (cancelled) return;
+        setSeriesResp(next);
+        setSeriesError(null);
+      })
+      .catch((reason) => {
+        if (cancelled) return;
+        if (!cached) {
+          setSeriesError(reason instanceof Error ? reason.message : String(reason));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSeriesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accountKey, charts?.generated_at, granularity]);
+
+  const servers = React.useMemo(() => seriesResp?.servers ?? [], [seriesResp?.servers]);
+  const projected = React.useMemo(
+    () => buildTrafficSeriesChartRows(seriesResp, direction, locale),
+    [direction, locale, seriesResp],
+  );
+  const dynamicAxisWidth = React.useMemo(
+    () => (projected.peakValue > 0 ? dashboardTrafficAxisWidth([projected.peakValue]) : axisWidth),
+    [axisWidth, projected.peakValue],
+  );
+
+  const chartConfig = React.useMemo(() => {
+    const cfg: Record<string, { label: string; color: string }> = {
+      [DASHBOARD_TOTAL_SERIES_KEY]: {
+        label: t("admin_dashboard.all_servers_sum"),
+        color: CHART_COLORS.inbound,
+      },
+    };
+    servers.forEach((srv, idx) => {
+      cfg[`srv_${srv.uuid}`] = { label: srv.name, color: chartSeriesColor(idx) };
+    });
+    return cfg;
+  }, [servers, t]);
+
+  const toggleServer = (uuid: string) => {
+    setHiddenServers((prev) => {
+      const next = new Set(prev);
+      if (next.has(uuid)) {
+        next.delete(uuid);
+      } else if (showFleetTotal || next.size < servers.length - 1) {
+        next.add(uuid);
+      }
+      return next;
+    });
+  };
+
+  const hasError = Boolean((error || charts?.traffic.error) && !seriesResp) || Boolean(seriesError && !seriesResp);
+
   return (
     <section className="@container flex h-full min-w-0 flex-col km-admin-surface p-3">
       <PanelHeader
@@ -1047,46 +1241,198 @@ export function TrafficTrendPanel({
         description={t("admin_dashboard.hourly_traffic_hint")}
         responsive
         trailing={(
-          <div className="enb-chart-legend mt-0.5 shrink-0">
-            <span><i style={{ background: CHART_COLORS.outbound }} />{t("admin_dashboard.upload")}</span>
-            <span><i style={{ background: CHART_COLORS.inbound }} />{t("admin_dashboard.download")}</span>
+          <div className="inline-flex shrink-0 flex-wrap items-center gap-0.5 rounded-full border border-[var(--gray-a5)] bg-[var(--gray-a2)] p-0.5">
+            {TRAFFIC_GRANULARITY_TABS.map((tab) => {
+              const active = granularity === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onMouseEnter={() => prefetchDashboardTrafficSeries(tab.id, accountKey)}
+                  onFocus={() => prefetchDashboardTrafficSeries(tab.id, accountKey)}
+                  onClick={() => setGranularity(tab.id)}
+                  className={`h-6 rounded-full px-2.5 text-xs font-medium transition-colors ${
+                    active
+                      ? "bg-[var(--accent-a3)] font-semibold text-[var(--accent-11)]"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {t(tab.labelKey)}
+                </button>
+              );
+            })}
           </div>
         )}
       />
-      {error || charts?.traffic.error ? (
+
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="inline-flex items-center gap-0.5 rounded-full border border-[var(--gray-a5)] bg-[var(--gray-a2)] p-0.5">
+          {(
+            [
+              ["total", t("admin_dashboard.traffic_total_dir")],
+              ["up", `↑ ${t("admin_dashboard.upload")}`],
+              ["down", `↓ ${t("admin_dashboard.download")}`],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setDirection(key)}
+              className={`h-6 rounded-full px-2.5 text-[11px] font-medium transition-colors ${
+                direction === key
+                  ? "bg-[var(--accent-a3)] font-semibold text-[var(--accent-11)]"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowFleetTotal((v) => !v)}
+          className={`inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium transition-colors ${
+            showFleetTotal
+              ? "border-[var(--accent-a7)] bg-[var(--accent-a3)] text-[var(--accent-11)]"
+              : "border-[var(--gray-a5)] bg-[var(--gray-a2)] text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <span className="size-1.5 rounded-full" style={{ background: CHART_COLORS.inbound }} />
+          {t("admin_dashboard.all_servers_sum")}
+          <span className="tabular-nums">
+            {formatBytes(projected.totalsByServer[DASHBOARD_TOTAL_SERIES_KEY] ?? 0)}
+          </span>
+        </button>
+      </div>
+
+      {hasError ? (
         <div className="flex min-h-[220px] flex-1 items-center justify-center text-sm text-[var(--red-11)]">
           {t("admin_dashboard.data_unavailable")}
         </div>
-      ) : charts ? (
-        <ChartContainer
-          config={{
-            up: { label: t("admin_dashboard.upload"), color: CHART_COLORS.outbound },
-            down: { label: t("admin_dashboard.download"), color: CHART_COLORS.inbound },
-          }}
-          className="min-h-[220px] w-full flex-1 aspect-auto"
-        >
-          <AreaChart data={charts.traffic.hourly} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <defs>
-              <ChartGradient id={`${gradientId}-in`} color={CHART_COLORS.inbound} />
-              <ChartGradient id={`${gradientId}-out`} color={CHART_COLORS.outbound} />
-            </defs>
-            <CartesianGrid vertical={false} strokeDasharray="3 3" />
-            <XAxis dataKey="hour" tickLine={false} axisLine={false} minTickGap={28} />
-            <YAxis tickLine={false} axisLine={false} width={axisWidth} tickFormatter={(value) => formatBytes(Number(value)).replace(" ", "")} />
-            <Tooltip
-              content={({ active, payload, label }) => active && payload?.length ? (
-                <div className="rounded-md border bg-background px-3 py-2 text-xs shadow-sm">
-                  <div className="mb-1.5 text-muted-foreground">{label}</div>
-                  <div className="font-medium" style={{ color: CHART_COLORS.outbound }}>{t("admin_dashboard.upload")}: {formatBytes(Number(payload.find((item) => item.dataKey === "up")?.value ?? 0))}</div>
-                  <div className="mt-1 font-medium" style={{ color: CHART_COLORS.inbound }}>{t("admin_dashboard.download")}: {formatBytes(Number(payload.find((item) => item.dataKey === "down")?.value ?? 0))}</div>
-                </div>
+      ) : seriesLoading && !seriesResp ? (
+        <Skeleton className="min-h-[220px] w-full flex-1" />
+      ) : (
+        <>
+          <ChartContainer
+            config={chartConfig}
+            className="min-h-[220px] w-full flex-1 aspect-auto"
+          >
+            <LineChart data={projected.rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid vertical={false} strokeDasharray="3 3" />
+              <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={28} />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                width={dynamicAxisWidth}
+                tickFormatter={(value) => formatBytes(Number(value)).replace(" ", "")}
+              />
+              <Tooltip
+                content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null;
+                  const rowObj = payload[0]?.payload as Record<string, number | string> | undefined;
+                  const bucketTotal = Number(rowObj?.[DASHBOARD_TOTAL_SERIES_KEY] ?? 0);
+                  const items = servers
+                    .map((srv, idx) => ({
+                      uuid: srv.uuid,
+                      name: srv.name,
+                      val: Number(rowObj?.[`srv_${srv.uuid}`] ?? 0),
+                      color: chartSeriesColor(idx),
+                    }))
+                    .filter((item) => !hiddenServers.has(item.uuid))
+                    .sort((a, b) => b.val - a.val);
+
+                  return (
+                    <div className="max-h-72 min-w-[205px] overflow-y-auto rounded-md border bg-background px-3 py-2 text-xs shadow-sm">
+                      <div className="mb-1.5 flex items-center justify-between gap-3 border-b border-[var(--gray-a5)] pb-1">
+                        <span className="text-muted-foreground">{label}</span>
+                        <span className="font-semibold tabular-nums text-foreground">
+                          {formatBytes(bucketTotal)}
+                        </span>
+                      </div>
+                      <div className="space-y-1">
+                        {items.map((item) => (
+                          <div key={item.uuid} className="flex items-center justify-between gap-3">
+                            <span className="inline-flex min-w-0 items-center gap-1.5">
+                              <span
+                                className="size-2 shrink-0 rounded-full"
+                                style={{ background: item.color }}
+                              />
+                              <span className="truncate font-medium text-foreground">{item.name}</span>
+                            </span>
+                            <span className="shrink-0 font-semibold tabular-nums text-foreground">
+                              {formatBytes(item.val)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }}
+              />
+              {showFleetTotal ? (
+                <Line
+                  type="monotone"
+                  dataKey={DASHBOARD_TOTAL_SERIES_KEY}
+                  stroke={CHART_COLORS.inbound}
+                  strokeWidth={2.4}
+                  strokeDasharray="4 3"
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                  isAnimationActive={false}
+                />
               ) : null}
-            />
-            <Area type="monotone" dataKey="up" stroke="var(--color-up)" fill={`url(#${gradientId}-out)`} fillOpacity={1} strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
-            <Area type="monotone" dataKey="down" stroke="var(--color-down)" fill={`url(#${gradientId}-in)`} fillOpacity={1} strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
-          </AreaChart>
-        </ChartContainer>
-      ) : <Skeleton className="min-h-[220px] w-full flex-1" />}
+              {servers.map((srv, idx) => {
+                if (hiddenServers.has(srv.uuid)) return null;
+                const spotlit = hoveredKey === srv.uuid;
+                const dimmed = hoveredKey !== null && !spotlit;
+                return (
+                  <Line
+                    key={srv.uuid}
+                    type="monotone"
+                    dataKey={`srv_${srv.uuid}`}
+                    name={srv.name}
+                    stroke={chartSeriesColor(idx)}
+                    strokeWidth={spotlit ? 2.8 : 2}
+                    strokeOpacity={dimmed ? 0.22 : 1}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                    isAnimationActive={false}
+                  />
+                );
+              })}
+            </LineChart>
+          </ChartContainer>
+
+          {servers.length > 0 ? (
+            <div className="mt-2 flex max-h-16 flex-wrap items-center gap-1.5 overflow-y-auto border-t border-[var(--gray-a4)] pt-2">
+              {servers.map((srv, idx) => {
+                const muted = hiddenServers.has(srv.uuid);
+                const srvSum = projected.totalsByServer[srv.uuid] ?? 0;
+                return (
+                  <button
+                    key={srv.uuid}
+                    type="button"
+                    onClick={() => toggleServer(srv.uuid)}
+                    onMouseEnter={() => !muted && setHoveredKey(srv.uuid)}
+                    onMouseLeave={() => setHoveredKey(null)}
+                    className={`inline-flex items-center gap-1.5 rounded-full border border-[var(--gray-a5)] px-2.5 py-0.5 text-[11px] transition-opacity ${
+                      muted ? "opacity-40" : "bg-[var(--gray-a2)] hover:bg-[var(--gray-a3)]"
+                    }`}
+                  >
+                    <span
+                      className="size-2 shrink-0 rounded-full"
+                      style={{ background: chartSeriesColor(idx) }}
+                    />
+                    <span className="max-w-[8rem] truncate font-medium text-foreground">{srv.name}</span>
+                    <span className="tabular-nums text-muted-foreground">{formatBytes(srvSum)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </>
+      )}
     </section>
   );
 }

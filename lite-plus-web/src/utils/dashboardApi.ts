@@ -2,6 +2,8 @@ import {
   type DashboardChartsData,
   type DashboardData,
   type DashboardTrafficDayResponse,
+  type DashboardTrafficGranularity,
+  type DashboardTrafficSeriesResponse,
 } from "@/utils/dashboard";
 import { readDashboardSession, writeDashboardSession } from "@/utils/dashboardSession";
 
@@ -168,4 +170,55 @@ export function getDashboardChartsSnapshot(key: string, accountKey = "authentica
   const data = readDashboardSession<DashboardChartsData>("charts", accountKey, key);
   if (data) rememberKeyedValue(dashboardChartsCache.snapshots, id, data);
   return data;
+}
+
+const dashboardTrafficSeriesCache: KeyedRequestCache<DashboardTrafficSeriesResponse> = {
+  pending: new Map(),
+  snapshots: new Map(),
+};
+
+export function getDashboardTrafficSeriesSnapshot(
+  granularity: DashboardTrafficGranularity,
+  accountKey = "authenticated",
+): DashboardTrafficSeriesResponse | null {
+  const id = dashboardRequestId(accountKey, `series:${granularity}`);
+  return dashboardTrafficSeriesCache.snapshots.get(id) ?? null;
+}
+
+export async function requestDashboardTrafficSeries(
+  granularity: DashboardTrafficGranularity,
+  accountKey = "authenticated",
+  force = false,
+): Promise<DashboardTrafficSeriesResponse> {
+  const key = `series:${granularity}`;
+  const id = dashboardRequestId(accountKey, key);
+  if (!force) {
+    const pending = dashboardTrafficSeriesCache.pending.get(id);
+    if (pending) return pending;
+  }
+  const params = new URLSearchParams({ granularity });
+  const request = fetch(`/api/admin/dashboard/traffic-series?${params}`, { cache: "no-store" })
+    .then((response) => readDashboardResponse<DashboardTrafficSeriesResponse>(response))
+    .then((data) => {
+      rememberKeyedValue(dashboardTrafficSeriesCache.snapshots, id, data);
+      return data;
+    })
+    .finally(() => {
+      dashboardTrafficSeriesCache.pending.delete(id);
+    });
+  dashboardTrafficSeriesCache.pending.set(id, request);
+  return request;
+}
+
+export function prefetchDashboardTrafficSeries(
+  granularity: DashboardTrafficGranularity,
+  accountKey = "authenticated",
+) {
+  const id = dashboardRequestId(accountKey, `series:${granularity}`);
+  if (dashboardTrafficSeriesCache.snapshots.has(id) || dashboardTrafficSeriesCache.pending.has(id)) {
+    return;
+  }
+  void requestDashboardTrafficSeries(granularity, accountKey).catch(() => {
+    // Best-effort hover prefetch.
+  });
 }

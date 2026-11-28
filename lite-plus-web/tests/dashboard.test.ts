@@ -3,6 +3,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  buildStackedDailyBillingChart,
+  buildTrafficSeriesChartRows,
+  DASHBOARD_TOTAL_SERIES_KEY,
   dashboardLocalStorageTotal,
   dashboardOnlinePercent,
   dashboardRuntimeStorageTotal,
@@ -318,4 +321,73 @@ test("day traffic details can be searched and sorted without loading on dashboar
     filterAndSortTrafficDayItems(items, "", "up", "desc").map((item) => item.name),
     ["beta", "alpha"],
   );
+});
+
+test("traffic statistics multi-granularity rows project per-server and fleet totals", () => {
+  const projected = buildTrafficSeriesChartRows(
+    {
+      granularity: "6h",
+      servers: [
+        { uuid: "a", name: "Alpha" },
+        { uuid: "b", name: "Beta" },
+      ],
+      buckets: [
+        {
+          start: "2026-07-31T00:00:00Z",
+          end: "2026-07-31T06:00:00Z",
+          label: "7/31 00:00",
+          up: 300,
+          down: 700,
+          total: 1000,
+          by_server: {
+            a: { up: 100, down: 300, total: 400 },
+            b: { up: 200, down: 400, total: 600 },
+          },
+        },
+      ],
+      generated_at: "2026-07-31T06:00:00Z",
+    },
+    "total",
+    "zh-CN",
+  );
+  assert.equal(projected.rows.length, 1);
+  assert.equal(projected.rows[0].srv_a, 400);
+  assert.equal(projected.rows[0].srv_b, 600);
+  assert.equal(projected.rows[0][DASHBOARD_TOTAL_SERIES_KEY], 1000);
+  assert.equal(projected.totalsByServer.a, 400);
+  assert.equal(projected.totalsByServer.b, 600);
+});
+
+test("stacked daily billable chart orders servers by share and tracks top segment per day", () => {
+  const stacked = buildStackedDailyBillingChart(
+    [
+      {
+        day: "2026-07-30",
+        label: "7/30",
+        up: 100,
+        down: 200,
+        billable: 300,
+        by_server: { a: 100, b: 200 },
+      },
+      {
+        day: "2026-07-31",
+        label: "7/31",
+        up: 50,
+        down: 100,
+        billable: 150,
+        by_server: { a: 150 },
+      },
+    ],
+    [
+      { uuid: "a", name: "Alpha" },
+      { uuid: "b", name: "Beta" },
+    ],
+    "zh-CN",
+  );
+  assert.deepEqual(stacked.servers.map((s) => s.uuid), ["a", "b"]);
+  assert.equal(stacked.periodTotal, 450);
+  assert.equal(stacked.rows[0].topServerKey, "srv_b");
+  assert.equal(stacked.rows[1].topServerKey, "srv_a");
+  assert.equal(stacked.rows[0].billable, 300);
+  assert.equal(stacked.rows[1].billable, 150);
 });

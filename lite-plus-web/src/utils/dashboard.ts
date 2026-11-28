@@ -7,11 +7,17 @@ export interface DashboardOfflineNode {
   last_seen: string | null;
 }
 
+export interface DashboardTrafficServerMeta {
+  uuid: string;
+  name: string;
+}
+
 export interface DashboardTrafficDay {
   day: string;
   up: number;
   down: number;
   billable: number;
+  by_server?: Record<string, number>;
 }
 
 export interface DashboardTrafficHour {
@@ -118,10 +124,12 @@ export interface DashboardAlerts {
 export interface DashboardLatencyPoint {
   time: string;
   average: number;
+  loss_rate?: number;
 }
 
 export interface DashboardLatencySummary {
   average: number;
+  average_loss?: number;
   targets: number;
   points: DashboardLatencyPoint[];
   ranking: DashboardLatencyRankItem[];
@@ -218,6 +226,7 @@ export interface DashboardChartsData {
     daily_average_billable?: number;
     hourly: DashboardTrafficHour[];
     daily: DashboardTrafficDay[];
+    servers?: DashboardTrafficServerMeta[];
     ranking: DashboardTrafficRankItem[];
     history_ready: boolean;
     error?: string;
@@ -235,6 +244,171 @@ export interface DashboardTrafficDayResponse {
   day: string;
   items: DashboardTrafficRankItem[];
   generated_at: string;
+}
+
+export type DashboardTrafficGranularity = "1h" | "6h" | "12h" | "1d" | "7d";
+export type DashboardTrafficDirection = "total" | "up" | "down";
+
+export interface DashboardTrafficSeriesUsage {
+  up: number;
+  down: number;
+  total: number;
+}
+
+export interface DashboardTrafficSeriesBucket {
+  start: string;
+  end: string;
+  label: string;
+  up: number;
+  down: number;
+  total: number;
+  by_server?: Record<string, DashboardTrafficSeriesUsage>;
+}
+
+export interface DashboardTrafficSeriesResponse {
+  granularity: DashboardTrafficGranularity;
+  servers: DashboardTrafficServerMeta[];
+  buckets: DashboardTrafficSeriesBucket[];
+  generated_at: string;
+}
+
+export const DASHBOARD_TOTAL_SERIES_KEY = "__total__";
+
+export function buildTrafficSeriesChartRows(
+  response: DashboardTrafficSeriesResponse | null | undefined,
+  direction: DashboardTrafficDirection,
+  locale: string,
+): {
+  rows: Array<Record<string, number | string>>;
+  totalsByServer: Record<string, number>;
+  peakValue: number;
+} {
+  if (!response || !Array.isArray(response.buckets) || response.buckets.length === 0) {
+    return { rows: [], totalsByServer: {}, peakValue: 0 };
+  }
+  const servers = response.servers ?? [];
+  const totalsByServer: Record<string, number> = { [DASHBOARD_TOTAL_SERIES_KEY]: 0 };
+  for (const s of servers) {
+    totalsByServer[s.uuid] = 0;
+  }
+
+  const pick = (u?: DashboardTrafficSeriesUsage): number => {
+    if (!u) return 0;
+    if (direction === "up") return Math.max(0, Number(u.up) || 0);
+    if (direction === "down") return Math.max(0, Number(u.down) || 0);
+    return Math.max(0, Number(u.total ?? (Number(u.up || 0) + Number(u.down || 0))) || 0);
+  };
+
+  let peakValue = 0;
+  const rows = response.buckets.map((bucket) => {
+    const label =
+      response.granularity === "1d"
+        ? shortDashboardDay(bucket.label, locale)
+        : bucket.label;
+    const row: Record<string, number | string> = { label };
+    let bucketSum = 0;
+    for (const s of servers) {
+      const val = pick(bucket.by_server?.[s.uuid]);
+      row[`srv_${s.uuid}`] = val;
+      totalsByServer[s.uuid] = (totalsByServer[s.uuid] ?? 0) + val;
+      bucketSum += val;
+      if (val > peakValue) peakValue = val;
+    }
+    const bucketTotal =
+      servers.length > 0
+        ? bucketSum
+        : direction === "up"
+          ? bucket.up
+          : direction === "down"
+            ? bucket.down
+            : bucket.total;
+    row[DASHBOARD_TOTAL_SERIES_KEY] = bucketTotal;
+    totalsByServer[DASHBOARD_TOTAL_SERIES_KEY] += bucketTotal;
+    if (bucketTotal > peakValue) peakValue = bucketTotal;
+    return row;
+  });
+
+  return { rows, totalsByServer, peakValue };
+}
+
+export interface StackedDailyBillingRow {
+  day: string;
+  label: string;
+  billable: number;
+  topServerKey: string;
+  [serverField: string]: number | string;
+}
+
+export function buildStackedDailyBillingChart(
+  daily: readonly (DashboardTrafficDay & { label?: string })[],
+  serversMeta: readonly DashboardTrafficServerMeta[] | undefined,
+  locale: string,
+  hiddenServerUuids?: ReadonlySet<string>,
+): {
+  servers: DashboardTrafficServerMeta[];
+  rows: StackedDailyBillingRow[];
+  totalsByServer: Record<string, number>;
+  periodTotal: number;
+} {
+  const discovered = new Map<string, string>();
+  for (const s of serversMeta ?? []) {
+    if (s.uuid) discovered.set(s.uuid, s.name || s.uuid);
+  }
+  for (const d of daily) {
+    if (!d.by_server) continue;
+    for (const uid of Object.keys(d.by_server)) {
+      if (!discovered.has(uid)) discovered.set(uid, uid);
+    }
+  }
+
+  const totalsByServer: Record<string, number> = {};
+  for (const uid of discovered.keys()) {
+    totalsByServer[uid] = 0;
+  }
+  for (const d of daily) {
+    if (!d.by_server) continue;
+    for (const [uid, val] of Object.entries(d.by_server)) {
+      const v = Math.max(0, Number(val) || 0);
+      totalsByServer[uid] = (totalsByServer[uid] ?? 0) + v;
+    }
+  }
+
+  const servers = Array.from(discovered.entries())
+    .map(([uuid, name]) => ({ uuid, name }))
+    .sort((a, b) => {
+      const diff = (totalsByServer[b.uuid] ?? 0) - (totalsByServer[a.uuid] ?? 0);
+      if (diff !== 0) return diff;
+      return a.name.localeCompare(b.name);
+    });
+
+  const periodTotal = Object.values(totalsByServer).reduce((sum, v) => sum + v, 0);
+
+  const rows: StackedDailyBillingRow[] = daily.map((d) => {
+    const label = d.label ?? shortDashboardDay(d.day, locale);
+    const row: StackedDailyBillingRow = {
+      day: d.day,
+      label,
+      billable: Math.max(0, Number(d.billable) || 0),
+      topServerKey: "",
+    };
+    let visibleBillable = 0;
+    for (const srv of servers) {
+      const hidden = hiddenServerUuids?.has(srv.uuid) ?? false;
+      const val = hidden ? 0 : Math.max(0, Number(d.by_server?.[srv.uuid]) || 0);
+      const field = `srv_${srv.uuid}`;
+      row[field] = val;
+      if (val > 0) {
+        row.topServerKey = field;
+        visibleBillable += val;
+      }
+    }
+    if (servers.length > 0 && d.by_server) {
+      row.billable = visibleBillable;
+    }
+    return row;
+  });
+
+  return { servers, rows, totalsByServer, periodTotal };
 }
 
 export type DashboardTrafficDaySortKey = "name" | "up" | "down" | "billable";

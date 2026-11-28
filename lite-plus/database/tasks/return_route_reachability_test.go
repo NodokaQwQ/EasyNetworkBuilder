@@ -1226,8 +1226,8 @@ func TestNormalizeReturnRouteRequiresAssignedPingTask(t *testing.T) {
 		IPVersion: 4, ExpectedLine: "CN2 GIA", Protocol: "icmp", Interval: 180,
 		SwitchConfirm: 2, RecoveryConfirm: 3, MainlandReachabilityEnabled: true,
 	}
-	if err := normalizeReturnRouteTaskWithDB(db, &task); err == nil {
-		t.Fatal("enabled reachability without ping should fail")
+	if err := normalizeReturnRouteTaskWithDB(db, &task); err != nil {
+		t.Fatalf("missing explicit ping is now automatically associated on save: %v", err)
 	}
 	task.MainlandReachabilityPingTaskID = &ping.Id
 	if err := normalizeReturnRouteTaskWithDB(db, &task); err != nil {

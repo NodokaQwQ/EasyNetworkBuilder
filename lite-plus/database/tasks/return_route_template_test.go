@@ -19,7 +19,7 @@ func newReturnRouteTemplateTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Client{}, &models.ReturnRouteTask{}, &models.ReturnRouteTemplate{}); err != nil {
+	if err := db.AutoMigrate(&models.Client{}, &models.PingTask{}, &models.ReturnRouteTask{}, &models.ReturnRouteTemplate{}); err != nil {
 		t.Fatal(err)
 	}
 	clients := []models.Client{
@@ -83,7 +83,7 @@ func TestApplyReturnRouteTemplatesCreatesNamedTasks(t *testing.T) {
 	names := map[string]string{}
 	for _, task := range created {
 		names[task.Carrier] = task.Name
-		if task.Client != "node-a" || task.MainlandReachabilityEnabled || task.MainlandReachabilityPingTaskID != nil {
+		if task.Client != "node-a" || task.MainlandReachabilityEnabled || task.MainlandReachabilityPingTaskID == nil {
 			t.Fatalf("task = %#v", task)
 		}
 	}

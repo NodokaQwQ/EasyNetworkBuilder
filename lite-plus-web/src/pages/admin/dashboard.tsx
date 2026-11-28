@@ -528,7 +528,15 @@ export default function AdminDashboard() {
           />
         );
       case "traffic_trend":
-        return <TrafficTrendPanel charts={charts} error={chartsError} axisWidth={hourlyTrafficAxisWidth} />;
+        return (
+          <TrafficTrendPanel
+            charts={charts}
+            error={chartsError}
+            axisWidth={hourlyTrafficAxisWidth}
+            accountKey={accountKey}
+            locale={locale}
+          />
+        );
       case "billing_trend":
         return (
           <BillingTrendPanel

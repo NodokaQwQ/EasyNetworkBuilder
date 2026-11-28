@@ -27,7 +27,7 @@ import {
 import { ArrowDown, ArrowUp, ArrowUpDown } from "@/components/admin/muiIcons";
 import { AppDialogContent, Button, Dialog, Skeleton } from "@/components/admin/ui";
 import { ChartContainer } from "@/components/ui/chart";
-import { CHART_COLORS } from "@/theme/chartPalette";
+import { CHART_COLORS, chartSeriesColor } from "@/theme/chartPalette";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   Table,
@@ -38,6 +38,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  buildStackedDailyBillingChart,
+  dashboardTrafficAxisWidth,
   filterAndSortTrafficDayItems,
   type DashboardChartsData,
   type DashboardTrafficDaySortDir,
@@ -57,6 +59,54 @@ function serverUsageStatsPath(uuid: string) {
   return `/admin/servers/${encodeURIComponent(uuid)}?tab=metrics`;
 }
 
+function renderStackedSegmentShape(
+  field: string,
+  selectedDay: string | null,
+) {
+  return function StackedSegment(props: unknown) {
+    const p = props as {
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+      fill?: string;
+      payload?: { day?: string; topServerKey?: string };
+    };
+    const x = Number(p.x) || 0;
+    const y = Number(p.y) || 0;
+    const width = Number(p.width) || 0;
+    const height = Number(p.height) || 0;
+    if (width <= 0 || height <= 0) return <g />;
+
+    const isSelected = p.payload?.day === selectedDay;
+    const opacity = selectedDay ? (isSelected ? 1 : 0.68) : 0.88;
+    const isTop = p.payload?.topServerKey === field;
+    if (!isTop || height < 2) {
+      return (
+        <rect
+          x={x}
+          y={y}
+          width={width}
+          height={height}
+          fill={p.fill}
+          fillOpacity={opacity}
+        />
+      );
+    }
+    const r = Math.min(4, width / 2, height);
+    const d = [
+      `M ${x},${y + height}`,
+      `L ${x},${y + r}`,
+      `Q ${x},${y} ${x + r},${y}`,
+      `L ${x + width - r},${y}`,
+      `Q ${x + width},${y} ${x + width},${y + r}`,
+      `L ${x + width},${y + height}`,
+      "Z",
+    ].join(" ");
+    return <path d={d} fill={p.fill} fillOpacity={opacity} />;
+  };
+}
+
 export function BillingTrendPanel({
   charts,
   error,
@@ -68,9 +118,11 @@ export function BillingTrendPanel({
   data: DailyChartPoint[];
   axisWidth: number;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isMobile = useIsMobile();
+  const locale = i18n.resolvedLanguage || i18n.language || "zh-CN";
   const [selectedDay, setSelectedDay] = React.useState<string | null>(null);
+  const [hiddenServers, setHiddenServers] = React.useState<Set<string>>(() => new Set());
   const [searchTerm, setSearchTerm] = React.useState("");
   const [sortKey, setSortKey] = React.useState<DashboardTrafficDaySortKey>("billable");
   const [sortDir, setSortDir] = React.useState<DashboardTrafficDaySortDir>("desc");
@@ -171,6 +223,38 @@ export function BillingTrendPanel({
     return sortDir === "asc" ? <ArrowUp size={14} /> : <ArrowDown size={14} />;
   };
 
+  const stacked = React.useMemo(
+    () => buildStackedDailyBillingChart(data, charts?.traffic.servers, locale, hiddenServers),
+    [charts?.traffic.servers, data, hiddenServers, locale],
+  );
+  const hasServerBreakdown = stacked.servers.length > 0;
+  const effectiveAxisWidth = React.useMemo(() => {
+    if (!hasServerBreakdown) return axisWidth;
+    return dashboardTrafficAxisWidth(stacked.rows.map((r) => r.billable));
+  }, [axisWidth, hasServerBreakdown, stacked.rows]);
+
+  const chartConfig = React.useMemo(() => {
+    const cfg: Record<string, { label: string; color: string }> = {
+      billable: { label: t("admin_dashboard.billable"), color: CHART_COLORS.billable },
+    };
+    stacked.servers.forEach((srv, idx) => {
+      cfg[`srv_${srv.uuid}`] = { label: srv.name, color: chartSeriesColor(idx) };
+    });
+    return cfg;
+  }, [stacked.servers, t]);
+
+  const toggleServer = (uuid: string) => {
+    setHiddenServers((prev) => {
+      const next = new Set(prev);
+      if (next.has(uuid)) {
+        next.delete(uuid);
+      } else if (next.size < stacked.servers.length - 1) {
+        next.add(uuid);
+      }
+      return next;
+    });
+  };
+
   return (
     <section className="@container flex h-full min-w-0 flex-col km-admin-surface p-3">
       <div className="mb-3">
@@ -190,46 +274,156 @@ export function BillingTrendPanel({
           {t("admin_dashboard.data_unavailable")}
         </div>
       ) : charts ? (
-        <ChartContainer
-          config={{ billable: { label: t("admin_dashboard.billable"), color: CHART_COLORS.billable } }}
-          className="min-h-[220px] w-full flex-1 aspect-auto"
-        >
-          <BarChart
-            data={data}
-            margin={{ top: 8, right: 4, left: 0, bottom: 0 }}
-            onMouseMove={(state) => {
-              const day = (state?.activePayload?.[0]?.payload as DailyChartPoint | undefined)?.day;
-              if (day) scheduleHoverPrefetch(day);
-            }}
-            onClick={(state) => {
-              const day = (state?.activePayload?.[0]?.payload as DailyChartPoint | undefined)?.day;
-              if (day) openDay(day);
-            }}
+        <>
+          <ChartContainer
+            config={chartConfig}
+            className="min-h-[220px] w-full flex-1 aspect-auto"
           >
-            <CartesianGrid vertical={false} strokeDasharray="3 3" />
-            <XAxis dataKey="label" tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={24} />
-            <YAxis tickLine={false} axisLine={false} width={axisWidth} tickFormatter={(value) => formatBytes(Number(value)).replace(" ", "")} />
-            <Tooltip
-              cursor={{ fill: "var(--accent-a3)" }}
-              content={({ active, payload, label }) => active && payload?.length ? (
-                <div className="rounded-md border bg-background px-3 py-2 text-xs shadow-sm">
-                  <div className="mb-1 text-muted-foreground">{label}</div>
-                   <div className="font-medium" style={{ color: CHART_COLORS.billable }}>{t("admin_dashboard.billable")}: {formatBytes(Number(payload[0]?.value ?? 0))}</div>
-                  <div className="mt-1 text-muted-foreground">{t("admin_dashboard.click_bar_hint")}</div>
-                </div>
-              ) : null}
-            />
-            <Bar dataKey="billable" radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false} cursor="pointer">
-              {data.map((entry) => (
-                <Cell
-                  key={entry.day}
-                  fill={CHART_COLORS.billable}
-                  fillOpacity={entry.day === selectedDay ? 1 : 0.8}
-                />
-              ))}
-            </Bar>
-          </BarChart>
-        </ChartContainer>
+            <BarChart
+              data={hasServerBreakdown ? stacked.rows : data}
+              margin={{ top: 8, right: 4, left: 0, bottom: 0 }}
+              onMouseMove={(state) => {
+                const day = (state?.activePayload?.[0]?.payload as { day?: string } | undefined)?.day;
+                if (day) scheduleHoverPrefetch(day);
+              }}
+              onClick={(state) => {
+                const day = (state?.activePayload?.[0]?.payload as { day?: string } | undefined)?.day;
+                if (day) openDay(day);
+              }}
+            >
+              <CartesianGrid vertical={false} strokeDasharray="3 3" />
+              <XAxis dataKey="label" tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={24} />
+              <YAxis tickLine={false} axisLine={false} width={effectiveAxisWidth} tickFormatter={(value) => formatBytes(Number(value)).replace(" ", "")} />
+              <Tooltip
+                cursor={{ fill: "var(--accent-a3)" }}
+                content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null;
+                  if (!hasServerBreakdown) {
+                    return (
+                      <div className="rounded-md border bg-background px-3 py-2 text-xs shadow-sm">
+                        <div className="mb-1 text-muted-foreground">{label}</div>
+                        <div className="font-medium" style={{ color: CHART_COLORS.billable }}>
+                          {t("admin_dashboard.billable")}: {formatBytes(Number(payload[0]?.value ?? 0))}
+                        </div>
+                        <div className="mt-1 text-muted-foreground">{t("admin_dashboard.click_bar_hint")}</div>
+                      </div>
+                    );
+                  }
+                  const rowPayload = payload[0]?.payload as { billable?: number } | undefined;
+                  const dayTotal = Math.max(
+                    0,
+                    Number(rowPayload?.billable) ||
+                      payload.reduce((sum, item) => sum + (Number(item.value) || 0), 0),
+                  );
+                  const rows = stacked.servers
+                    .map((srv, idx) => {
+                      const entry = payload.find((p) => p.dataKey === `srv_${srv.uuid}`);
+                      const val = Math.max(0, Number(entry?.value) || 0);
+                      return {
+                        uuid: srv.uuid,
+                        name: srv.name,
+                        val,
+                        pct: dayTotal > 0 ? (val / dayTotal) * 100 : 0,
+                        color: chartSeriesColor(idx),
+                      };
+                    })
+                    .filter((item) => item.val > 0)
+                    .sort((a, b) => b.val - a.val);
+
+                  return (
+                    <div className="max-h-72 min-w-[210px] overflow-y-auto rounded-md border bg-background px-3 py-2 text-xs shadow-sm">
+                      <div className="mb-1.5 flex items-center justify-between gap-3 border-b border-[var(--gray-a5)] pb-1">
+                        <span className="text-muted-foreground">{label}</span>
+                        <span className="font-semibold tabular-nums text-foreground">
+                          {formatBytes(dayTotal)}
+                        </span>
+                      </div>
+                      {rows.length > 0 ? (
+                        <div className="space-y-1">
+                          {rows.map((item) => (
+                            <div key={item.uuid} className="flex items-center justify-between gap-3">
+                              <span className="inline-flex min-w-0 items-center gap-1.5">
+                                <span
+                                  className="size-2 shrink-0 rounded-full"
+                                  style={{ background: item.color }}
+                                />
+                                <span className="truncate font-medium text-foreground">{item.name}</span>
+                              </span>
+                              <span className="shrink-0 tabular-nums text-muted-foreground">
+                                <strong className="font-semibold text-foreground">{formatBytes(item.val)}</strong>
+                                {" · "}
+                                {item.pct.toFixed(1)}%
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-muted-foreground">{t("admin_dashboard.no_day_traffic")}</div>
+                      )}
+                      <div className="mt-1.5 border-t border-[var(--gray-a5)] pt-1 text-[11px] text-muted-foreground">
+                        {t("admin_dashboard.click_bar_hint")}
+                      </div>
+                    </div>
+                  );
+                }}
+              />
+              {hasServerBreakdown ? (
+                stacked.servers.map((srv, idx) => {
+                  const field = `srv_${srv.uuid}`;
+                  return (
+                    <Bar
+                      key={srv.uuid}
+                      dataKey={field}
+                      name={srv.name}
+                      stackId="billable"
+                      fill={chartSeriesColor(idx)}
+                      maxBarSize={24}
+                      isAnimationActive={false}
+                      cursor="pointer"
+                      shape={renderStackedSegmentShape(field, selectedDay)}
+                    />
+                  );
+                })
+              ) : (
+                <Bar dataKey="billable" radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false} cursor="pointer">
+                  {data.map((entry) => (
+                    <Cell
+                      key={entry.day}
+                      fill={CHART_COLORS.billable}
+                      fillOpacity={entry.day === selectedDay ? 1 : 0.8}
+                    />
+                  ))}
+                </Bar>
+              )}
+            </BarChart>
+          </ChartContainer>
+          {hasServerBreakdown ? (
+            <div className="mt-2 flex max-h-16 flex-wrap items-center gap-1.5 overflow-y-auto border-t border-[var(--gray-a4)] pt-2">
+              {stacked.servers.map((srv, idx) => {
+                const muted = hiddenServers.has(srv.uuid);
+                const srvTotal = stacked.totalsByServer[srv.uuid] ?? 0;
+                const share = stacked.periodTotal > 0 ? (srvTotal / stacked.periodTotal) * 100 : 0;
+                return (
+                  <button
+                    key={srv.uuid}
+                    type="button"
+                    onClick={() => toggleServer(srv.uuid)}
+                    className={`inline-flex items-center gap-1.5 rounded-full border border-[var(--gray-a5)] px-2.5 py-0.5 text-[11px] transition-opacity ${
+                      muted ? "opacity-40" : "bg-[var(--gray-a2)] hover:bg-[var(--gray-a3)]"
+                    }`}
+                  >
+                    <span
+                      className="size-2 shrink-0 rounded-full"
+                      style={{ background: chartSeriesColor(idx) }}
+                    />
+                    <span className="max-w-[8rem] truncate font-medium text-foreground">{srv.name}</span>
+                    <span className="tabular-nums text-muted-foreground">{share.toFixed(1)}%</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </>
       ) : <Skeleton className="min-h-[220px] w-full flex-1" />}
 
       <Dialog.Root

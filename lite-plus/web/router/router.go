@@ -85,6 +85,7 @@ func registerAdminRoutes(r *gin.Engine) {
 	g.GET("/dashboard/charts", jsonRpc.Bind("admin:getDashboardCharts", jsonRpc.WithQuery("sections", "limit"), jsonRpc.WithRaw()))
 	g.GET("/dashboard/alerts", jsonRpc.Bind("admin:getDashboardAlertItems", jsonRpc.WithQuery("kind"), jsonRpc.WithRaw()))
 	g.GET("/dashboard/traffic-day", jsonRpc.Bind("admin:getDashboardTrafficDay", jsonRpc.WithQuery("day"), jsonRpc.WithRaw()))
+	g.GET("/dashboard/traffic-series", jsonRpc.Bind("admin:getDashboardTrafficSeries", jsonRpc.WithQuery("granularity"), jsonRpc.WithRaw()))
 	billingGroup := g.Group("/billing")
 	{
 		billingGroup.GET("/overview", jsonRpc.Bind("admin:getBillingOverview", jsonRpc.WithQuery("currency")))
@@ -348,6 +349,8 @@ func registerAdminRoutes(r *gin.Engine) {
 		returnRoute.GET("/", jsonRpc.Bind("admin:getReturnRouteOverview"))
 		returnRoute.GET("/summary", jsonRpc.Bind("admin:getReturnRouteSummary"))
 		returnRoute.POST("/tasks/query", jsonRpc.Bind("admin:queryReturnRouteTasks"))
+		returnRoute.POST("/servers/query", jsonRpc.Bind("admin:queryReturnRouteServers"))
+		returnRoute.POST("/servers/save", jsonRpc.Bind("admin:saveReturnRouteServer"))
 		returnRoute.POST("/events/query", jsonRpc.Bind("admin:queryReturnRouteEvents"))
 		returnRoute.POST("/add", jsonRpc.Bind("admin:addReturnRouteTask"))
 		returnRoute.POST("/edit", jsonRpc.Bind("admin:editReturnRouteTask"))

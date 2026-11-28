@@ -57,31 +57,39 @@ test("area charts use unique 20 percent to zero gradients without Recharts dimmi
   assert.match(gradient, /x1="0" y1="0" x2="0" y2="1"/);
   assert.match(gradient, /offset="0%" stopColor=\{color\} stopOpacity=\{0\.2\}/);
   assert.match(gradient, /offset="100%" stopColor=\{color\} stopOpacity=\{0\}/);
-  for (const file of ["src/components/admin/DashboardPanels.tsx", "src/pages/admin/NodeUsageStats.tsx"]) {
-    const source = readFileSync(file, "utf8");
-    assert.match(source, /useId\(\)/);
-    const areas = source.match(/<Area\s[^>]*\/>/g) ?? [];
-    assert.ok(areas.length >= 2);
-    areas.forEach((area) => {
-      assert.match(area, /fill=\{`url\(#\$\{gradientId\}/);
-      assert.match(area, /fillOpacity=\{1\}/);
-      assert.match(area, /strokeWidth=\{2\}/);
-    });
-  }
+  const source = readFileSync("src/pages/admin/NodeUsageStats.tsx", "utf8");
+  assert.match(source, /useId\(\)/);
+  const areas = source.match(/<Area\s[^>]*\/>/g) ?? [];
+  assert.ok(areas.length >= 2);
+  areas.forEach((area) => {
+    assert.match(area, /fill=\{`url\(#\$\{gradientId\}/);
+    assert.match(area, /fillOpacity=\{1\}/);
+    assert.match(area, /strokeWidth=\{2\}/);
+  });
 });
 
-test("traffic marks, legends and tooltips use the same inbound and outbound colors", () => {
+test("dashboard traffic statistics, stacked billing, and dual latency-loss charts use specification palette", () => {
   const dashboard = readFileSync("src/components/admin/DashboardPanels.tsx", "utf8");
-  const traffic = dashboard.slice(dashboard.indexOf("export function TrafficTrendPanel"), dashboard.indexOf("export function DailyTrafficRankingPanel"));
-  for (const key of ["inbound", "outbound"]) {
-    assert.match(traffic, new RegExp(`background: CHART_COLORS\\.${key}`));
-    assert.match(traffic, new RegExp(`color: CHART_COLORS\\.${key}`));
-    assert.match(traffic, new RegExp(`ChartGradient[^>]*color=\\{CHART_COLORS\\.${key}\\}`));
-  }
-  assert.match(traffic, /up: \{[^\n]*color: CHART_COLORS\.outbound/);
-  assert.match(traffic, /down: \{[^\n]*color: CHART_COLORS\.inbound/);
-  assert.match(traffic, /payload\.find\(\(item\) => item\.dataKey === "up"\)/);
-  assert.match(traffic, /payload\.find\(\(item\) => item\.dataKey === "down"\)/);
+  const latency = dashboard.slice(
+    dashboard.indexOf("export function LatencyPanel"),
+    dashboard.indexOf("export function ReturnRouteStatusPanel"),
+  );
+  assert.match(latency, /dataKey="average"/);
+  assert.match(latency, /dataKey="loss_rate"/);
+  assert.match(latency, /CHART_COLORS\.inbound/);
+  assert.match(latency, /CHART_COLORS\.outbound/);
+
+  const traffic = dashboard.slice(
+    dashboard.indexOf("export function TrafficTrendPanel"),
+    dashboard.indexOf("export function DailyTrafficRankingPanel"),
+  );
+  assert.match(traffic, /chartSeriesColor\(idx\)/);
+  assert.match(traffic, /<LineChart/);
+
+  const billing = readFileSync("src/components/admin/DashboardTraffic30d.tsx", "utf8");
+  assert.match(billing, /stackId="billable"/);
+  assert.match(billing, /chartSeriesColor\(idx\)/);
+
   const node = readFileSync("src/pages/admin/NodeUsageStats.tsx", "utf8");
   assert.match(node, /<Cell fill=\{CHART_COLORS\.inbound\}/);
   assert.match(node, /<Cell fill=\{CHART_COLORS\.outbound\}/);

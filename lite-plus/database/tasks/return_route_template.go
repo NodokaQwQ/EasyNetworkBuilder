@@ -21,6 +21,7 @@ type ReturnRouteTemplateBatchEdit struct {
 	Region          string `json:"region"`
 	Target          string `json:"target"`
 	Interval        int    `json:"interval"`
+	PingInterval    int    `json:"ping_interval"`
 	SwitchConfirm   int    `json:"switch_confirm"`
 	RecoveryConfirm int    `json:"recovery_confirm"`
 	Cooldown        int    `json:"cooldown"`
@@ -91,6 +92,7 @@ func editReturnRouteTemplatesBatch(db *gorm.DB, params ReturnRouteTemplateBatchE
 	sample.Region = params.Region
 	sample.Target = params.Target
 	sample.Interval = params.Interval
+	sample.PingInterval = params.PingInterval
 	sample.SwitchConfirm = params.SwitchConfirm
 	sample.RecoveryConfirm = params.RecoveryConfirm
 	sample.Cooldown = params.Cooldown
@@ -105,6 +107,7 @@ func editReturnRouteTemplatesBatch(db *gorm.DB, params ReturnRouteTemplateBatchE
 		"region":           sample.Region,
 		"target":           sample.Target,
 		"interval":         sample.Interval,
+		"ping_interval":    sample.PingInterval,
 		"switch_confirm":   sample.SwitchConfirm,
 		"recovery_confirm": sample.RecoveryConfirm,
 		"cooldown":         sample.Cooldown,
@@ -214,7 +217,7 @@ func applyReturnRouteTemplates(db *gorm.DB, templateIDs []uint, clientUUIDs []st
 				result.Skipped++
 				continue
 			}
-			if err := db.Create(&task).Error; err != nil {
+			if err := createReturnRouteTask(db, &task); err != nil {
 				return result, created, err
 			}
 			created = append(created, task)
@@ -237,6 +240,7 @@ func normalizeReturnRouteTemplate(template *models.ReturnRouteTemplate) error {
 		ExpectedLine:    template.ExpectedLine,
 		Protocol:        template.Protocol,
 		Interval:        template.Interval,
+		PingInterval:    template.PingInterval,
 		SwitchConfirm:   template.SwitchConfirm,
 		RecoveryConfirm: template.RecoveryConfirm,
 		Cooldown:        template.Cooldown,
@@ -255,6 +259,7 @@ func normalizeReturnRouteTemplate(template *models.ReturnRouteTemplate) error {
 	template.ExpectedLine = task.ExpectedLine
 	template.Protocol = task.Protocol
 	template.Interval = task.Interval
+	template.PingInterval = task.PingInterval
 	template.SwitchConfirm = task.SwitchConfirm
 	template.RecoveryConfirm = task.RecoveryConfirm
 	template.Cooldown = task.Cooldown
@@ -300,6 +305,7 @@ func returnRouteTemplateColumnUpdates(template models.ReturnRouteTemplate) map[s
 		"expected_line":    template.ExpectedLine,
 		"protocol":         template.Protocol,
 		"interval":         template.Interval,
+		"ping_interval":    template.PingInterval,
 		"switch_confirm":   template.SwitchConfirm,
 		"recovery_confirm": template.RecoveryConfirm,
 		"cooldown":         template.Cooldown,
@@ -321,6 +327,7 @@ func taskFromReturnRouteTemplate(template models.ReturnRouteTemplate, node model
 		ExpectedLine:    template.ExpectedLine,
 		Protocol:        template.Protocol,
 		Interval:        template.Interval,
+		PingInterval:    template.PingInterval,
 		SwitchConfirm:   template.SwitchConfirm,
 		RecoveryConfirm: template.RecoveryConfirm,
 		Cooldown:        template.Cooldown,

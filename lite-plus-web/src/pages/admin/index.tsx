@@ -189,6 +189,10 @@ import {
 } from "@/utils/adminAlertFilters";
 
 
+const NodeBillingPanel = React.lazy(() =>
+  import("./NodeDetailPage").then(({ BillingPanel }) => ({ default: BillingPanel })),
+);
+
 const NodeDetailsPage = () => {
   return (
     <NodeDetailsProvider>
@@ -1476,7 +1480,7 @@ const ActionButtons = ({ node, settings }: { node: NodeDetail, settings: any }) 
       <IconButton variant="ghost" title={t("admin.nodeEdit.editInfo", "编辑信息")} onClick={() => setDialog("edit")}>
         <Pencil size="18" />
       </IconButton>
-      <IconButton variant="ghost" title={t("admin.nodeTable.billing", "账单")} onClick={() => setDialog("billing")}>
+      <IconButton variant="ghost" title={t("admin.nodeTable.billingConfiguration", "计费配置与操作")} onClick={() => setDialog("billing")}>
         <CircleDollarSign size="18" />
       </IconButton>
       <IconButton variant="ghost" title={t("admin.nodeTable.trafficCalibration.title")} onClick={() => setDialog("traffic")}>
@@ -4107,6 +4111,8 @@ function BillingButton({ node, initiallyOpen = false, onClose }: { node: NodeDet
   const { refresh } = useNodeDetails();
   const [open, setOpen] = useState(initiallyOpen);
   const [saving, setSaving] = useState(false);
+  const [billingTab, setBillingTab] = useState("settings");
+  const [operationsBusy, setOperationsBusy] = useState(false);
   const [formEpoch, setFormEpoch] = useState(0);
   const [billingCycle, setBillingCycle] = React.useState("");
   const [autoRenewal, setAutoRenewal] = React.useState(false);
@@ -4195,13 +4201,14 @@ function BillingButton({ node, initiallyOpen = false, onClose }: { node: NodeDet
         },
       });
       const text = await response.text();
-      let body: { message?: string } | null = null;
+      let body: { message?: string; status?: string } | null = null;
       try {
         body = text ? JSON.parse(text) : null;
       } catch {
         body = null;
       }
       const followUp = billingSaveFollowUp(response.ok);
+      if (body?.status === "error") throw new Error(body.message || `HTTP ${response.status}`);
       if (!followUp.ok) {
         throw new Error(body?.message || text || `HTTP ${response.status}`);
       }
@@ -4228,6 +4235,7 @@ function BillingButton({ node, initiallyOpen = false, onClose }: { node: NodeDet
     <Dialog.Root
       open={open}
       onOpenChange={(next) => {
+        if (saving || operationsBusy) return;
         if (next && !open) hydrateBillingForm(node);
         setOpen(next);
         if (!next) onClose?.();
@@ -4246,14 +4254,29 @@ function BillingButton({ node, initiallyOpen = false, onClose }: { node: NodeDet
         className="km-node-dialog km-node-billing-dialog"
       >
         <Dialog.Title>
-          {t("admin.nodeTable.billing", "账单")}
+          {t("admin.nodeTable.billingConfiguration", "计费配置与操作")} · {node.name || node.uuid}
         </Dialog.Title>
         <Dialog.Description>
           {t(
-            "admin.nodeTable.billingDescription",
-            "设置价格、计费周期与到期续费策略。",
+            "admin.nodeTable.billingConfigurationDescription",
+            "设置当前服务器的价格、周期与到期策略，或办理续费和附加费用记账。",
           )}
         </Dialog.Description>
+        <Tabs.Root value={billingTab} onValueChange={(next) => {
+          if (saving || operationsBusy) return;
+          if (next === "settings" && billingTab !== "settings") hydrateBillingForm(node);
+          setBillingTab(next);
+        }}>
+          <Tabs.List className="mb-4">
+            <Tabs.Trigger value="settings">{t("admin.nodeTable.billingSettings", "基础配置")}</Tabs.Trigger>
+            <Tabs.Trigger value="operations">{t("admin.nodeDetail.billingActions", "计费操作")}</Tabs.Trigger>
+          </Tabs.List>
+          <Tabs.Content value="operations">
+            <React.Suspense fallback={<Loading text="" />}>
+              <NodeBillingPanel key={node.uuid} node={node} onSaved={refresh} onBusyChange={setOperationsBusy} />
+            </React.Suspense>
+          </Tabs.Content>
+          <Tabs.Content value="settings">
         <form key={formEpoch} onSubmit={handleSave}>
           <div className="km-node-dialog-grid">
             <section className="km-node-dialog-pane km-node-dialog-fields">
@@ -4374,7 +4397,7 @@ function BillingButton({ node, initiallyOpen = false, onClose }: { node: NodeDet
           </div>
           <Flex gap="2" justify="end" className="km-node-dialog-actions">
             <Dialog.Close>
-              <Button type="button" variant="soft" color="gray">
+              <Button type="button" variant="soft" color="gray" disabled={saving}>
                 {t("common.cancel", "取消")}
               </Button>
             </Dialog.Close>
@@ -4383,6 +4406,8 @@ function BillingButton({ node, initiallyOpen = false, onClose }: { node: NodeDet
             </Button>
           </Flex>
         </form>
+          </Tabs.Content>
+        </Tabs.Root>
       </AppDialogContent> : null}
     </Dialog.Root>
   );

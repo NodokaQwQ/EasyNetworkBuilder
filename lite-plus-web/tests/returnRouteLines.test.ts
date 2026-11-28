@@ -66,7 +66,7 @@ test("回程任务、记录和规则复用服务器列表的筛选条和表格�
   assert.match(source, /<AdminListSearch/);
   assert.match(source, /AdminListSearch[\s\S]*取消全选[\s\S]*批量修改[\s\S]*新建任务/);
   assert.match(source, /<AdminMobileListCard/);
-  assert.match(source, /className="admin-responsive-table admin-selection-table return-route-task-table w-full min-w-\[1120px\]/);
+  assert.match(source, /<ReturnRouteServerGroups/);
   assert.match(source, /data-label=\{tr\("col.task_node", "任务 \/ 节点"\)\}/);
   assert.match(source, /data-label=\{tr\("col.line_change", "线路变化"\)\}/);
   assert.match(source, /data-label=\{tr\("col.actions", "操作"\)\} className="p-3 text-left align-middle">\{actionButtons\}/);
@@ -101,7 +101,7 @@ test("桌面回程任务行把线路状态和操作左对齐", async () => {
     new URL("../src/global.css", import.meta.url),
     "utf8",
   );
-  assert.match(source, /return-route-task-table/);
+  assert.match(source, /ReturnRouteServerGroups/);
   assert.match(source, /data-label=\{tr\("col.line", "线路"\)\} className="p-3 text-left align-middle"/);
   assert.match(source, /data-label=\{tr\("col.status", "状态"\)\} className="p-3 text-left align-middle"/);
   assert.match(source, /data-label=\{tr\("col.actions", "操作"\)\} className="p-3 text-left align-middle"/);
@@ -118,7 +118,7 @@ test("回程表单和批量修改支持疑似被墙判定开关", () => {
   assert.match(source, /至少两个不同运营商任务同时开启/);
   assert.match(source, /辅助延迟监测任务/);
   assert.match(source, /mainland_reachability_ping_task_id/);
-  assert.match(source, /开启疑似被墙判定时需选择辅助延迟监测任务/);
+  assert.doesNotMatch(source, /开启疑似被墙判定时需选择辅助延迟监测任务/);
   assert.match(source, /选择同运营商的延迟监测任务/);
   assert.match(source, /function PingTaskSelect/);
   assert.match(source, /mainlandAssistReady\(task\) \? reachability/);

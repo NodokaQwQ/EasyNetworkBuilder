@@ -75,10 +75,11 @@ import Loading from "@/components/loading";
 import { useNodeDetails } from "@/contexts/NodeDetailsContext";
 import { useAccount } from "@/contexts/AccountContext";
 import { usePingTask, type PingTask as LatencyPingTask } from "@/contexts/PingTaskContext";
+import { ReturnRouteServerDialog, ReturnRouteServerGroups } from "./returnRouteServers";
 
 const RETURN_ROUTE_TABS = ["tasks", "records", "templates", "rules"] as const;
 
-type Task = {
+export type Task = {
   id?: number;
   name: string;
   client: string;
@@ -90,6 +91,7 @@ type Task = {
   expected_line: string;
   protocol: string;
   interval: number;
+  ping_interval?: number;
   switch_confirm: number;
   recovery_confirm: number;
   cooldown: number;
@@ -118,6 +120,7 @@ type TaskBatchForm = Pick<
   | "expected_line"
   | "protocol"
   | "interval"
+  | "ping_interval"
   | "switch_confirm"
   | "recovery_confirm"
   | "cooldown"
@@ -130,7 +133,7 @@ type TaskBatchForm = Pick<
   | "enabled"
 >;
 
-type Template = {
+export type Template = {
   id?: number;
   name: string;
   carrier: Task["carrier"];
@@ -140,6 +143,7 @@ type Template = {
   expected_line: string;
   protocol: string;
   interval: number;
+  ping_interval?: number;
   switch_confirm: number;
   recovery_confirm: number;
   cooldown: number;
@@ -161,6 +165,7 @@ type TemplateBatchForm = Pick<
   | "region"
   | "target"
   | "interval"
+  | "ping_interval"
   | "switch_confirm"
   | "recovery_confirm"
   | "cooldown"
@@ -394,6 +399,7 @@ function toTaskBatchForm(task: Task): TaskBatchForm {
     expected_line: form.expected_line,
     protocol: form.protocol,
     interval: form.interval,
+    ping_interval: form.ping_interval,
     switch_confirm: form.switch_confirm,
     recovery_confirm: form.recovery_confirm,
     cooldown: form.cooldown,
@@ -447,6 +453,7 @@ function toTemplateBatchForm(template: Template): TemplateBatchForm {
     region: form.region,
     target: form.target,
     interval: form.interval,
+    ping_interval: form.ping_interval,
     switch_confirm: form.switch_confirm,
     recovery_confirm: form.recovery_confirm,
     cooldown: form.cooldown,
@@ -493,6 +500,7 @@ function templateSeedFromTask(task: Task): Partial<Template> {
     expected_line: task.expected_line,
     protocol: task.protocol,
     interval: task.interval,
+    ping_interval: task.ping_interval,
     switch_confirm: task.switch_confirm,
     recovery_confirm: task.recovery_confirm,
     cooldown: task.cooldown,
@@ -537,6 +545,7 @@ function applyTemplateFields(form: TaskForm, template: Template, clientName = ""
     expected_line: template.expected_line,
     protocol: template.protocol,
     interval: String(template.interval),
+    ping_interval: template.ping_interval,
     switch_confirm: String(template.switch_confirm),
     recovery_confirm: String(template.recovery_confirm),
     cooldown: String(template.cooldown),
@@ -904,10 +913,6 @@ function RouteTaskDialog({
       toast.error(tr("form.required", "任务名称、客户端、探测目标和预期线路为必填项"));
       return;
     }
-    if (form.mainland_reachability_enabled && !form.mainland_reachability_ping_task_id) {
-      toast.error(tr("form.assist_required", "开启疑似被墙判定时需选择辅助延迟监测任务"));
-      return;
-    }
     setSaving(true);
     try {
       if (task?.id) {
@@ -1059,6 +1064,7 @@ function RouteTaskDialog({
             <Field label={tr("form.interval", "探测间隔（秒）")}>
               <TextField.Root required type="number" min="60" max="86400" step="1" value={form.interval} onChange={(e) => setForm({ ...form, interval: e.target.value })} />
             </Field>
+            <RoutePingIntervalField value={form.ping_interval} interval={form.interval} onChange={(ping_interval) => setForm({ ...form, ping_interval })} />
             <Field label={tr("form.switch_confirm", "切线确认次数")}>
               <TextField.Root required type="number" min="1" max="20" step="1" value={form.switch_confirm} onChange={(e) => setForm({ ...form, switch_confirm: e.target.value })} />
             </Field>
@@ -1081,7 +1087,7 @@ function RouteTaskDialog({
                     onChange={(mainland_reachability_ping_task_id) => setForm((current) => ({ ...current, mainland_reachability_ping_task_id }))}
                   />
                 ) : (
-                  <Text size="2" color="gray">{tr("form.no_assist_tasks", "当前服务器还没有可关联的延迟监测任务。")}</Text>
+                  <Text size="2" color="gray">{tr("form.auto_assist", "保存后自动关联同目标延迟监测，无需手动创建。")}</Text>
                 )}
               </Field>
             ) : null}
@@ -1154,10 +1160,6 @@ function RouteTaskBatchDialog({
       toast.error(tr("form.batch_required", "请选择任务并填写探测目标和预期线路"));
       return;
     }
-    if (form.mainland_reachability_enabled && !form.mainland_reachability_ping_task_id) {
-      toast.error(tr("form.assist_required", "开启疑似被墙判定时需选择辅助延迟监测任务"));
-      return;
-    }
     setSaving(true);
     try {
       await request("/edit/batch", { ids, ...toTaskBatchPayload(form) });
@@ -1225,6 +1227,7 @@ function RouteTaskBatchDialog({
             <Field label={tr("form.interval", "探测间隔（秒）")}>
               <TextField.Root required type="number" min="60" max="86400" step="1" value={form.interval} onChange={(event) => setForm({ ...form, interval: event.target.value })} />
             </Field>
+            <RoutePingIntervalField value={form.ping_interval} interval={form.interval} onChange={(ping_interval) => setForm({ ...form, ping_interval })} />
             <Field label={tr("form.switch_confirm", "切线确认次数")}>
               <TextField.Root required type="number" min="1" max="20" step="1" value={form.switch_confirm} onChange={(event) => setForm({ ...form, switch_confirm: event.target.value })} />
             </Field>
@@ -1247,7 +1250,7 @@ function RouteTaskBatchDialog({
                     onChange={(mainland_reachability_ping_task_id) => setForm((current) => ({ ...current, mainland_reachability_ping_task_id }))}
                   />
                 ) : (
-                  <Text size="2" color="gray">{tr("form.batch_no_common_ping", "所选服务器没有共同的延迟监测任务，无法批量关联。")}</Text>
+                  <Text size="2" color="gray">{tr("form.auto_assist", "保存后自动关联同目标延迟监测，无需手动创建。")}</Text>
                 )}
               </Field>
             ) : null}
@@ -1357,6 +1360,7 @@ function RouteTemplateBatchDialog({
             <Field label={tr("form.interval", "探测间隔（秒）")}>
               <TextField.Root required type="number" min="60" max="86400" step="1" value={form.interval} onChange={(event) => setForm({ ...form, interval: event.target.value })} />
             </Field>
+            <RoutePingIntervalField value={form.ping_interval} interval={form.interval} onChange={(ping_interval) => setForm({ ...form, ping_interval })} />
             <Field label={tr("form.switch_confirm", "切线确认次数")}>
               <TextField.Root required type="number" min="1" max="20" step="1" value={form.switch_confirm} onChange={(event) => setForm({ ...form, switch_confirm: event.target.value })} />
             </Field>
@@ -1484,6 +1488,7 @@ function RouteTemplateDialog({
             <Field label={tr("form.interval", "探测间隔（秒）")}>
               <TextField.Root required type="number" min="60" max="86400" step="1" value={form.interval} onChange={(e) => setForm({ ...form, interval: e.target.value })} />
             </Field>
+            <RoutePingIntervalField value={form.ping_interval} interval={form.interval} onChange={(ping_interval) => setForm({ ...form, ping_interval })} />
             <Field label={tr("form.switch_confirm", "切线确认次数")}>
               <TextField.Root required type="number" min="1" max="20" step="1" value={form.switch_confirm} onChange={(e) => setForm({ ...form, switch_confirm: e.target.value })} />
             </Field>
@@ -1590,6 +1595,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <label className="flex min-w-0 flex-col gap-1.5"><Text size="2" weight="medium">{label}</Text>{children}</label>;
 }
 
+function RoutePingIntervalField({ value, interval, onChange }: { value?: number; interval: string; onChange: (value: number) => void }) {
+  return <Field label={tr("form.ping_interval", "关联延迟/丢包间隔（秒）")}>
+    <TextField.Root type="number" min="1" max={interval} step="1" value={value || ""}
+      placeholder={tr("form.ping_interval_follow", "跟随回程检测（{{seconds}} 秒）", { seconds: interval })}
+      onChange={(event) => onChange(Number(event.target.value))} />
+    <Text size="1" color="gray">{tr("form.ping_interval_hint", "留空跟随回程检测，或指定更短间隔；同目标 ICMP 延迟/丢包监测自动创建。")}</Text>
+  </Field>;
+}
+
 function PingTaskSelect({
   tasks,
   value,
@@ -1599,7 +1613,7 @@ function PingTaskSelect({
   value: number | null | undefined;
   onChange: (id: number | null) => void;
 }) {
-  const selected = pingTaskID(value) ? String(pingTaskID(value)) : "";
+  const selected = pingTaskID(value) ? String(pingTaskID(value)) : "auto";
   return (
     <Select.Root
       value={selected}
@@ -1607,6 +1621,7 @@ function PingTaskSelect({
     >
       <Select.Trigger placeholder={tr("form.select_assist_task", "选择同运营商的延迟监测任务")} className="w-full" />
       <Select.Content>
+        <Select.Item value="auto">{tr("form.auto_assist_choice", "自动关联同目标监测")}</Select.Item>
         {tasks.map((task) => (
           <Select.Item key={task.id} value={String(task.id)}>
             {pingTaskLabel(task)}
@@ -1715,7 +1730,7 @@ function ReturnRouteContent() {
     if (!quiet && !returnRouteSummarySnapshots.has(accountKey)) setSummaryLoading(true);
     try {
       const data = await request("/summary");
-      const next = { tasks: data?.tasks || 0, healthy: data?.healthy || 0, switched: data?.switched || 0, recent_events: data?.recent_events || 0 };
+      const next = { tasks: data?.tasks || 0, healthy: data?.healthy || 0, switched: data?.switched || 0, recent_events: data?.recent_events || 0, suspected_blocked: data?.suspected_blocked || 0 };
       returnRouteSummarySnapshots.set(accountKey, next);
       setSummary(next);
     } catch (error) {
@@ -1728,7 +1743,7 @@ function ReturnRouteContent() {
   const loadTasks = useCallback(async (quiet = false) => {
     if (!quiet && !hasRenderedTaskData.current && !returnRouteTaskSnapshots.has(taskSnapshotKey)) setTaskLoading(true);
     try {
-      const data = await request("/tasks/query", {
+      const data = await request("/servers/query", {
         page: taskQuery.page,
         page_size: taskQuery.page_size,
         keyword: taskQuery.keyword,
@@ -1736,8 +1751,9 @@ function ReturnRouteContent() {
         states: taskQuery.states,
         task_id: routeTask || undefined,
       });
-      const probingTaskIDs = data?.probing_task_ids || [];
-      const next = { tasks: data?.tasks || [], statuses: data?.statuses || [], reachability: data?.reachability || [], probing_task_ids: probingTaskIDs, total: data?.total || 0, page: data?.page || 1, page_size: data?.page_size || taskQuery.page_size };
+      const groups: TaskPage[] = data?.servers || [];
+      const probingTaskIDs = groups.flatMap((group) => group.probing_task_ids || []);
+      const next = { tasks: groups.flatMap((group) => group.tasks), statuses: groups.flatMap((group) => group.statuses), reachability: groups.flatMap((group) => group.reachability || []), probing_task_ids: probingTaskIDs, total: data?.total || 0, page: data?.page || 1, page_size: data?.page_size || taskQuery.page_size };
       returnRouteTaskSnapshots.set(taskSnapshotKey, next);
       hasRenderedTaskData.current = true;
       setTaskData(next);
@@ -2087,7 +2103,7 @@ function ReturnRouteContent() {
       </AdminPageTitle>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Summary label={tr("summary.tasks", "监测任务")} value={summary.tasks} icon={<Route size={20} />} />
+        <Summary label={tr("summary.targets", "监测目标")} value={summary.tasks} icon={<Route size={20} />} />
         <Summary label={tr("summary.healthy", "线路正常")} value={summary.healthy} tone="green" icon={<CheckCircle2 size={20} />} extra={summary.suspected_blocked ? tr("summary.blocked_count", "疑似被墙 {{count}}", { count: summary.suspected_blocked }) : undefined} />
         <Summary label={tr("summary.switched", "已切线")} value={summary.switched} tone="red" icon={<AlertTriangle size={20} />} />
         <Summary label={tr("summary.recent_events", "最近事件")} value={summary.recent_events} icon={<History size={20} />} />
@@ -2165,11 +2181,11 @@ function ReturnRouteContent() {
                         {tr("filter.batch_edit", "批量修改")}{selectedTasks.length > 0 ? ` (${selectedTasks.length})` : ""}
                       </MuiButton>
                     </RouteTaskBatchDialog>
-                    <RouteTaskDialog nodes={nodes} templates={templates} onSaved={refreshTasksAfterChange}>
+                    <ReturnRouteServerDialog nodes={nodes} templates={templates} onSaved={refreshTasksAfterChange}>
                       <MuiButton variant="contained" startIcon={<Plus size={16} />} sx={ADMIN_LIST_ACTION_SX}>
                         {tr("filter.new_task", "新建任务")}
                       </MuiButton>
-                    </RouteTaskDialog>
+                    </ReturnRouteServerDialog>
                   </Stack>
                 </Stack>
                 <Collapse
@@ -2224,74 +2240,13 @@ function ReturnRouteContent() {
                 </div>
               ) : (
                 <>
-                  {isMobile ? (
-                    <AdminMobileCardStack>
-                      {taskData.tasks.map((task) => {
-                        const status = statuses.get(task.id || 0);
-                        const reachability = reachabilityByNode.get(`${task.client}:${task.ip_version}`);
-                        const probing = probingTasks.has(task.id || 0);
-                        const selected = Boolean(task.id && selectedTaskIDs.has(task.id));
-                        return (
-                          <ReturnRouteTaskRow
-                            key={task.id}
-                            task={task}
-                            status={status}
-                            reachability={reachability}
-                            probing={probing}
-                            selected={selected}
-                            asCard
-                            nodes={nodes}
-                            onToggle={() => task.id && toggleTaskSelection(task.id)}
-                            onRunNow={() => runNow(task.id)}
-                            onRemove={() => remove(task)}
-                            onSaved={refreshTasksAfterChange}
-                            onTemplateSaved={() => loadTemplates(true)}
-                          />
-                        );
-                      })}
-                    </AdminMobileCardStack>
-                  ) : (
-                  <div className="admin-responsive-table-wrap overflow-x-auto">
-                    <Table container={false} className="admin-responsive-table admin-selection-table return-route-task-table w-full min-w-[1120px] text-left text-sm">
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-11"><span className="sr-only">{tr("col.select", "选择")}</span></TableHead>
-                          <TableHead className="text-left">{tr("col.task_node", "任务 / 节点")}</TableHead>
-                          <TableHead className="text-left">{tr("col.carrier_region", "运营商 / 地区")}</TableHead>
-                          <TableHead className="text-left">{tr("col.line", "线路")}</TableHead>
-                          <TableHead className="text-left">{tr("col.status", "状态")}</TableHead>
-                          <TableHead className="text-left">{tr("col.asn", "关键 ASN")}</TableHead>
-                          <TableHead className="text-left">{tr("col.last_probe", "最后探测")}</TableHead>
-                          <TableHead className="text-left">{tr("col.actions", "操作")}</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-                        {taskData.tasks.map((task) => {
-                          const status = statuses.get(task.id || 0);
-                          const reachability = reachabilityByNode.get(`${task.client}:${task.ip_version}`);
-                          const probing = probingTasks.has(task.id || 0);
-                          const selected = Boolean(task.id && selectedTaskIDs.has(task.id));
-                          return (
-                            <ReturnRouteTaskRow
-                              key={task.id}
-                              task={task}
-                              status={status}
-                              reachability={reachability}
-                              probing={probing}
-                              selected={selected}
-                              nodes={nodes}
-                              onToggle={() => task.id && toggleTaskSelection(task.id)}
-                              onRunNow={() => runNow(task.id)}
-                              onRemove={() => remove(task)}
-                              onSaved={refreshTasksAfterChange}
-                              onTemplateSaved={() => loadTemplates(true)}
-                            />
-                          );
-                        })}
-                      </tbody>
-                    </Table>
-                  </div>
-                  )}
+                  <ReturnRouteServerGroups tasks={taskData.tasks} nodes={nodes} templates={templates} onSaved={refreshTasksAfterChange}
+                    renderTarget={(task) => <ReturnRouteTaskRow key={task.id} task={task}
+                      status={statuses.get(task.id || 0)} reachability={reachabilityByNode.get(`${task.client}:${task.ip_version}`)}
+                      probing={probingTasks.has(task.id || 0)} selected={Boolean(task.id && selectedTaskIDs.has(task.id))}
+                      asCard nodes={nodes} onToggle={() => task.id && toggleTaskSelection(task.id)}
+                      onRunNow={() => runNow(task.id)} onRemove={() => remove(task)} onSaved={refreshTasksAfterChange}
+                      onTemplateSaved={() => loadTemplates(true)} />} />
                   <AdminPagination
                     page={taskQuery.page}
                     pageSize={taskQuery.page_size}
@@ -2884,7 +2839,7 @@ function ReturnRouteTaskRow({
       <AdminMobileListCard
         title={
           <div className="min-w-0">
-            <div className="truncate text-[15px] font-semibold leading-6">{task.name}</div>
+            <div className="truncate text-[15px] font-semibold leading-6 enb-mono">{task.target}</div>
             <div className="truncate text-[13.5px] text-muted-foreground">{task.client_info?.name || task.client}</div>
           </div>
         }

@@ -12,6 +12,8 @@ import (
 )
 
 func init() {
+	RegisterWithGroupAndMeta("queryReturnRouteServers", rpc.RoleAdmin, adminQueryReturnRouteServers, &rpc.MethodMeta{Name: "admin:queryReturnRouteServers", Summary: "Query server tasks with all target states"})
+	RegisterWithGroupAndMeta("saveReturnRouteServer", rpc.RoleAdmin, adminSaveReturnRouteServer, &rpc.MethodMeta{Name: "admin:saveReturnRouteServer", Summary: "Atomically save one server task and its targets"})
 	RegisterWithGroupAndMeta("getReturnRouteOverview", rpc.RoleAdmin, adminGetReturnRouteOverview, &rpc.MethodMeta{Name: "admin:getReturnRouteOverview", Summary: "List return route tasks, current states and events"})
 	RegisterWithGroupAndMeta("getReturnRouteSummary", rpc.RoleAdmin, adminGetReturnRouteSummary, &rpc.MethodMeta{Name: "admin:getReturnRouteSummary", Summary: "Get return route monitoring counters"})
 	RegisterWithGroupAndMeta("queryReturnRouteTasks", rpc.RoleAdmin, adminQueryReturnRouteTasks, &rpc.MethodMeta{Name: "admin:queryReturnRouteTasks", Summary: "Query return route tasks and current states with filters and pagination"})
@@ -31,6 +33,29 @@ func init() {
 	RegisterWithGroupAndMeta("batchEditReturnRouteTemplates", rpc.RoleAdmin, adminBatchEditReturnRouteTemplates, &rpc.MethodMeta{Name: "admin:batchEditReturnRouteTemplates", Summary: "Edit multiple return route templates"})
 	RegisterWithGroupAndMeta("deleteReturnRouteTemplates", rpc.RoleAdmin, adminDeleteReturnRouteTemplates, &rpc.MethodMeta{Name: "admin:deleteReturnRouteTemplates", Summary: "Delete return route templates"})
 	RegisterWithGroupAndMeta("applyReturnRouteTemplates", rpc.RoleAdmin, adminApplyReturnRouteTemplates, &rpc.MethodMeta{Name: "admin:applyReturnRouteTemplates", Summary: "Create return route tasks from templates for selected servers"})
+}
+
+func adminQueryReturnRouteServers(_ context.Context, req *rpc.JsonRpcRequest) (any, *rpc.JsonRpcError) {
+	var params tasks.ReturnRouteTaskQuery
+	if err := req.BindParams(&params); err != nil {
+		return nil, rpc.MakeError(rpc.InvalidParams, err.Error(), nil)
+	}
+	result, err := tasks.QueryReturnRouteServers(params)
+	if err != nil {
+		return nil, rpc.MakeError(rpc.InvalidParams, err.Error(), nil)
+	}
+	return result, nil
+}
+
+func adminSaveReturnRouteServer(_ context.Context, req *rpc.JsonRpcRequest) (any, *rpc.JsonRpcError) {
+	var params tasks.ReturnRouteServerTask
+	if err := req.BindParams(&params); err != nil {
+		return nil, rpc.MakeError(rpc.InvalidParams, err.Error(), nil)
+	}
+	if err := tasks.SaveReturnRouteServer(params); err != nil {
+		return nil, rpc.MakeError(rpc.InvalidParams, err.Error(), nil)
+	}
+	return nil, nil
 }
 
 func adminGetReturnRouteSummary(_ context.Context, _ *rpc.JsonRpcRequest) (any, *rpc.JsonRpcError) {

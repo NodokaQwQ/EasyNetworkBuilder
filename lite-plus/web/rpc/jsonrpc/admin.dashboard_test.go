@@ -588,3 +588,121 @@ func TestSameDashboardDayUsesConfiguredTimezone(t *testing.T) {
 	assert.False(t, sameDashboardDay(left, right, time.UTC))
 	assert.True(t, sameDashboardDay(left, right, trafficledger.BeijingLocation))
 }
+
+func TestSummarizeDashboardTrafficIncludesPerServerBillableBreakdown(t *testing.T) {
+	now := time.Date(2026, 7, 31, 8, 0, 0, 0, time.UTC)
+	today := trafficledger.BeijingDay(now)
+	yesterday := today.AddDate(0, 0, -1).Format(time.DateOnly)
+	clients := []models.Client{
+		{UUID: "node-a", Name: "Alpha", Price: 12, TrafficLimitType: "sum"},
+		{UUID: "node-b", Name: "Beta", Price: 18, TrafficLimitType: "sum"},
+		{UUID: "node-free", Name: "Free", Price: 0, TrafficLimitType: "sum"},
+	}
+	rows := []models.TrafficDailyLedger{
+		{Client: "node-a", Day: yesterday, UpBytes: 100, DownBytes: 50},
+		{Client: "node-b", Day: yesterday, UpBytes: 200, DownBytes: 100},
+		{Client: "node-free", Day: yesterday, UpBytes: 500, DownBytes: 500},
+	}
+	summary := summarizeDashboardTraffic(clients, rows, map[string]trafficledger.Usage{
+		"node-a":    {Up: 40, Down: 60},
+		"node-b":    {Up: 80, Down: 20},
+		"node-free": {Up: 300, Down: 300},
+	}, nil, nil, now, trafficledger.BeijingLocation, 5)
+
+	require.Len(t, summary.Servers, 2)
+	assert.Equal(t, "node-b", summary.Servers[0].UUID)
+	assert.Equal(t, "node-a", summary.Servers[1].UUID)
+
+	yDay := summary.Daily[len(summary.Daily)-2]
+	assert.Equal(t, int64(450), yDay.Billable)
+	assert.Equal(t, int64(150), yDay.ByServer["node-a"])
+	assert.Equal(t, int64(300), yDay.ByServer["node-b"])
+	assert.Zero(t, yDay.ByServer["node-free"])
+
+	tDay := summary.Daily[len(summary.Daily)-1]
+	assert.Equal(t, int64(200), tDay.Billable)
+	assert.Equal(t, int64(100), tDay.ByServer["node-a"])
+	assert.Equal(t, int64(100), tDay.ByServer["node-b"])
+}
+
+func TestSummarizeTrafficSeriesSubDayAndLedgerGranularities(t *testing.T) {
+	loc := trafficledger.BeijingLocation
+	now := time.Date(2026, 7, 31, 10, 30, 0, 0, loc)
+	clients := []models.Client{
+		{UUID: "node-a", Name: "Alpha"},
+		{UUID: "node-b", Name: "Beta"},
+	}
+
+	firstBucket := alignLocalBucketStart(now, 6, loc).Add(-6 * time.Hour)
+	buckets6h, servers6h := summarizeSubDayTrafficBuckets(
+		clients,
+		map[string][]trafficledger.HourlyUsage{
+			"node-a": {
+				{Hour: firstBucket.Add(time.Hour), Usage: trafficledger.Usage{Up: 100, Down: 200}},
+				{Hour: firstBucket.Add(7 * time.Hour), Usage: trafficledger.Usage{Up: 50, Down: 50}},
+			},
+			"node-b": {
+				{Hour: firstBucket.Add(2 * time.Hour), Usage: trafficledger.Usage{Up: 400, Down: 100}},
+			},
+		},
+		nil,
+		firstBucket,
+		6,
+		2,
+		12,
+		now,
+		loc,
+	)
+	require.Len(t, buckets6h, 2)
+	require.Len(t, servers6h, 2)
+	assert.Equal(t, "node-b", servers6h[0].UUID)
+	assert.Equal(t, int64(300), buckets6h[0].ByServer["node-a"].Total)
+	assert.Equal(t, int64(500), buckets6h[0].ByServer["node-b"].Total)
+	assert.Equal(t, int64(800), buckets6h[0].Total)
+	assert.Equal(t, int64(100), buckets6h[1].ByServer["node-a"].Total)
+
+	today := dashboardDay(now, loc)
+	ledgerRows := []models.TrafficDailyLedger{
+		{Client: "node-a", Day: today.AddDate(0, 0, -8).Format(time.DateOnly), UpBytes: 1000, DownBytes: 500},
+		{Client: "node-b", Day: today.AddDate(0, 0, -1).Format(time.DateOnly), UpBytes: 200, DownBytes: 300},
+	}
+	buckets7d, _ := summarizeLedgerTrafficBuckets(
+		clients,
+		ledgerRows,
+		map[string]trafficledger.Usage{"node-a": {Up: 100, Down: 100}},
+		nil,
+		14,
+		7,
+		now,
+		loc,
+	)
+	require.Len(t, buckets7d, 2)
+	assert.Equal(t, int64(1500), buckets7d[0].ByServer["node-a"].Total)
+	assert.Equal(t, int64(200), buckets7d[1].ByServer["node-a"].Total)
+	assert.Equal(t, int64(500), buckets7d[1].ByServer["node-b"].Total)
+	assert.Equal(t, int64(700), buckets7d[1].Total)
+}
+
+func TestSummarizeDashboardLatencyAndLossPoints(t *testing.T) {
+	t1 := time.Date(2026, 7, 31, 8, 0, 0, 0, time.UTC)
+	t2 := t1.Add(15 * time.Minute)
+	clients := []models.Client{{UUID: "node-a", Name: "Alpha"}}
+	points, avgLat, avgLoss := summarizeDashboardLatencyAndLossPoints(
+		clients,
+		[]metric.AggregatePoint{
+			{EntityID: "node-a", Bucket: t1, Value: 40, Count: 4},
+			{EntityID: "node-a", Bucket: t2, Value: 60, Count: 4},
+		},
+		[]metric.AggregatePoint{
+			{EntityID: "node-a", Bucket: t1, Value: 0, Count: 4},
+			{EntityID: "node-a", Bucket: t2, Value: 0.25, Count: 4},
+		},
+	)
+	require.Len(t, points, 2)
+	assert.InDelta(t, 40, points[0].Average, 0.001)
+	assert.InDelta(t, 0, points[0].LossRate, 0.001)
+	assert.InDelta(t, 60, points[1].Average, 0.001)
+	assert.InDelta(t, 25, points[1].LossRate, 0.001)
+	assert.InDelta(t, 50, avgLat, 0.001)
+	assert.InDelta(t, 12.5, avgLoss, 0.001)
+}

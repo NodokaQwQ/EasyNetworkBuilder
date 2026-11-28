@@ -384,7 +384,9 @@ const Row = ({
       ) : null}
     </div>
   );
-  const actionButtons = (
+  const actionButtons = task.return_route_task_id ? (
+    <span className="text-xs text-muted-foreground">由回程任务管理</span>
+  ) : (
         <div className="admin-card-actions admin-dual-actions flex items-center gap-3">
         {/* 编辑按钮 */}
         <Dialog.Root open={editOpen} onOpenChange={setEditOpen}>
